@@ -1,0 +1,64 @@
+@import "tailwindcss";
+
+/* ── Design tokens — scoping-spec §8 ──────────────────────────────────────
+   B2B loss-prevention, trust-first. Teal + cream base; amber/red are
+   FUNCTIONAL accents reserved for alert states (cards/badges), never decoration.
+   No AI-purple. Dials: variance 5 / motion 4 / density 5.                    */
+@theme {
+  /* Brand */
+  --color-teal-900: #0E5C5B;   /* deep teal — headers, CTA fills        */
+  --color-teal-600: #128C8A;   /* brand teal — accents, links           */
+  --color-teal-300: #6FB3B1;   /* tints, hovers on dark                 */
+  --color-cream:    #F6F1E7;   /* page base                             */
+  --color-cream-200:#ECE4D4;   /* card surfaces on cream                */
+  --color-ink:      #15211F;   /* warm near-black — body text           */
+  --color-ink-600:  #3A4744;   /* muted ink — secondary text            */
+
+  /* Functional alert accents — ONLY for detection/early-warning states */
+  --color-amber:    #E2A03F;   /* early-warning / suspicious (Tier 2)   */
+  --color-amber-bg: #F7ECD6;
+  --color-red:      #C24A3A;   /* detection / priority alert (Tier 1)   */
+  --color-red-bg:   #F3DAD4;
+
+  /* Factory site (industrial control-room) — graphite steel + safety amber.
+     Used ONLY under /factory; retail pages keep cream/teal. Sharp corners,
+     mono labels. Dials: variance 6 / motion 4 / density 5. */
+  --color-steel-950: #101417;  /* page base — graphite near-black        */
+  --color-steel-900: #171D21;  /* raised bands                           */
+  --color-steel-800: #1F272C;  /* cards / panels                         */
+  --color-steel-700: #2C363D;  /* strong borders                         */
+  --color-steel-500: #5C6A73;  /* hairlines, disabled                    */
+  --color-steel-300: #97A4AC;  /* muted text on dark                     */
+  --color-steel-100: #DDE3E6;  /* secondary text on dark                 */
+  --color-steel-50:  #F2F4F5;  /* primary text on dark                   */
+  --color-safety:    #F0B429;  /* hazard amber — THE factory accent      */
+  --color-safety-600:#D99A18;  /* hover state                            */
+
+  /* Type — trust-first, legible. System stack (offline-safe); a bundled
+     display face can be layered in later without touching these tokens. */
+  --font-sans: ui-sans-serif, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-display: var(--font-sans);
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
+}
+
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  background: var(--color-cream);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Flywheel ring-node pulse — gated via motion-safe: in markup */
+@keyframes nodePulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(94, 234, 212, 0); }
+  50%      { transform: scale(1.18); box-shadow: 0 0 0 6px rgba(94, 234, 212, 0.18); }
+}
+
+@keyframes grain {
+  0%, 100% { background-position: 0 0; }
+  25%      { background-position: -8% -6%; }
+  50%      { background-position: 7% -10%; }
+  75%      { background-position: -5% 8%; }
+}
