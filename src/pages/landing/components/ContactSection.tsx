@@ -1,4 +1,4 @@
-import { Phone, EnvelopeSimple, WhatsappLogo } from '@phosphor-icons/react'
+import { EnvelopeSimple, WhatsappLogo } from '@phosphor-icons/react'
 
 export default function ContactSection() {
   return (
@@ -21,16 +21,15 @@ export default function ContactSection() {
               <p>Pilot setup is on-site — typically one day.</p>
             </div>
 
-            {/* TODO(Huy): real Pháp Thành contact coordinates */}
             <div className="mt-8 flex flex-col gap-3 border-t border-ink/10 pt-6">
-              <div className="flex items-center gap-3 text-sm text-ink-600">
-                <Phone size={18} weight="duotone" className="text-teal-600 shrink-0" />
-                <span>+84 ___ ___ ____</span>
-              </div>
-              <div className="flex items-center gap-3 text-sm text-ink-600">
+              <a
+                href="mailto:info@ketchenterprise.net"
+                className="flex items-center gap-3 text-sm text-ink-600 hover:text-ink transition-colors"
+              >
                 <EnvelopeSimple size={18} weight="duotone" className="text-teal-600 shrink-0" />
-                <span>hello@example.com</span>
-              </div>
+                <span>info@ketchenterprise.net</span>
+              </a>
+              {/* TODO(Huy): WhatsApp number — plain text until there is one */}
               <div className="flex items-center gap-3 text-sm text-ink-600">
                 <WhatsappLogo size={18} weight="duotone" className="text-teal-600 shrink-0" />
                 <span>Chat on WhatsApp</span>
