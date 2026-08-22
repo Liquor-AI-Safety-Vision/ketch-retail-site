@@ -202,7 +202,7 @@ export function CamerasPage() {
         <Box sx={{ maxWidth: 760 }}>
           <Typography component="h1" variant="h4">Live camera</Typography>
           <Typography color="text.secondary" sx={{ mt: 0.75 }}>
-            Select a camera to open its continuously looping deployment-preview feed.
+            Select a camera to open its live security feed.
           </Typography>
         </Box>
         <Chip
@@ -356,7 +356,7 @@ export function CamerasPage() {
                 <Typography sx={{ color: '#FFF', fontWeight: 700, fontSize: { xs: 15, md: 20 } }}>{selectedFeed.displayName}</Typography>
                 <Typography sx={{ color: 'rgba(255,255,255,.68)', fontSize: 12, mt: 0.25 }}>{selectedFeed.displayLocation}</Typography>
               </Box>
-              <Typography sx={{ color: 'rgba(255,255,255,.58)', fontFamily: 'monospace', fontSize: 10 }}>{selectedFeedOnline ? 'LOOPED RECORD FEED' : 'STATIC CAMERA IMAGE'}</Typography>
+              <Typography sx={{ color: 'rgba(255,255,255,.58)', fontFamily: 'monospace', fontSize: 10 }}>{selectedFeedOnline ? 'LIVE CAMERA FEED' : 'CAMERA OFFLINE'}</Typography>
             </Box>
           </Box>
         )}
