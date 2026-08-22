@@ -6,7 +6,6 @@ import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import DarkModeOutlinedIcon from '@mui/icons-material/DarkModeOutlined';
 import LightModeOutlinedIcon from '@mui/icons-material/LightModeOutlined';
 import LiquorOutlinedIcon from '@mui/icons-material/LiquorOutlined';
-import LogoutOutlinedIcon from '@mui/icons-material/LogoutOutlined';
 import MenuIcon from '@mui/icons-material/Menu';
 import MoreHorizRoundedIcon from '@mui/icons-material/MoreHorizRounded';
 import NotificationsActiveOutlinedIcon from '@mui/icons-material/NotificationsActiveOutlined';
@@ -15,7 +14,7 @@ import { AppBar, Avatar, Box, Collapse, Divider, Drawer, IconButton, List, ListI
 import { useTheme } from '@mui/material/styles';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
 import { api } from '../lib/api';
 import { expandPresentationAlerts } from '../lib/presentationAlerts';
@@ -50,8 +49,7 @@ export function AppShell() {
   const isDesktop = useMediaQuery(theme.breakpoints.up('md'));
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [accountMenuAnchor, setAccountMenuAnchor] = useState<HTMLElement | null>(null);
-  const { user, store, logout } = useAuth();
-  const navigate = useNavigate();
+  const { user, store } = useAuth();
   const location = useLocation();
   const isAlertPage = location.pathname.startsWith('/alerts');
   const alertSection = new URLSearchParams(location.search).get('section');
@@ -80,12 +78,6 @@ export function AppShell() {
     window.addEventListener('alerts:changed', handleAlertsChanged);
     return () => window.removeEventListener('alerts:changed', handleAlertsChanged);
   }, [refetchAlertNavCounts]);
-
-  const handleLogout = async () => {
-    setAccountMenuAnchor(null);
-    await logout();
-    navigate('/login', { replace: true });
-  };
 
   const drawer = (
     <Box
@@ -327,11 +319,6 @@ export function AppShell() {
               {mode === 'light' ? <DarkModeOutlinedIcon fontSize="small" /> : <LightModeOutlinedIcon fontSize="small" />}
             </ListItemIcon>
             <ListItemText primary={`Switch to ${mode === 'light' ? 'dark' : 'light'} mode`} primaryTypographyProps={{ fontSize: 13 }} />
-          </MenuItem>
-          <Divider />
-          <MenuItem onClick={() => void handleLogout()} sx={{ minHeight: 42, color: 'error.main' }}>
-            <ListItemIcon sx={{ color: 'inherit' }}><LogoutOutlinedIcon fontSize="small" /></ListItemIcon>
-            <ListItemText primary="Log out" primaryTypographyProps={{ fontSize: 13, fontWeight: 600 }} />
           </MenuItem>
         </Menu>
       </Box>

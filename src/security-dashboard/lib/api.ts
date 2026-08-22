@@ -25,6 +25,12 @@ class ApiClient {
     return session;
   }
 
+  async demoLogin() {
+    const session = await this.rawRequest<AuthSession>('/auth/demo', { method: 'POST' });
+    this.accessToken = session.accessToken;
+    return session;
+  }
+
   async refresh() {
     if (!this.refreshPromise) {
       this.refreshPromise = this.rawRequest<AuthSession>('/auth/refresh', { method: 'POST' })

@@ -29,8 +29,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         await establishSession(await api.refresh());
       } catch {
-        setUser(null);
-        setStore(null);
+        try {
+          await establishSession(await api.demoLogin());
+        } catch {
+          setUser(null);
+          setStore(null);
+        }
       } finally {
         setIsLoading(false);
       }
