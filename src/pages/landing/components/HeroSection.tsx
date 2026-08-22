@@ -56,23 +56,23 @@ export default function HeroSection() {
           <div className="relative rounded-2xl overflow-hidden border border-ink/12 shadow-[0_4px_32px_-8px_rgba(21,33,31,0.18)] bg-ink aspect-video">
             {/* Current dashboard alert frame */}
             <img
-              src="/demo-source/alerts/shoplifting/shoplifting-review.jpg"
-              alt="Whole-store camera alert with a tracked customer"
+              src="/demo-source/cameras/cctv-counter/cash_till_open_2.jpg"
+              alt="Counter camera tracking staff, customers, and cash drawer state"
               className="absolute inset-0 h-full w-full object-cover"
             />
 
             {/* Recording dot + label */}
             <div className="absolute top-3 left-3 flex items-center gap-1.5 bg-ink/60 rounded-md px-2.5 py-1 text-cream text-[11px] font-semibold tracking-wide">
               <span className="h-2 w-2 rounded-full bg-red motion-safe:animate-pulse" />
-              ALERT · CAM 09 · Whole store
+              LIVE · CAM 06 · Counter
             </div>
           </div>
 
           {/* Floating "how it knows" callout */}
           <div className="absolute -bottom-4 -left-4 max-w-[220px] rounded-xl bg-cream-200 border border-ink/10 shadow-[0_2px_12px_rgba(21,33,31,0.10)] px-3.5 py-3">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-teal-600 mb-1">Video-backed review</p>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-teal-600 mb-1">Real-time tracking</p>
             <p className="text-xs text-ink leading-snug">
-              The tracked event and its surrounding footage arrive together for owner review.
+              Staff, customers, and cash-drawer state stay visible in one operational view.
             </p>
           </div>
 
