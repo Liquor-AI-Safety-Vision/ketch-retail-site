@@ -1,0 +1,9 @@
+{"event_id": "cvlp_h3_00045_Left_0014", "event": "STATE", "frame": 14, "t": 1.4, "from": "IDLE", "to": "DRAWER_OPEN", "track": 1}
+{"event_id": "cvlp_h3_00045_Left_0014", "event": "STATE", "frame": 17, "t": 1.7, "from": "DRAWER_OPEN", "to": "HAND_IN_DRAWER", "track": 1}
+{"event_id": "cvlp_h3_00045_Left_0014", "event": "STATE", "frame": 32, "t": 3.2, "from": "HAND_IN_DRAWER", "to": "HAND_EXITED", "track": 1}
+{"event_id": "cvlp_h3_00045_Left_0014", "event": "STATE", "frame": 33, "t": 3.3, "from": "HAND_EXITED", "to": "HAND_TO_BODY", "track": 1}
+{"event_id": "cvlp_h3_00045_Left_0038", "camera_id": "GNG23_counter_top", "event_type": "SUSPECTED_CASH_CONCEALMENT", "severity": "high", "employee_track_id": 1, "start_frame": 14, "start_t": 1.4, "alert_frame": 38, "alert_t": 3.8, "active_hand": "LEFT", "warning_sent": true, "reason_codes": ["DRAWER_OPEN_CONFIRMED", "HAND_IN_DRAWER", "HAND_REACHED_INTO_CASH", "HAND_EXIT_CONFIRMED", "HAND_TRAJECTORY_TO_BODY", "HAND_OCCLUDED_AT_BODY"]}
+{"event_id": "cvlp_h3_00045_Left_0014", "event": "STATE", "frame": 38, "t": 3.8, "from": "HAND_TO_BODY", "to": "CONCEALMENT_SUSPECTED", "track": 1}
+{"event_id": "cvlp_h3_00045_Left_0014", "event": "STATE", "frame": 69, "t": 6.9, "from": "CONCEALMENT_SUSPECTED", "to": "EVENT_END", "track": 1}
+{"event_id": "cvlp_h3_00045_Left_0070", "event": "STATE", "frame": 70, "t": 7.0, "from": "IDLE", "to": "DRAWER_OPEN", "track": 1}
+{"event_id": "cvlp_h3_00045_Left_0070", "event": "STATE", "frame": 73, "t": 7.3, "from": "DRAWER_OPEN", "to": "HAND_IN_DRAWER", "track": 1}

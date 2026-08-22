@@ -2,6 +2,7 @@ import { useState, type MouseEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { List, X } from '@phosphor-icons/react'
 import { Button } from '../../../components/ui'
+import ThemeToggle from '../../../components/ThemeToggle'
 import { scrollToSection } from '../../../lib/scrollToSection'
 
 export default function StickyNav() {
@@ -31,11 +32,11 @@ export default function StickyNav() {
         {/* Brand */}
         <Link to="/" className="flex items-center gap-2.5 no-underline shrink-0">
           <span className="h-7 w-7 rounded-md bg-teal-900 flex items-center justify-center">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-              <rect x="2" y="2" width="5" height="5" rx="1" fill="#F6F1E7" opacity="0.9" />
-              <rect x="9" y="2" width="5" height="5" rx="1" fill="#F6F1E7" opacity="0.6" />
-              <rect x="2" y="9" width="5" height="5" rx="1" fill="#F6F1E7" opacity="0.6" />
-              <rect x="9" y="9" width="5" height="5" rx="1" fill="#F6F1E7" opacity="0.9" />
+            <svg className="text-cream" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <rect x="2" y="2" width="5" height="5" rx="1" fill="currentColor" opacity="0.9" />
+              <rect x="9" y="2" width="5" height="5" rx="1" fill="currentColor" opacity="0.6" />
+              <rect x="2" y="9" width="5" height="5" rx="1" fill="currentColor" opacity="0.6" />
+              <rect x="9" y="9" width="5" height="5" rx="1" fill="currentColor" opacity="0.9" />
             </svg>
           </span>
           <span className="whitespace-nowrap text-sm font-semibold tracking-tight text-ink">Ketch Enterprise<span className="text-teal-600"> AI</span></span>
@@ -57,6 +58,7 @@ export default function StickyNav() {
               VI
             </button>
           </div>
+          <ThemeToggle compact />
           <Link to="/dashboard">
             <Button size="sm" variant="secondary">See dashboard</Button>
           </Link>
@@ -66,14 +68,17 @@ export default function StickyNav() {
         </nav>
 
         {/* Hamburger — mobile only */}
-        <button
-          aria-label="Menu"
-          aria-expanded={open}
-          onClick={() => setOpen((v) => !v)}
-          className="sm:hidden flex h-9 w-9 items-center justify-center rounded-md border border-ink/12 text-ink hover:bg-ink/5 transition-colors"
-        >
-          {open ? <X size={18} weight="bold" /> : <List size={18} weight="bold" />}
-        </button>
+        <div className="sm:hidden flex items-center gap-2">
+          <ThemeToggle compact />
+          <button
+            aria-label="Menu"
+            aria-expanded={open}
+            onClick={() => setOpen((v) => !v)}
+            className="flex h-9 w-9 items-center justify-center rounded-md border border-ink/12 text-ink hover:bg-ink/5 transition-colors"
+          >
+            {open ? <X size={18} weight="bold" /> : <List size={18} weight="bold" />}
+          </button>
+        </div>
       </div>
 
       {/* Mobile dropdown — absolute overlay (no page-width or layout shift). */}

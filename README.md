@@ -1,14 +1,14 @@
 # Ketch retail site — ketchenterprise.net
 
-The US retail / liquor-store pitch site for Ketch Enterprise: a landing page and a
-security-console demo, built from pre-rendered video and event data. Static site, no backend,
-no API keys.
+The US retail / liquor-store pitch site for Ketch Enterprise, paired with the Liquor Store
+owner security dashboard. The landing page remains static; authenticated dashboard data comes
+from the Go security API.
 
 | | |
 |---|---|
 | Live at | **https://ketchenterprise.net** (+ www) |
 | Cloudflare Pages project | **`ketch-enterprise`** |
-| Stack | Vite 8 · React 19 · TypeScript · Tailwind v4 · HashRouter |
+| Stack | Vite 8 · React 19 · TypeScript · Tailwind v4 · Material UI · TanStack Query · HashRouter |
 
 > ⚠ **`ketchenterprise.net` (no "s") is this site.** `ketchenterprises.net` (with an "s") is a
 > different site — the Vietnamese factory pitch — and lives in a different repo. They look
@@ -19,11 +19,18 @@ no API keys.
 
 ```bash
 npm install
-npm run dev        # http://localhost:5173
+npm run dev        # http://localhost:5173; proxies /api to http://localhost:3000
 ```
 
-Routes: `/` is the landing page, `/#/dashboard` is the console. HashRouter is deliberate — it
-means static hosting needs no rewrite rules.
+Copy `.env.example` to `.env` when the API is not served under `/api/v1`. Routes are:
+
+- `/#/` — Ketch landing page
+- `/#/login` — owner login
+- `/#/dashboard` — security overview
+- `/#/alerts` — alert triage and archive
+- `/#/cameras` — camera monitoring
+
+HashRouter is deliberate so static hosting needs no rewrite rules.
 
 ```bash
 npm run build      # tsc -b && vite build → dist/
@@ -48,6 +55,10 @@ There is also `npm run deploy` for a manual publish from your machine. It needs
 `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` in your environment, and it goes straight to
 production — prefer the workflow.
 
+The `functions/api/v1/[[path]].js` Pages Function proxies dashboard requests to the Render API.
+This keeps authentication same-origin on the Ketch domain while the Go API retains its strict
+origin policy. `API_ORIGIN` and `API_TRUSTED_ORIGIN` may override its safe defaults in Cloudflare.
+
 ### What your access covers, and what it doesn't
 
 The API token is scoped to **Cloudflare Pages only**. It cannot change DNS, the domain
@@ -55,26 +66,17 @@ registration, or email. Those stay with Huy — `ketchenterprise.net`'s DNS zone
 mail records for every `@ketchenterprise.net` address, so a wrong edit there takes down company
 email, not a web page. If you need a DNS or domain change, ask; don't look for a way around it.
 
-## The one rule this site has to follow
+## Product boundary
 
-**Every box is a real detection. Never box the person and call it the act.**
-
-The console reports geometry — a person dwelled in this zone, an object left that zone — and
-every event carries a `how_it_knows` sentence shown verbatim in the UI. It never claims intent:
-not "concealment", not "stealing", not a confidence number that nothing produced.
-
-This is not a style preference. The buyer is a store owner who has been sold AI-camera
-vaporware before and will pressure-test every claim on screen. The demo's whole edge is that it
-survives that. Four files carry comments citing `DESIGN-CONTRACT.md` by name for this reason —
-read [`DESIGN-CONTRACT.md`](DESIGN-CONTRACT.md) before changing any copy in the console, and
-keep the source citations in `src/lib/roi.ts` attached to their numbers. If you change a
-benchmark, change its citation.
+Dashboard alerts are review prompts, not automated verdicts. The owner remains responsible for
+confirming normal alerts and handling emergency procedures. Keep source citations in
+`src/lib/roi.ts` attached to landing-page benchmark numbers.
 
 ## Layout
 
 ```
 src/
-  main.tsx                    HashRouter, 2 routes
+  main.tsx                    HashRouter; lazy-loads the dashboard application
   types.ts                    the data contract: DetectionEvent, ClipEvents, Manifest, TIER_META
   index.css                   Tailwind v4 design tokens
   lib/
@@ -85,37 +87,19 @@ src/
     scrollToSection.ts
   components/ui/              Button, Card, SectionShell, TierBadge
   pages/landing/              the landing page and its 13 sections
-  pages/dashboard/            DashboardPage + the console components
-                              (VideoPanel, EventFeed, EventCard, IncidentGallery,
-                               ZoneOverlay, PhonePushMockup)
+  security-dashboard/        Auth, owner shell, Overview, Alert, Camera, API client and theme
 public/
-  demo/                       the pre-rendered gallery — see below
+  demo/                       landing imagery plus alert evidence clips and tracking data
+  live-cameras/               looping camera-preview recordings and thumbnails
+  cctv/                       fallback camera imagery
   favicon.svg
 ```
 
-Some code here is shared verbatim with the factory site: everything in `lib/`,
-`components/ui/`, and `pages/dashboard/components/`. Those files still contain
-`mode === 'factory'` branches and Vietnamese strings that this site never reaches. They're
-inert — leave them or clean them up, but know they aren't dead by accident.
-
 ## The demo data
 
-`public/demo/manifest.json` lists the clips; each clip directory holds the video, a poster
-frame, and `events.json`. The console fetches the manifest at runtime, so an empty or malformed
-manifest gives you an empty console rather than a crash.
-
-**Clip order in the manifest is the gallery order**, and it is a deliberate severity arc:
-`normal-customer` → `lingering` → `restricted-area` → `seedance_liquor_01`. It opens on the
-hero clip. Reordering changes the story the demo tells.
-
-The clips are produced by a detection pipeline in a separate repo (`CV-Theft-Detection`, Huy's).
-If new clips are needed, they come from there — ask Huy. Nothing in this repo generates them.
-
-Colours and tier names in `TIER_META` (`src/types.ts`) and the zone colours in
-`ZoneOverlay.tsx` are **byte-identical to constants in that pipeline** — `src/process_video.py`
-and `src/rule_engine.py` burn the same colours into the video frames. If you change one side
-without the other, the boxes drawn in the video stop matching the legend beside it. Tell Huy
-before changing either.
+`public/demo/manifest.json` and its clip directories remain the source for selected landing-page
+imagery. The owner dashboard uses the top-level evidence clips and tracking JSON copied from the
+Liquor Store dashboard, while alert and camera records are loaded from the API.
 
 ⚠ **The clips are not licence-cleared.** `seedance_liquor_01` — the hero — was generated with a
 model whose licence for this use is unresolved, and the other three came from third-party store

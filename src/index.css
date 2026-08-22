@@ -1,18 +1,55 @@
 @import "tailwindcss";
 
+:root {
+  --ketch-teal-900: #0E5C5B;
+  --ketch-teal-600: #128C8A;
+  --ketch-teal-300: #6FB3B1;
+  --ketch-cream: #F6F1E7;
+  --ketch-cream-200: #ECE4D4;
+  --ketch-surface: #FFFFFF;
+  --ketch-ink: #15211F;
+  --ketch-ink-600: #3A4744;
+  --dashboard-canvas: #F5F2EB;
+  --dashboard-paper: #FFFCF7;
+  --dashboard-sidebar: #ECE8DF;
+  --dashboard-sidebar-active: #DDD7CB;
+  --dashboard-sidebar-hover: #E5E0D6;
+  --dashboard-border: #D5D0C6;
+  --dashboard-muted: #676D69;
+}
+
+html[data-color-mode="dark"] {
+  --ketch-teal-900: #78C7C2;
+  --ketch-teal-600: #55B0AB;
+  --ketch-teal-300: #2E7773;
+  --ketch-cream: #0D1211;
+  --ketch-cream-200: #171E1C;
+  --ketch-surface: #121816;
+  --ketch-ink: #F1EEE7;
+  --ketch-ink-600: #A9B2AE;
+  --dashboard-canvas: #090B0C;
+  --dashboard-paper: #111516;
+  --dashboard-sidebar: #0B0E0F;
+  --dashboard-sidebar-active: #171A18;
+  --dashboard-sidebar-hover: #111514;
+  --dashboard-border: #252A29;
+  --dashboard-muted: #989C99;
+}
+
 /* ── Design tokens — scoping-spec §8 ──────────────────────────────────────
    B2B loss-prevention, trust-first. Teal + cream base; amber/red are
    FUNCTIONAL accents reserved for alert states (cards/badges), never decoration.
    No AI-purple. Dials: variance 5 / motion 4 / density 5.                    */
 @theme {
   /* Brand */
-  --color-teal-900: #0E5C5B;   /* deep teal — headers, CTA fills        */
-  --color-teal-600: #128C8A;   /* brand teal — accents, links           */
-  --color-teal-300: #6FB3B1;   /* tints, hovers on dark                 */
-  --color-cream:    #F6F1E7;   /* page base                             */
-  --color-cream-200:#ECE4D4;   /* card surfaces on cream                */
-  --color-ink:      #15211F;   /* warm near-black — body text           */
-  --color-ink-600:  #3A4744;   /* muted ink — secondary text            */
+  --color-teal-900: var(--ketch-teal-900);   /* deep teal — headers, CTA fills        */
+  --color-teal-600: var(--ketch-teal-600);   /* brand teal — accents, links           */
+  --color-teal-300: var(--ketch-teal-300);   /* tints, hovers on dark                 */
+  --color-cream:    var(--ketch-cream);       /* page base                             */
+  --color-cream-200:var(--ketch-cream-200);   /* card surfaces on cream                */
+  --color-surface:  var(--ketch-surface);
+  --color-ink:      var(--ketch-ink);         /* warm near-black — body text           */
+  --color-ink-600:  var(--ketch-ink-600);     /* muted ink — secondary text            */
 
   /* Functional alert accents — ONLY for detection/early-warning states */
   --color-amber:    #E2A03F;   /* early-warning / suspicious (Tier 2)   */
@@ -48,6 +85,11 @@ body {
   color: var(--color-ink);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+  transition: background-color 220ms ease, color 220ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body { transition: none; }
 }
 
 /* Flywheel ring-node pulse — gated via motion-safe: in markup */

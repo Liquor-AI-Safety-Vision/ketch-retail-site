@@ -8,7 +8,7 @@ interface CardProps extends HTMLAttributes<HTMLDivElement> {
 
 /* §8 card. Elevation is a hairline border + tinted shadow, not a black drop. */
 export default function Card({ children, surface = 'plain', className = '', ...rest }: CardProps) {
-  const bg = surface === 'cream' ? 'bg-cream-200' : 'bg-white'
+  const bg = surface === 'cream' ? 'bg-cream-200' : 'bg-surface'
   return (
     <div
       className={`rounded-xl border border-ink/10 ${bg}
