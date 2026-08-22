@@ -54,7 +54,7 @@ export default function PilotStrip() {
               <div>
                 <p className="text-sm font-semibold text-ink">One-time CapEx, not subscription</p>
                 <p className="text-sm text-ink-600 leading-relaxed mt-1">
-                  Hardware and setup billed once. Add-on modules (SKU detection, POS fusion)
+                  Hardware and setup billed once. Add-on modules such as SKU detection and behavior classification
                   are separate line items you buy when you're ready.
                 </p>
               </div>

@@ -2,7 +2,6 @@ import { SectionShell } from '../../../components/ui'
 import {
   Package,
   Pulse,
-  ReceiptX,
   ArrowsClockwise,
   CheckCircle,
 } from '@phosphor-icons/react'
@@ -13,15 +12,15 @@ function PhasePanel({
   label,
   tag,
   tagStyle,
-  items,
   src,
+  cameraLabel,
 }: {
   phase: string
   label: string
   tag: string
   tagStyle: string
-  items: React.ReactNode[]
   src: string
+  cameraLabel: string
 }) {
   return (
     <div className="flex flex-col h-full">
@@ -30,31 +29,13 @@ function PhasePanel({
         <span className="text-xs text-ink-600">{phase}</span>
       </div>
       <div className="rounded-xl border border-ink/10 bg-cream-200 overflow-hidden flex-1">
-        {/* Camera frame — real CCTV poster with burned-in amber loiter box */}
+        {/* Current dashboard camera frame */}
         <div className="relative aspect-video overflow-hidden">
           <img src={src} alt="" className="absolute inset-0 h-full w-full object-cover" />
           <div className="absolute top-2 left-2 z-10 flex items-center gap-1.5 bg-ink/60 rounded-md px-2 py-0.5 text-cream text-[10px] font-semibold tracking-wide">
             <span className="h-1.5 w-1.5 rounded-full bg-red motion-safe:animate-pulse" />
-            CAM 01 · Spirits Aisle
+            {cameraLabel}
           </div>
-          {/* Phase-2 extra overlays */}
-          {items.includes('sku') && (
-            <div className="absolute top-1/3 right-8 z-10 border border-dashed border-amber rounded-sm px-1.5 py-0.5 text-[9px] font-bold text-amber bg-amber/10">
-              $$$ high-value
-            </div>
-          )}
-          {items.includes('behavior') && (
-            <div className="absolute bottom-4 left-0 right-0 z-10 flex justify-center">
-              <span className="bg-ink/70 text-cream text-[9px] px-2 py-0.5 rounded font-mono">
-                carried past register · not returned to shelf
-              </span>
-            </div>
-          )}
-          {items.includes('pos') && (
-            <div className="absolute bottom-2 right-2 z-10 bg-red/90 text-cream text-[9px] px-2 py-0.5 rounded font-bold">
-              Register: 0 scanned · 1 leaving · ✖ unpaid
-            </div>
-          )}
         </div>
         {/* Caption */}
         <div className="p-3">
@@ -89,16 +70,8 @@ const ADDONS: Addon[] = [
     number: '2',
     title: 'Behavior classification',
     whatItKnows: 'Action',
-    example: '"carried past register · not returned to shelf" — video embedding over the person\'s path.',
+    example: '"concealment motion · movement toward exit" — video embedding over the person\'s path.',
     honesty: 'Classifies movement, not intent. Accuracy improves with your 30-day archive of confirmed clips.',
-  },
-  {
-    icon: <ReceiptX size={20} weight="duotone" />,
-    number: '3',
-    title: 'POS fusion',
-    whatItKnows: 'Verdict',
-    example: '"Register: 0 scanned · 1 leaving · ✖ unpaid" — the only module that turns triage into a confirmed incident.',
-    honesty: 'This is the only verdict source. Without POS, the system flags for your staff to check — never accuses.',
   },
 ]
 
@@ -185,61 +158,42 @@ export default function HowItGrows() {
       id="how-it-grows"
       eyebrow="Modular upgrades"
       title="After we train on your store."
-      intro="Start with base triage. Add modules as your confidence grows — each one bought separately, each one sharpening what the previous phase can see."
+      intro="Start with continuous camera triage. Add visual modules as your confidence grows — each one sharpening what the previous phase can surface for review."
     >
       {/* Before / After panels */}
       <div className="mb-12">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <PhasePanel
             phase="Phase 1 · Base pilot"
-            label="Zone + dwell + walkout rules — geometric, runs day one."
-            tag="Rule-based · live now"
+            label="Continuous whole-store monitoring using the camera feed already in the dashboard."
+            tag="Live camera · current feed"
             tagStyle="bg-teal-900 text-teal-300"
-            items={[]}
-            src="/demo/lingering/poster.jpg"
+            src="/live-cameras/record-whole-store-153158.jpg"
+            cameraLabel="CAM 09 · Whole store"
           />
           <div className="flex flex-col h-full">
             <div className="mb-3 flex items-center gap-2">
               <span className="text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-cream-200 text-ink-600 border border-ink/12">
-                Behavior model · after training
+                Behavior review · trained clips
               </span>
               <span className="text-xs text-ink-600">Phase 2 · trained on your store</span>
             </div>
             <div className="rounded-xl border border-dashed border-ink/20 bg-cream-200/50 overflow-hidden flex-1">
               <div className="relative aspect-video overflow-hidden">
-                <img src="/demo/lingering/phase2_clean.jpg" alt="" className="absolute inset-0 h-full w-full object-cover" />
+                <img
+                  src="/demo-source/alerts/shoplifting/shoplifting-review.jpg"
+                  alt="Dashboard alert frame showing a tracked customer"
+                  className="absolute inset-0 h-full w-full object-cover"
+                />
 
                 {/* CAM badge */}
                 <div className="absolute top-2 left-2 z-20 flex items-center gap-1.5 bg-ink/60 rounded-md px-2 py-0.5 text-cream text-[10px] font-semibold tracking-wide">
                   <span className="h-1.5 w-1.5 rounded-full bg-red motion-safe:animate-pulse" />
-                  CAM 01 · Spirits Aisle
-                </div>
-
-                {/* Tight action box on the person (behavior model, not a zone) */}
-                <div className="absolute z-10 rounded-sm border-2 border-amber"
-                     style={{ left: '26.3%', top: '26.7%', width: '19.6%', height: '72.6%' }}>
-                  <span className="absolute -top-4 left-0 whitespace-nowrap rounded-sm bg-amber px-1 py-px text-[9px] font-bold text-ink">
-                    Track 1 · reaching
-                  </span>
-                </div>
-
-                {/* Behavior readout panel */}
-                <div className="absolute bottom-2 right-2 z-20 w-[58%] max-w-[230px] rounded-md bg-ink/80 px-2.5 py-2 backdrop-blur-sm">
-                  <p className="mb-1 text-[9px] font-bold uppercase tracking-wider text-cream/70">Behavior read · Track 1</p>
-                  {/* Likelihood meter */}
-                  <div className="mb-1.5 flex items-center gap-2">
-                    <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-cream/15">
-                      <div className="h-full rounded-full bg-amber" style={{ width: '72%' }} />
-                    </div>
-                    <span className="text-[10px] font-bold text-amber">0.72</span>
-                  </div>
-                  <p className="text-[9px] leading-snug text-cream/80">
-                    reach + retrieve · high-value shelf · no basket · posture matches review pattern
-                  </p>
+                  ALERT · CAM 09 · Whole store
                 </div>
               </div>
               <div className="p-3">
-                <p className="text-xs font-semibold text-ink mb-0.5">Trained on your footage, it scores intent from posture and motion — a likelihood to review, never a verdict.</p>
+                <p className="text-xs font-semibold text-ink mb-0.5">Confirmed clips train the model to surface similar movement patterns for review — never to make the owner&apos;s decision.</p>
               </div>
             </div>
           </div>
@@ -248,8 +202,8 @@ export default function HowItGrows() {
 
       {/* Add-on cards */}
       <div className="mb-16">
-        <p className="text-xs font-bold uppercase tracking-[0.18em] text-teal-600 mb-6">Three modular add-ons</p>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+        <p className="text-xs font-bold uppercase tracking-[0.18em] text-teal-600 mb-6">Two visual add-ons</p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           {ADDONS.map((a) => (
             <div key={a.number} className="rounded-xl border border-ink/10 bg-cream p-5 flex flex-col gap-3">
               <div className="flex items-start gap-3">

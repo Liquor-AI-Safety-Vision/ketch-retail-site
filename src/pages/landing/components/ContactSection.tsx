@@ -1,6 +1,27 @@
 import { EnvelopeSimple, WhatsappLogo } from '@phosphor-icons/react'
+import type { FormEvent } from 'react'
 
 export default function ContactSection() {
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    const formData = new FormData(event.currentTarget)
+    const name = String(formData.get('name') ?? '').trim()
+    const store = String(formData.get('store') ?? '').trim()
+    const email = String(formData.get('email') ?? '').trim()
+    const message = String(formData.get('message') ?? '').trim()
+    const subject = `Pilot enquiry from ${store || name || 'website visitor'}`
+    const body = [
+      `Name: ${name}`,
+      `Store / business: ${store}`,
+      `Email: ${email}`,
+      '',
+      message || 'I would like to learn more about a pilot.',
+    ].join('\n')
+
+    window.location.href = `mailto:info@ketchenterprise.net?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+  }
+
   return (
     <section id="contact" className="bg-cream px-6 py-20 md:py-28">
       <div className="mx-auto max-w-[1200px]">
@@ -38,7 +59,7 @@ export default function ContactSection() {
           </div>
 
           {/* Right — simple form */}
-          <form className="flex flex-col gap-4" onSubmit={(e) => e.preventDefault()}>
+          <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="flex flex-col gap-1.5">
                 <label htmlFor="name" className="text-xs font-semibold text-ink-600 uppercase tracking-wide">
@@ -46,7 +67,9 @@ export default function ContactSection() {
                 </label>
                 <input
                   id="name"
+                  name="name"
                   type="text"
+                  required
                   placeholder="Alex Johnson"
                   className="rounded-xl border border-ink/15 bg-cream-200 px-4 py-2.5 text-sm text-ink placeholder:text-ink-600/40
                     focus:outline-none focus:ring-2 focus:ring-teal-600 focus:ring-offset-1 focus:ring-offset-cream
@@ -59,6 +82,7 @@ export default function ContactSection() {
                 </label>
                 <input
                   id="store"
+                  name="store"
                   type="text"
                   placeholder="Main St Liquors"
                   className="rounded-xl border border-ink/15 bg-cream-200 px-4 py-2.5 text-sm text-ink placeholder:text-ink-600/40
@@ -73,7 +97,9 @@ export default function ContactSection() {
               </label>
               <input
                 id="email"
+                name="email"
                 type="email"
+                required
                 placeholder="alex@mainliquors.com"
                 className="rounded-xl border border-ink/15 bg-cream-200 px-4 py-2.5 text-sm text-ink placeholder:text-ink-600/40
                   focus:outline-none focus:ring-2 focus:ring-teal-600 focus:ring-offset-1 focus:ring-offset-cream
@@ -86,6 +112,7 @@ export default function ContactSection() {
               </label>
               <textarea
                 id="message"
+                name="message"
                 rows={3}
                 placeholder="How many cameras? Any specific zones of concern?"
                 className="rounded-xl border border-ink/15 bg-cream-200 px-4 py-2.5 text-sm text-ink placeholder:text-ink-600/40

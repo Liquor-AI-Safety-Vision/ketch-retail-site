@@ -36,7 +36,7 @@ const STEPS: Step[] = [
     number: '04',
     icon: <BellRinging size={24} weight="duotone" />,
     title: 'Human confirms (the oracle)',
-    body: 'Your staff receives an SMS or WhatsApp alert with a clip thumbnail. They check — paid or not paid? That confirm/dismiss feeds back into the system to reduce false positives over time.',
+    body: 'Your staff receives an alert with a clip thumbnail. They review the footage and confirm or dismiss it. That decision feeds back into the system to reduce false positives over time.',
   },
 ]
 
@@ -46,7 +46,7 @@ export default function HowItWorks() {
       id="how-it-works"
       eyebrow="How it works"
       title="Four steps from camera to alert"
-      intro="The system handles the watching. Your staff handles the judgment. The verdict always belongs to a human — and ultimately to your POS."
+      intro="The system handles the watching. Your staff handles the judgment. Every final decision stays with a human."
     >
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         {STEPS.map((step) => (
