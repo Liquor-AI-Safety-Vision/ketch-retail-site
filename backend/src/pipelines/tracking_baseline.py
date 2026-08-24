@@ -72,12 +72,25 @@ class TrackingBaselinePipeline:
         S.ORT_PROVIDERS = ["CPUExecutionProvider"] if self.cpu_only else None
         if self.shared_inference is not None:
             self.det = self.shared_inference.get_pose(pose_model)
-        with BOOTSTRAP_LOCK:
-            if self.det is None:
-                S.MODEL = pose_model
-                S.CONF = conf
-                self.det = S.Detector()
-            self.emb = S.Embedder()
+        with self.timing.track("bootstrap::detector"):
+            with BOOTSTRAP_LOCK:
+                if self.det is None:
+                    S.MODEL = pose_model
+                    S.CONF = conf
+                    self.det = S.Detector()
+        with self.timing.track("bootstrap::embedder"):
+            def _build_embedder():
+                # S.Embedder reads the REID_MODEL global, so pin it under the lock.
+                with BOOTSTRAP_LOCK:
+                    S.REID_MODEL = reid_model
+                    return S.Embedder()
+
+            if self.shared_inference is not None:
+                self.emb = self.shared_inference.get_reid_embedder(
+                    reid_model, build=_build_embedder
+                )
+            else:
+                self.emb = _build_embedder()
         h, w = frame.image_bgr.shape[:2]
         self.tracker = Tracker(img_h=h, img_w=w, fps=self.spec.target_fps)
         self.metrics["providers"] = {

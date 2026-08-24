@@ -21,6 +21,7 @@ def _run_camera_worker(
     limit_frames: int | None,
     native_threads: int,
     shared_inference: SharedInferenceRegistry | None = None,
+    skip_pipelines: bool = False,
 ) -> dict[str, Any]:
     cap_native_threads(native_threads)
     runtime = CameraRuntime(
@@ -30,11 +31,57 @@ def _run_camera_worker(
         gallery_db_path=gallery_db_path,
         cpu_only=cpu_only,
         shared_inference=shared_inference,
+        skip_pipelines=skip_pipelines,
     )
     return runtime.run(
         pace_realtime=pace_realtime,
         limit_frames=limit_frames,
     )
+
+
+def _run_camera_shard_worker(
+    shard: list[CameraStreamSpec],
+    *,
+    db_path: str,
+    media_root: str,
+    gallery_db_path: str,
+    cpu_only: bool,
+    pace_realtime: bool,
+    limit_frames_by_camera: dict[str, int | None],
+    native_threads: int,
+    shared_inference_config: dict[str, Any],
+    skip_pipelines: bool,
+) -> dict[str, dict[str, Any]]:
+    cap_native_threads(native_threads)
+    shared_inference = SharedInferenceRegistry(
+        cpu_only=cpu_only,
+        config=shared_inference_config,
+    )
+    results: dict[str, dict[str, Any]] = {}
+    try:
+        with ThreadPoolExecutor(max_workers=len(shard) or 1, thread_name_prefix="camera-runtime") as pool:
+            future_map = {
+                pool.submit(
+                    _run_camera_worker,
+                    spec,
+                    db_path=db_path,
+                    media_root=media_root,
+                    gallery_db_path=gallery_db_path,
+                    cpu_only=cpu_only,
+                    pace_realtime=pace_realtime,
+                    limit_frames=limit_frames_by_camera.get(spec.camera_id),
+                    native_threads=native_threads,
+                    shared_inference=shared_inference,
+                    skip_pipelines=skip_pipelines,
+                ): spec.camera_id
+                for spec in shard
+            }
+            for future in as_completed(future_map):
+                camera_id = future_map[future]
+                results[camera_id] = future.result()
+    finally:
+        shared_inference.close()
+    return results
 
 
 class RuntimeSupervisor:
@@ -48,6 +95,8 @@ class RuntimeSupervisor:
         cpu_only: bool = True,
         native_threads: int = 1,
         shared_inference_config: dict[str, Any] | None = None,
+        skip_pipelines: bool = False,
+        hybrid_workers: int = 2,
     ):
         self.specs = specs
         self.db_path = db_path
@@ -56,6 +105,8 @@ class RuntimeSupervisor:
         self.cpu_only = cpu_only
         self.native_threads = native_threads
         self.shared_inference_config = dict(shared_inference_config or {})
+        self.skip_pipelines = skip_pipelines
+        self.hybrid_workers = hybrid_workers
 
     def run(
         self,
@@ -74,6 +125,8 @@ class RuntimeSupervisor:
             return self._run_threaded(selected, pace_realtime, limit_frames, limit_seconds)
         if concurrency_mode == "process":
             return self._run_processed(selected, pace_realtime, limit_frames, limit_seconds)
+        if concurrency_mode == "hybrid":
+            return self._run_hybrid(selected, pace_realtime, limit_frames, limit_seconds)
         raise ValueError(f"unsupported concurrency_mode: {concurrency_mode}")
 
     def _run_threaded(
@@ -134,11 +187,58 @@ class RuntimeSupervisor:
                                 "pace_realtime": pace_realtime,
                                 "limit_frames": effective_limit_frames,
                                 "native_threads": self.native_threads,
+                                "skip_pipelines": self.skip_pipelines,
                             },
                         ),
                     )
                 )
             results_by_camera = {camera_id: job.get() for camera_id, job in jobs}
+        return [results_by_camera[spec.camera_id] for spec in selected]
+
+    def _run_hybrid(
+        self,
+        selected: list[CameraStreamSpec],
+        pace_realtime: bool,
+        limit_frames: int | None,
+        limit_seconds: float | None,
+    ) -> list[dict[str, Any]]:
+        if not selected:
+            return []
+
+        num_workers = max(1, min(self.hybrid_workers, len(selected)))
+        shards: list[list[CameraStreamSpec]] = [[] for _ in range(num_workers)]
+        for i, spec in enumerate(selected):
+            shards[i % num_workers].append(spec)
+
+        limit_frames_by_camera = {
+            spec.camera_id: self._effective_limit_frames(spec, limit_frames, limit_seconds)
+            for spec in selected
+        }
+
+        ctx = mp.get_context("spawn")
+        with ctx.Pool(processes=num_workers) as pool:
+            jobs = [
+                pool.apply_async(
+                    _run_camera_shard_worker,
+                    kwds={
+                        "shard": shard,
+                        "db_path": self.db_path,
+                        "media_root": self.media_root,
+                        "gallery_db_path": self.gallery_db_path,
+                        "cpu_only": self.cpu_only,
+                        "pace_realtime": pace_realtime,
+                        "limit_frames_by_camera": limit_frames_by_camera,
+                        "native_threads": self.native_threads,
+                        "shared_inference_config": self.shared_inference_config,
+                        "skip_pipelines": self.skip_pipelines,
+                    },
+                )
+                for shard in shards
+                if shard
+            ]
+            results_by_camera: dict[str, dict[str, Any]] = {}
+            for job in jobs:
+                results_by_camera.update(job.get())
         return [results_by_camera[spec.camera_id] for spec in selected]
 
     @staticmethod
@@ -170,4 +270,5 @@ class RuntimeSupervisor:
             limit_frames=self._effective_limit_frames(spec, limit_frames, limit_seconds),
             native_threads=self.native_threads,
             shared_inference=shared_inference,
+            skip_pipelines=self.skip_pipelines,
         )

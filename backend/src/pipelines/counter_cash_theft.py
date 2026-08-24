@@ -132,12 +132,25 @@ class CounterCashTheftPipeline:
         S.ORT_PROVIDERS = ["CPUExecutionProvider"] if self.cpu_only else None
         if self.shared_inference is not None:
             self.det = self.shared_inference.get_pose(pose_model)
-        with BOOTSTRAP_LOCK:
-            if self.det is None:
-                S.MODEL = pose_model
-                S.CONF = conf
-                self.det = S.Detector()
-            self.emb = S.Embedder()
+        with self.timing.track("bootstrap::detector"):
+            with BOOTSTRAP_LOCK:
+                if self.det is None:
+                    S.MODEL = pose_model
+                    S.CONF = conf
+                    self.det = S.Detector()
+        with self.timing.track("bootstrap::embedder"):
+            def _build_embedder():
+                # S.Embedder reads the REID_MODEL global, so pin it under the lock.
+                with BOOTSTRAP_LOCK:
+                    S.REID_MODEL = reid_model
+                    return S.Embedder()
+
+            if self.shared_inference is not None:
+                self.emb = self.shared_inference.get_reid_embedder(
+                    reid_model, build=_build_embedder
+                )
+            else:
+                self.emb = _build_embedder()
 
         till_model_path = self.params.get("till_model_path", str(ROOT / "models/till_seg_v4_640.onnx"))
         till_imgsz = int(self.params.get("till_imgsz", 640))
@@ -149,32 +162,35 @@ class CounterCashTheftPipeline:
             else ["CUDAExecutionProvider", "CPUExecutionProvider"]
         )
         self.till_reg = TillRegistry(till_confirm)
-        if self.shared_inference is not None:
-            self.till = self.shared_inference.get_till(
-                till_model_path,
-                imgsz=till_imgsz,
-            )
-        else:
-            self.till = Till(
-                till_model_path,
-                till_imgsz,
-                till_conf,
-                confirm=till_confirm,
-                providers=till_providers,
-            )
-            self.till_reg = self.till.reg
+        with self.timing.track("bootstrap::till"):
+            if self.shared_inference is not None:
+                self.till = self.shared_inference.get_till(
+                    till_model_path,
+                    imgsz=till_imgsz,
+                )
+            else:
+                self.till = Till(
+                    till_model_path,
+                    till_imgsz,
+                    till_conf,
+                    confirm=till_confirm,
+                    providers=till_providers,
+                )
+                self.till_reg = self.till.reg
 
         h, w = frame.image_bgr.shape[:2]
-        self.tracker = Tracker(img_h=h, img_w=w, fps=self.spec.target_fps)
+        with self.timing.track("bootstrap::tracker"):
+            self.tracker = Tracker(img_h=h, img_w=w, fps=self.spec.target_fps)
 
         zones_path = self.params.get(
             "zones_path",
             str(ROOT / "outputs/top-side-view/top-side-view_zones.json"),
         )
-        divider, _name = zones.load_divider(zones_path, size=(w, h))
-        self.voter = zones.RoleVoter(divider)
-        self.checkout = F.load_checkout_zones(zones_path, (w, h))
-        self._configure_fsm_globals()
+        with self.timing.track("bootstrap::zones"):
+            divider, _name = zones.load_divider(zones_path, size=(w, h))
+            self.voter = zones.RoleVoter(divider)
+            self.checkout = F.load_checkout_zones(zones_path, (w, h))
+            self._configure_fsm_globals()
         self.metrics["providers"] = {
             "pose_detector": getattr(self.det, "provider", "unknown"),
             "reid_embedder": getattr(self.emb, "provider", "unknown"),

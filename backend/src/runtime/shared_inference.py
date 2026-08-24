@@ -205,6 +205,7 @@ class SharedPoseService:
         max_batch: int = 8,
         batch_wait_s: float = 0.005,
         num_workers: int = 2,
+        pad_batch: bool = True,
     ):
         self.model_path = model_path
         self.imgsz = imgsz
@@ -216,6 +217,11 @@ class SharedPoseService:
         self.inp = meta.name
         self.input_dtype = np.float16 if meta.type == "tensor(float16)" else np.float32
         self.provider = self.sess.get_providers()[0]
+        # The CUDA EP re-does per-shape setup on every batch-size change (~150ms on
+        # L40S), even for shapes it has already seen. Padding every run to max_batch
+        # keeps the input shape constant, which is worth far more than the wasted
+        # slots: measured 154ms/call for varying shapes vs 13ms for a fixed batch of 4.
+        self.pad_batch = pad_batch
         self.runner = _BatchRunner(
             name=f"pose-{Path(model_path).stem}",
             max_batch=max_batch,
@@ -256,11 +262,16 @@ class SharedPoseService:
             )
             blobs.append(blob)
         batch = np.stack(blobs, axis=0)
+        real_n = len(blobs)
+        if self.pad_batch and real_n < self.runner.max_batch:
+            pad = np.repeat(batch[-1:], self.runner.max_batch - real_n, axis=0)
+            batch = np.concatenate([batch, pad], axis=0)
         ti0 = time.perf_counter()
         raw = self.sess.run(None, {self.inp: batch})[0]
         infer_s = time.perf_counter() - ti0
         if raw.ndim == 2:
             raw = raw[None, ...]
+        raw = raw[:real_n]
         td0 = time.perf_counter()
         results = []
         batch_size = max(1, len(requests))
@@ -771,52 +782,105 @@ class SharedInferenceRegistry:
         self.cpu_only = cpu_only
         self.config = dict(config or {})
         self._lock = threading.Lock()
+        self._key_locks: dict[Any, threading.Lock] = {}
         self._pose: dict[str, SharedPoseService] = {}
         self._face_det: dict[str, SharedFaceDetectorService] = {}
         self._arcface: dict[str, SharedArcFaceService] = {}
         self._till: dict[tuple[str, int, tuple[str, ...]], SharedTillService] = {}
+        self._reid: dict[str, Any] = {}
+
+    def _get_or_create(self, store: dict, key: Any, build: Callable[[], Any]) -> Any:
+        """Build one service per key without serialising unrelated model loads.
+
+        Creating a CUDA session takes seconds, so holding the registry lock across
+        the build made every camera in a shard queue behind the first one — and
+        behind unrelated models too. Only the per-key lock is held while building.
+        """
+        service = store.get(key)
+        if service is not None:
+            return service
+        with self._lock:
+            key_lock = self._key_locks.get(key)
+            if key_lock is None:
+                key_lock = threading.Lock()
+                self._key_locks[key] = key_lock
+        with key_lock:
+            service = store.get(key)
+            if service is None:
+                service = build()
+                store[key] = service
+            return service
 
     def get_pose(self, model_path: str) -> SharedPoseService:
-        with self._lock:
-            service = self._pose.get(model_path)
-            if service is None:
-                service = SharedPoseService(
-                    model_path,
-                    cpu_only=self.cpu_only,
-                    num_workers=int(self.config.get("pose_num_workers", 2)),
-                    max_batch=int(self.config.get("pose_max_batch", 8)),
-                    batch_wait_s=float(self.config.get("pose_batch_wait_s", 0.005)),
-                )
-                self._pose[model_path] = service
-            return service
+        return self._get_or_create(
+            self._pose,
+            model_path,
+            lambda: SharedPoseService(
+                model_path,
+                cpu_only=self.cpu_only,
+                num_workers=int(self.config.get("pose_num_workers", 2)),
+                max_batch=int(self.config.get("pose_max_batch", 8)),
+                batch_wait_s=float(self.config.get("pose_batch_wait_s", 0.005)),
+                pad_batch=bool(self.config.get("pose_pad_batch", True)),
+            ),
+        )
 
     def get_face_detector(self, model_path: str) -> SharedFaceDetectorService:
-        with self._lock:
-            service = self._face_det.get(model_path)
-            if service is None:
-                service = SharedFaceDetectorService(
-                    model_path,
-                    cpu_only=self.cpu_only,
-                    num_workers=int(self.config.get("face_det_num_workers", 1)),
-                    max_batch=int(self.config.get("face_det_max_batch", 8)),
-                    batch_wait_s=float(self.config.get("face_det_batch_wait_s", 0.005)),
-                )
-                self._face_det[model_path] = service
-            return service
+        return self._get_or_create(
+            self._face_det,
+            model_path,
+            lambda: SharedFaceDetectorService(
+                model_path,
+                cpu_only=self.cpu_only,
+                num_workers=int(self.config.get("face_det_num_workers", 1)),
+                max_batch=int(self.config.get("face_det_max_batch", 8)),
+                batch_wait_s=float(self.config.get("face_det_batch_wait_s", 0.005)),
+            ),
+        )
 
     def get_arcface(self, model_path: str) -> SharedArcFaceService:
-        with self._lock:
-            service = self._arcface.get(model_path)
-            if service is None:
-                service = SharedArcFaceService(
-                    model_path,
-                    cpu_only=self.cpu_only,
-                    num_workers=int(self.config.get("arcface_num_workers", 1)),
-                    max_batch=int(self.config.get("arcface_max_batch", 16)),
-                    batch_wait_s=float(self.config.get("arcface_batch_wait_s", 0.005)),
-                )
-                self._arcface[model_path] = service
-            return service
+        return self._get_or_create(
+            self._arcface,
+            model_path,
+            lambda: SharedArcFaceService(
+                model_path,
+                cpu_only=self.cpu_only,
+                num_workers=int(self.config.get("arcface_num_workers", 1)),
+                max_batch=int(self.config.get("arcface_max_batch", 16)),
+                batch_wait_s=float(self.config.get("arcface_batch_wait_s", 0.005)),
+            ),
+        )
+
+    # Attributes Embedder.__init__ sets. sess/inp/input_dtype/dim/provider are
+    # read-only after construction and safe to share; last_profile and _pad_batch
+    # are mutated on every call and must stay per-camera.
+    _REID_SHARED_ATTRS = ("sess", "inp", "input_dtype", "dim", "provider")
+    _REID_PRIVATE_ATTRS = ("last_profile", "_pad_batch")
+
+    def get_reid_embedder(self, model_path: str, *, build: Callable[[], Any]) -> Any:
+        """Return an embedder that reuses one ONNX session per process.
+
+        Every camera used to build its own OSNet session behind BOOTSTRAP_LOCK,
+        which measured 8.5s each and 33% of total bootstrap on a 16-camera run.
+        The session is loaded once; each caller still gets its own scratch buffer
+        and profile dict, so concurrent calls do not share mutable state.
+        """
+        template = self._get_or_create(self._reid, model_path, build)
+        missing = [
+            attr
+            for attr in (*self._REID_SHARED_ATTRS, *self._REID_PRIVATE_ATTRS)
+            if not hasattr(template, attr)
+        ]
+        if missing:
+            # Embedder's shape changed underneath us; a private session is slower
+            # but always correct.
+            return build()
+        clone = template.__class__.__new__(template.__class__)
+        for attr in self._REID_SHARED_ATTRS:
+            setattr(clone, attr, getattr(template, attr))
+        clone.last_profile = {}
+        clone._pad_batch = np.zeros_like(template._pad_batch)
+        return clone
 
     def get_till(
         self,
@@ -826,23 +890,23 @@ class SharedInferenceRegistry:
         names: tuple[str, ...] = ("Close", "Open"),
     ) -> SharedTillService:
         key = (model_path, imgsz, names)
-        with self._lock:
-            service = self._till.get(key)
-            if service is None:
-                service = SharedTillService(
-                    model_path,
-                    cpu_only=self.cpu_only,
-                    imgsz=imgsz,
-                    names=names,
-                    num_workers=int(self.config.get("till_num_workers", 1)),
-                    max_batch=int(self.config.get("till_max_batch", 8)),
-                    batch_wait_s=float(self.config.get("till_batch_wait_s", 0.005)),
-                )
-                self._till[key] = service
-            return service
+        return self._get_or_create(
+            self._till,
+            key,
+            lambda: SharedTillService(
+                model_path,
+                cpu_only=self.cpu_only,
+                imgsz=imgsz,
+                names=names,
+                num_workers=int(self.config.get("till_num_workers", 1)),
+                max_batch=int(self.config.get("till_max_batch", 8)),
+                batch_wait_s=float(self.config.get("till_batch_wait_s", 0.005)),
+            ),
+        )
 
     def close(self):
         for services in (self._pose, self._face_det, self._arcface, self._till):
             for service in services.values():
                 service.close()
             services.clear()
+        self._reid.clear()  # plain Embedders, nothing to shut down

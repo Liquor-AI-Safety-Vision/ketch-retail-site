@@ -23,6 +23,7 @@ class CameraRuntime:
         gallery_db_path: str,
         cpu_only: bool = True,
         shared_inference: SharedInferenceRegistry | None = None,
+        skip_pipelines: bool = False,
     ):
         self.spec = spec
         self.db_path = db_path
@@ -30,6 +31,7 @@ class CameraRuntime:
         self.gallery_db_path = gallery_db_path
         self.cpu_only = cpu_only
         self.shared_inference = shared_inference
+        self.skip_pipelines = skip_pipelines
         self.alert_store = SqliteAlertStore(db_path)
         self.media_store = LocalMediaStore(media_root)
         self.source = VirtualVideoStreamSource(spec)
@@ -40,9 +42,13 @@ class CameraRuntime:
             "alerts_emitted": 0,
             "events_emitted": 0,
             "processing_mode": (
-                "thread_shared_batch_no_drop"
-                if shared_inference is not None
-                else "synchronous_no_queue_no_drop"
+                "decode_only"
+                if skip_pipelines
+                else (
+                    "thread_shared_batch_no_drop"
+                    if shared_inference is not None
+                    else "synchronous_no_queue_no_drop"
+                )
             ),
             "source_skipped_source_frames": 0,
         }
@@ -90,12 +96,13 @@ class CameraRuntime:
             self._new_pipeline_handler(binding)
             for binding in self.spec.pipeline_bindings
             if binding.enabled
-        ]
-        warmup_frame = self.source.probe_first_frame()
-        for handler in self.pipeline_handlers:
-            warmup = getattr(handler, "warmup", None)
-            if callable(warmup):
-                warmup(warmup_frame)
+        ] if not self.skip_pipelines else []
+        if self.pipeline_handlers:
+            warmup_frame = self.source.probe_first_frame()
+            for handler in self.pipeline_handlers:
+                warmup = getattr(handler, "warmup", None)
+                if callable(warmup):
+                    warmup(warmup_frame)
         status = "completed"
         try:
             for frame, source_timing in self.source.iter_timed_frames(pace_realtime=pace_realtime):
@@ -153,6 +160,7 @@ class CameraRuntime:
             "events_emitted": self.metrics["events_emitted"],
             "processing_mode": self.metrics["processing_mode"],
             "source_skipped_source_frames": self.metrics["source_skipped_source_frames"],
+            "source_metrics": self.source.snapshot_metrics(),
             "timing": self.timing.as_dict(),
             "pipeline_metrics": pipeline_metrics,
         }

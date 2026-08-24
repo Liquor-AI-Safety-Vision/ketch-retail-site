@@ -78,9 +78,24 @@ def main():
     )
     p.add_argument(
         "--concurrency-mode",
-        choices=["seq", "thread", "process"],
+        choices=["seq", "thread", "process", "hybrid"],
         default="seq",
-        help="Run cameras sequentially, with threads, or with processes.",
+        help=(
+            "Run cameras sequentially, with threads, with one process per camera, "
+            "or hybrid: a fixed number of GPU/inference-owning processes "
+            "(see --hybrid-workers), each running its shard of cameras on threads."
+        ),
+    )
+    p.add_argument(
+        "--hybrid-workers",
+        type=int,
+        default=2,
+        help=(
+            "Number of processes in hybrid mode, independent of camera count. "
+            "Each one holds its own CUDA context, and pose latency scales with the "
+            "context count (measured on one L40S: 19ms at 2, 45ms at 4, 153ms at 8), "
+            "so raise this only if the GIL, not the GPU, is the limit."
+        ),
     )
     p.add_argument(
         "--native-threads",
@@ -101,6 +116,32 @@ def main():
         type=int,
         default=2,
         help="Number of shared pose workers in thread mode.",
+    )
+    p.add_argument(
+        "--pose-max-batch",
+        type=int,
+        default=1,
+        help=(
+            "Max pose batch. With padding on, every run uses exactly this shape. "
+            "Batching across cameras loses to the GPU contention it adds here: "
+            "measured 30.2 FPS at 1 vs 25.6 at 4 on a 16-camera L40S run."
+        ),
+    )
+    p.add_argument(
+        "--pose-batch-wait-s",
+        type=float,
+        default=0.005,
+        help="How long a pose batch waits to fill before dispatching.",
+    )
+    p.add_argument(
+        "--no-pose-pad-batch",
+        action="store_true",
+        help="Disable fixed-shape padding for pose (lets batch size vary per run).",
+    )
+    p.add_argument(
+        "--decode-only",
+        action="store_true",
+        help="Only read and downsample sources without running any pipeline modules.",
     )
     a = p.parse_args()
     cap_native_threads(a.native_threads)
@@ -129,9 +170,14 @@ def main():
         gallery_db_path=a.gallery_db,
         cpu_only=not a.gpu,
         native_threads=a.native_threads,
+        skip_pipelines=a.decode_only,
         shared_inference_config={
             "pose_num_workers": a.shared_pose_workers,
+            "pose_max_batch": a.pose_max_batch,
+            "pose_batch_wait_s": a.pose_batch_wait_s,
+            "pose_pad_batch": not a.no_pose_pad_batch,
         },
+        hybrid_workers=a.hybrid_workers,
     )
     results = supervisor.run(
         camera_ids=selected,

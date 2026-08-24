@@ -15,6 +15,24 @@ Hiện tại runtime local đang ở chế độ:
 - chưa có Kafka / gateway / RTSP thật
 - chưa có batch multi-camera inference
 
+## Lệnh decode-only
+
+Lệnh này chỉ đo tầng source/decode/downsample, không chạy pipeline:
+
+```bash
+python3 -u backend/src/app/run_local_backend.py \
+  --db-path backend/data/runtime_decode_only.sqlite \
+  --gallery-db backend/data/local_dev.sqlite \
+  --media-root backend/data/alerts_decode_only \
+  --smoke-test \
+  --decode-only
+```
+
+Ý nghĩa:
+
+- dùng để tách riêng bottleneck source/decode khỏi inference/runtime logic
+- đặc biệt hữu ích khi benchmark 16 camera hoặc nhiều hơn
+
 ## Lệnh smoke test nhanh
 
 ```bash

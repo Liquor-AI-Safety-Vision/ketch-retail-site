@@ -171,12 +171,25 @@ class StorageIntrusionPipeline:
         S.ORT_PROVIDERS = ["CPUExecutionProvider"] if self.cpu_only else None
         if self.shared_inference is not None:
             self.det = self.shared_inference.get_pose(pose_model)
-        with BOOTSTRAP_LOCK:
-            if self.det is None:
-                S.MODEL = pose_model
-                S.CONF = conf
-                self.det = S.Detector()
-            self.emb = S.Embedder()
+        with self.timing.track("bootstrap::detector"):
+            with BOOTSTRAP_LOCK:
+                if self.det is None:
+                    S.MODEL = pose_model
+                    S.CONF = conf
+                    self.det = S.Detector()
+        with self.timing.track("bootstrap::embedder"):
+            def _build_embedder():
+                # S.Embedder reads the REID_MODEL global, so pin it under the lock.
+                with BOOTSTRAP_LOCK:
+                    S.REID_MODEL = reid_model
+                    return S.Embedder()
+
+            if self.shared_inference is not None:
+                self.emb = self.shared_inference.get_reid_embedder(
+                    reid_model, build=_build_embedder
+                )
+            else:
+                self.emb = _build_embedder()
 
         cfg = warehouse.Config(fps=self.spec.target_fps)
         cfg.person_conf = conf
@@ -187,26 +200,28 @@ class StorageIntrusionPipeline:
             cfg.min_box_h_frac = float(self.zone_cfg["min_box_h_frac"])
 
         h, w = frame.image_bgr.shape[:2]
-        self.tracker = Tracker(img_h=h, img_w=w, fps=self.spec.target_fps)
-        self.monitor = warehouse.ZoneMonitor(self.zone_cfg["zone_norm"], w, h, cfg)
+        with self.timing.track("bootstrap::tracker"):
+            self.tracker = Tracker(img_h=h, img_w=w, fps=self.spec.target_fps)
+            self.monitor = warehouse.ZoneMonitor(self.zone_cfg["zone_norm"], w, h, cfg)
 
         face_cfg = self.spec.perception_profile.get("face_identity", {})
         if face_cfg.get("enabled", False):
             if self.shared_inference is not None:
-                self.face_identifier = SharedFaceIdentifier(
-                    face_detector=self.shared_inference.get_face_detector(
-                        str(ROOT / "models/yolov6s_face.onnx")
-                    ),
-                    arcface=self.shared_inference.get_arcface(
-                        str(ROOT / "models/ms1mv3_arcface_r18.onnx")
-                    ),
-                    gallery_db_path=self.gallery_db_path,
-                    face_conf=float(face_cfg.get("face_conf", 0.20)),
-                    crop_expand=float(face_cfg.get("crop_expand", 0.12)),
-                    iou=float(face_cfg.get("iou_thres", 0.45)),
-                    match_threshold=float(face_cfg.get("match_threshold", 0.30)),
-                    match_margin=float(face_cfg.get("match_margin", 0.10)),
-                )
+                with self.timing.track("bootstrap::face"):
+                    self.face_identifier = SharedFaceIdentifier(
+                        face_detector=self.shared_inference.get_face_detector(
+                            str(ROOT / "models/yolov6s_face.onnx")
+                        ),
+                        arcface=self.shared_inference.get_arcface(
+                            str(ROOT / "models/ms1mv3_arcface_r18.onnx")
+                        ),
+                        gallery_db_path=self.gallery_db_path,
+                        face_conf=float(face_cfg.get("face_conf", 0.20)),
+                        crop_expand=float(face_cfg.get("crop_expand", 0.12)),
+                        iou=float(face_cfg.get("iou_thres", 0.45)),
+                        match_threshold=float(face_cfg.get("match_threshold", 0.30)),
+                        match_margin=float(face_cfg.get("match_margin", 0.10)),
+                    )
             else:
                 from face_identity import FaceIdentifier  # noqa: E402
 
