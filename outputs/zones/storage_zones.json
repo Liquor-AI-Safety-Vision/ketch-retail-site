@@ -1,0 +1,84 @@
+{
+  "storage_1": {
+    "zone_norm": [
+      [
+        0.0044,
+        0.0356
+      ],
+      [
+        0.8444,
+        0.0444
+      ],
+      [
+        0.7638,
+        0.6178
+      ],
+      [
+        0.7413,
+        0.74
+      ],
+      [
+        0.8769,
+        0.8433
+      ],
+      [
+        0.995,
+        0.4011
+      ],
+      [
+        0.9956,
+        0.6678
+      ],
+      [
+        0.9956,
+        0.9611
+      ],
+      [
+        0.9781,
+        0.9889
+      ],
+      [
+        0.0419,
+        0.9856
+      ],
+      [
+        0.0088,
+        0.9667
+      ],
+      [
+        0.0044,
+        0.0378
+      ]
+    ],
+    "note": "drawn by hand in zone_editor as 'inside_storage'",
+    "min_box_h_frac": 0.14,
+    "min_box_h_note": "objects topped out at 0.108H, smallest real track 0.206H"
+  },
+  "storage_2": {
+    "zone_norm": [
+      [
+        0.0,
+        0.3657
+      ],
+      [
+        0.5,
+        0.3889
+      ],
+      [
+        1.0,
+        0.4306
+      ],
+      [
+        0.9995,
+        0.9991
+      ],
+      [
+        0.0,
+        0.9991
+      ]
+    ],
+    "note": "the whole corridor is the store room; the far doorway is how you get in, so the floor near the camera is the inside",
+    "min_box_h_frac": 0.14,
+    "min_box_h_note": "smallest real detection 0.197H; nothing was filtered"
+  }
+}

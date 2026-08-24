@@ -1,0 +1,43 @@
+.DS_Store
+.claude/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Large local assets and references
+datasets/
+demo/
+models/
+models_fp16/
+tools/
+uae-main/
+videos/
+
+# Generated outputs
+outputs/*
+!outputs/zones/
+!outputs/zones/storage_zones.json
+!outputs/top-side-view/
+outputs/top-side-view/*
+!outputs/top-side-view/top-side-view_zones.json
+
+# Runtime data and evidence
+backend/data/alerts/
+backend/data/alerts_runtime_test/
+backend/data/alerts_targeted/
+backend/data/face_artifacts/
+backend/data/*.sqlite
+backend/data/*.sqlite-*
+backend/data/*.lock
+
+# Benchmark scratch artifacts
+bench/*.jpg
+bench/*.jpeg
+bench/*.png
+bench/*.npy

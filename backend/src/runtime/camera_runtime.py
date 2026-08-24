@@ -1,0 +1,158 @@
+from __future__ import annotations
+
+from typing import Any
+
+from backend.src.common.timing import TimingCollector
+from backend.src.domain.models import CameraPipelineBindingSpec, CameraStreamSpec
+from backend.src.infra.local_media_store import LocalMediaStore
+from backend.src.infra.sqlite_alert_store import SqliteAlertStore
+from backend.src.pipelines.counter_cash_theft import CounterCashTheftPipeline
+from backend.src.pipelines.storage_intrusion import StorageIntrusionPipeline
+from backend.src.pipelines.tracking_baseline import TrackingBaselinePipeline
+from backend.src.runtime.shared_inference import SharedInferenceRegistry
+from backend.src.runtime.virtual_video_stream import VirtualVideoStreamSource
+
+
+class CameraRuntime:
+    def __init__(
+        self,
+        spec: CameraStreamSpec,
+        *,
+        db_path: str,
+        media_root: str,
+        gallery_db_path: str,
+        cpu_only: bool = True,
+        shared_inference: SharedInferenceRegistry | None = None,
+    ):
+        self.spec = spec
+        self.db_path = db_path
+        self.media_root = media_root
+        self.gallery_db_path = gallery_db_path
+        self.cpu_only = cpu_only
+        self.shared_inference = shared_inference
+        self.alert_store = SqliteAlertStore(db_path)
+        self.media_store = LocalMediaStore(media_root)
+        self.source = VirtualVideoStreamSource(spec)
+        self.run_id: str | None = None
+        self.pipeline_handlers = []
+        self.metrics = {
+            "frames_processed": 0,
+            "alerts_emitted": 0,
+            "events_emitted": 0,
+            "processing_mode": (
+                "thread_shared_batch_no_drop"
+                if shared_inference is not None
+                else "synchronous_no_queue_no_drop"
+            ),
+            "source_skipped_source_frames": 0,
+        }
+        self.timing = TimingCollector()
+
+    def close(self):
+        self.alert_store.close()
+
+    def _new_pipeline_handler(self, binding: CameraPipelineBindingSpec):
+        if binding.pipeline_id == "counter_cash_theft_v1":
+            return CounterCashTheftPipeline(
+                self.spec,
+                binding,
+                self.alert_store,
+                self.media_store,
+                self.run_id,
+                cpu_only=self.cpu_only,
+                shared_inference=self.shared_inference,
+            )
+        if binding.pipeline_id in {"storage_intrusion_v1", "cold_storage_intrusion_v1"}:
+            return StorageIntrusionPipeline(
+                self.spec,
+                binding,
+                self.alert_store,
+                self.media_store,
+                self.run_id,
+                self.gallery_db_path,
+                cpu_only=self.cpu_only,
+                shared_inference=self.shared_inference,
+            )
+        return TrackingBaselinePipeline(
+            self.spec,
+            binding,
+            cpu_only=self.cpu_only,
+            shared_inference=self.shared_inference,
+        )
+
+    def run(self, *, pace_realtime: bool = False, limit_frames: int | None = None) -> dict[str, Any]:
+        self.run_id = self.alert_store.start_run(
+            self.spec.camera_id,
+            source_ref=self.spec.source_uri,
+            metrics={"camera_type": self.spec.camera_type},
+        )
+        self.pipeline_handlers = [
+            self._new_pipeline_handler(binding)
+            for binding in self.spec.pipeline_bindings
+            if binding.enabled
+        ]
+        warmup_frame = self.source.probe_first_frame()
+        for handler in self.pipeline_handlers:
+            warmup = getattr(handler, "warmup", None)
+            if callable(warmup):
+                warmup(warmup_frame)
+        status = "completed"
+        try:
+            for frame, source_timing in self.source.iter_timed_frames(pace_realtime=pace_realtime):
+                if limit_frames is not None and self.metrics["frames_processed"] >= limit_frames:
+                    break
+                self.timing.merge_dict(
+                    {
+                        "source_grab": source_timing["source_grab_s"],
+                        "source_retrieve": source_timing["source_retrieve_s"],
+                        "source_sleep": source_timing["source_sleep_s"],
+                    }
+                )
+                self.metrics["source_skipped_source_frames"] += int(
+                    source_timing.get("source_skipped_source_frames", 0)
+                )
+                with self.timing.track("frame_total"):
+                    for handler in self.pipeline_handlers:
+                        with self.timing.track(f"pipeline::{handler.binding.pipeline_id}"):
+                            result = handler.process_frame(frame)
+                        self.metrics["alerts_emitted"] += int(result.get("alerts_emitted", 0))
+                        self.metrics["events_emitted"] += int(result.get("events_emitted", 0))
+                self.metrics["frames_processed"] += 1
+                if self.metrics["frames_processed"] % 25 == 0:
+                    print(
+                        f"[{self.spec.camera_id}] frames={self.metrics['frames_processed']} "
+                        f"alerts={self.metrics['alerts_emitted']} events={self.metrics['events_emitted']} "
+                        f"avg_frame_ms={self.timing.stats['frame_total'].as_dict()['avg_ms']}",
+                        flush=True,
+                    )
+            return self._collect_metrics(status)
+        except KeyboardInterrupt:
+            status = "cancelled"
+            raise
+        except Exception:
+            status = "failed"
+            raise
+        finally:
+            for handler in self.pipeline_handlers:
+                finalize = getattr(handler, "finalize", None)
+                if callable(finalize):
+                    finalize()
+            self.alert_store.finish_run(self.run_id, status=status, metrics=self._collect_metrics(status))
+            self.close()
+
+    def _collect_metrics(self, status: str) -> dict[str, Any]:
+        pipeline_metrics = {}
+        for handler in self.pipeline_handlers:
+            pipeline_metrics[handler.binding.pipeline_id] = getattr(handler, "metrics", {})
+        return {
+            "status": status,
+            "camera_id": self.spec.camera_id,
+            "camera_type": self.spec.camera_type,
+            "frames_processed": self.metrics["frames_processed"],
+            "alerts_emitted": self.metrics["alerts_emitted"],
+            "events_emitted": self.metrics["events_emitted"],
+            "processing_mode": self.metrics["processing_mode"],
+            "source_skipped_source_frames": self.metrics["source_skipped_source_frames"],
+            "timing": self.timing.as_dict(),
+            "pipeline_metrics": pipeline_metrics,
+        }
