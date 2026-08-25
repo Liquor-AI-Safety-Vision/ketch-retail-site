@@ -1,212 +1,278 @@
-"""Run the GPU models in their own process, behind the API they already have.
+"""Run the GPU models in their own process, as a one-way pipeline.
 
-The point of the split is that CPU work should be able to scale without
-adding CUDA contexts, because pose latency scales with how many of those
-exist: 19ms at two contexts, 45ms at four, 153ms at eight on one L40S. That
-means the models have to live in a small fixed number of processes while
-everything else spreads out.
+The first version of this module was a request/reply proxy: a camera thread
+called det.detect(frame), blocked on a reply, and the pipelines needed no
+changes at all. It was measured and rejected. A ping with no model behind it
+cost 2.30ms; the same ping against a process that merely had models loaded,
+untouched, cost 9.35ms. Three explanations were tested and ruled out --
+onnxruntime's thread count, its spin-waiting, the caller's own CUDA context --
+which leaves the shape: blocking request/reply asks the process least able to
+answer quickly two or three times per frame, and a frame's real cost is only
+about 25ms to begin with.
 
-This is the transport change that makes it possible, and it is deliberately
-only a transport change. SharedPoseService and SharedTillService already
-express their work as a request handed to a queue and a result awaited, so
-the pipelines calling `det.detect(frame, conf=...)` need not know whether the
-answer came from a thread in this process or a thread in another one. The
-proxies below keep those signatures exactly.
+This version does not ask. Each frame crosses each tier boundary exactly
+once, in one direction:
 
-Frames do not travel on the queue. They are written into a FrameRing and only
-the slot index is sent, because pickling a 1080p array costs 35.6ms and 399%
-of a core at the frame rate this system runs at, against 0.85ms for a slot
-index. See backend/src/runtime/frame_ring.py.
+    decode (no CUDA) --frame+meta--> inference (the only CUDA) --result--> business (no CUDA)
 
-Two rules the server obeys that are easy to lose in a refactor:
+Nobody blocks waiting for a reply from the inference tier; a decoder that
+cannot get a slot blocks on the free list instead, which is ordinary
+backpressure, not a round trip. This is the shape the reference
+implementation uses, and it is also what the 16-camera spike measured before
+this module existed: 174.81 FPS against the current architecture's 136.30,
++28.2%, with 460 tracks created identically on both sides. That spike used
+throwaway inline code; this module is the production version of the same
+shape, built on FrameRing and the real Tracker.
 
-  * Each lane owns a private Embedder. Embedder.__call__ writes into a shared
-    self._pad_batch, so lanes sharing one instance corrupt each other's
-    features. That bug has already been made once here; it showed up as two
-    architectures disagreeing on how many tracks they created.
+Three rules that were each the subject of a bug already made once here:
 
-  * A camera is pinned to one lane. A queue with a single consumer preserves
-    the order things were written in, and that ordering is load-bearing:
-    till_confirm needs consecutive samples, so a frame arriving out of order
-    silently breaks the debounce. Pinning is what lets us skip the re-sorting
-    stage the reference implementation needs.
+  * A camera is pinned to one inference lane and one business worker. A queue
+    with a single consumer preserves write order, and till_confirm needs
+    consecutive samples -- a frame arriving out of order silently breaks the
+    debounce. Pinning removes the need for a re-sorting stage.
+
+  * Each inference lane owns a private Embedder. Its __call__ writes into a
+    shared self._pad_batch; lanes sharing one instance corrupt each other's
+    features. Caught once already as two architectures disagreeing on tracks
+    created, 134 against 132.
+
+  * Slots are released by whichever tier is last to touch the frame -- the
+    business tier, after tracking and any clip or face work that reads pixels
+    -- never by the inference tier that merely forwarded a result onward.
+
+Till and face are folded into this flow rather than added as separate round
+trips. Till has no dependency on people at all, so the inference lane runs it
+alongside pose on the same frame and forwards the result in the same message
+-- no extra crossing. Face is different: it depends on which track a
+detection joined, which is only known after tracking, so it cannot run in
+the inference tier. It also cannot be a request the business tier waits on,
+by the same argument that killed the proxy shape. So a face request carries a
+small cropped patch (order 60KB, not the frame) rather than a slot index, and
+the answer arrives on its own queue whenever it arrives -- which is exactly
+what EntryFaceWindow.consider() already expects, since it was built to
+tolerate a decision landing after the fact.
 """
 from __future__ import annotations
 
-import queue
 import threading
 import time
 import traceback
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 
 from backend.src.runtime.frame_ring import FrameRing, RingSpec
 
-# Ops are plain constants rather than an Enum so the request tuples stay
-# cheap to pickle; they cross a process boundary on every single call.
-OP_POSE = "pose"
-OP_REID = "reid"
-OP_TILL = "till"
-OP_FACE = "face"
-# Does no work at all. Exists so the transport can be priced on its own,
-# separately from whatever model sits behind it.
-OP_PING = "ping"
-OP_SHUTDOWN = "shutdown"
+# Sentinel put on a queue to end its consumer's loop. Distinguished from a
+# real message by identity, not by shape, since a real message may itself be
+# malformed.
+STOP = object()
 
 
 @dataclass
-class ClientChannel:
-    """One camera's private path to the server.
+class DecodeMessage:
+    """What a decoder hands to its inference lane. Small: the pixels stay in the ring.
 
-    Built by the parent before anything starts, because multiprocessing
-    queues can be handed to a child at spawn but cannot themselves be sent
-    through a queue. Everything a camera needs to talk to the server is
-    therefore decided up front, which suits the preload discipline anyway.
+    Carries the pose blob and its letterbox metadata, computed by the
+    decoder, not the pixels themselves for pose. That is what keeps
+    preprocessing CPU work out of the CUDA-holding process: a decoder that
+    only forwarded a slot index would push its own letterbox work back onto
+    the inference tier, exactly the coupling this split exists to remove.
+    Till and cropping still need the raw frame, so that stays in the ring
+    under the same slot.
     """
 
     camera_id: str
-    ring_spec: RingSpec
-    reply_q: Any
-    lane: int
+    slot: int
+    frame_shape: tuple[int, int, int]     # raw frame shape, for cropping/till
+    frame_idx: int
+    ratio: float
+    dx: int
+    dy: int
+    letterbox_s: float
+    preprocess_s: float
+    conf: float
+    till_conf: float | None       # None -> skip till this frame
 
 
 @dataclass
-class ServerConfig:
+class PerceptionResult:
+    """What an inference lane hands to the business tier for one frame.
+
+    The frame's slot is still held here: business needs the pixels for
+    cropping (clip buffer, face patches) and is the one that finally releases
+    it. Carrying boxes/kpts/feats as plain arrays rather than PoseResult
+    objects keeps this cheap to pickle across the process boundary -- it
+    still goes through a real multiprocessing.Queue, just once, not twice.
+    """
+
+    camera_id: str
+    slot: int
+    frame_shape: tuple[int, int, int]
+    frame_idx: int
+    boxes: np.ndarray             # (N, 5): x1 y1 x2 y2 conf
+    kpts: list
+    feats: np.ndarray
+    till_detections: list | None
+    pose_profile: dict
+    reid_profile: dict
+
+
+@dataclass
+class FaceRequest:
+    """A cropped patch, not a frame reference.
+
+    Fire-and-forget only works if the thing being forwarded outlives the slot
+    it was cut from. A slot index would not: by the time an async answer
+    comes back the slot may already be several frames further along. So this
+    carries the pixels it needs, at person-crop size (tens of KB), not a
+    pointer into shared memory.
+    """
+
+    camera_id: str
+    track_id: int
+    patch_bgr: np.ndarray
+    person_box_xyxy: np.ndarray
+    store_id: str | None
+    company_id: str | None
+
+
+@dataclass
+class FaceAnswer:
+    camera_id: str
+    track_id: int
+    decision: Any                 # MatchDecision, kept opaque here to avoid an import cycle
+
+
+@dataclass
+class LaneStats:
+    lane: int
+    frames: int
+    busy_s: float
+    pose_s: float
+    reid_s: float
+    till_s: float
+
+
+class InferenceLane:
+    """One thread inside the inference process: one queue in, business queues out.
+
+    Threaded for the reason measured in the spike: a single-threaded
+    inference tier runs its own CPU work -- decoding pose output, cropping
+    for ReID -- in series behind its GPU calls, so the GPU idles through all
+    of it (99.94 FPS against the then-current 118.35). Two threads let one
+    thread's CPU overlap another's GPU call (138.81 against 106.87). Four was
+    worse than two, +13.8% against +28.2%: beyond two they contend for the
+    same GIL inside one process and hand back what they gained.
+    """
+
+    def __init__(self, index: int, decode_q, registry, pose_model: str, reid_model: str,
+                 till=None, business_qs: dict | None = None,
+                 rings: dict | None = None, cpu_only: bool = False):
+        self.index = index
+        self.decode_q = decode_q
+        self.business_qs = business_qs or {}
+        self.rings = rings or {}
+        self.till = till
+        self.stats = LaneStats(index, 0, 0.0, 0.0, 0.0, 0.0)
+
+        self.pose = registry.get_pose(pose_model)
+        self.reid = registry.get_reid_embedder(
+            reid_model, build=lambda: self._build_reid(reid_model, cpu_only))
+        # The decoder wrote blobs assuming a dtype; if the model actually
+        # wants a different one, every inference silently reads garbage
+        # rather than raising, since the bytes are still a valid array of
+        # the wrong type. Failing at startup beats debugging that.
+        self._expected_blob_dtype = self.pose.input_dtype
+
+    @staticmethod
+    def _build_reid(reid_model: str, cpu_only: bool):
+        import stream_track as S
+
+        S.REID_MODEL = reid_model
+        S.ORT_PROVIDERS = ["CPUExecutionProvider"] if cpu_only else None
+        return S.Embedder()
+
+    def run(self) -> None:
+        while True:
+            msg = self.decode_q.get()
+            if msg is STOP or msg is None:
+                return
+            started = time.perf_counter()
+            try:
+                self._process(msg)
+            except BaseException:
+                # A frame that fails to perceive must not vanish silently --
+                # forward an empty result so the business tier still releases
+                # the slot and the camera's frame count stays accurate.
+                traceback.print_exc()
+                self.business_qs[msg.camera_id].put(PerceptionResult(
+                    camera_id=msg.camera_id, slot=msg.slot, frame_shape=msg.frame_shape,
+                    frame_idx=msg.frame_idx, boxes=np.empty((0, 5), np.float32), kpts=[],
+                    feats=np.empty((0, 512), np.float32), till_detections=None,
+                    pose_profile={}, reid_profile={}))
+            finally:
+                self.stats.busy_s += time.perf_counter() - started
+                self.stats.frames += 1
+
+    def _process(self, msg: DecodeMessage) -> None:
+        ring = self.rings[msg.camera_id]
+        frame = ring.frame_slot(msg.slot, msg.frame_shape)
+        blob = ring.blob_slot(msg.slot)
+        if blob.dtype != self._expected_blob_dtype:
+            raise TypeError(
+                f"decoder wrote {blob.dtype} blobs but {self.pose.model_path} wants "
+                f"{self._expected_blob_dtype}; every inference so far read the wrong "
+                f"bytes as the wrong type")
+
+        t0 = time.perf_counter()
+        # The box-decode math wants exactly (h, w); msg.frame_shape carries
+        # the full (h, w, c) because that is what ring.frame_slot() and
+        # cropping need, so it is sliced here rather than at every call site.
+        pose_result = self.pose.detect_preprocessed(
+            blob, conf=msg.conf, frame_shape=msg.frame_shape[:2], ratio=msg.ratio,
+            dx=msg.dx, dy=msg.dy, letterbox_s=msg.letterbox_s, preprocess_s=msg.preprocess_s)
+        self.stats.pose_s += time.perf_counter() - t0
+
+        t0 = time.perf_counter()
+        feats = self.reid(frame, pose_result.boxes)
+        self.stats.reid_s += time.perf_counter() - t0
+
+        till_detections = None
+        if self.till is not None and msg.till_conf is not None:
+            t0 = time.perf_counter()
+            till_detections = self.till.detect(frame, conf=msg.till_conf).detections
+            self.stats.till_s += time.perf_counter() - t0
+
+        self.business_qs[msg.camera_id].put(PerceptionResult(
+            camera_id=msg.camera_id, slot=msg.slot, frame_shape=msg.frame_shape,
+            frame_idx=msg.frame_idx, boxes=pose_result.boxes, kpts=pose_result.kpts,
+            feats=feats, till_detections=till_detections,
+            pose_profile=pose_result.profile, reid_profile=dict(self.reid.last_profile),
+        ))
+
+
+@dataclass
+class InferenceConfig:
     pose_model: str
     reid_model: str
     till_model: str | None = None
     till_imgsz: int = 640
-    face_model: str | None = None
-    arcface_model: str | None = None
-    gallery_db_path: str | None = None
-    face_params: dict = field(default_factory=dict)
     cpu_only: bool = False
-    # 0 leaves onnxruntime's default, which is one thread per core per session.
     ort_intra_threads: int = 0
-    # Diagnostics only: stand the transport up with nothing behind it, to tell
-    # the cost of the boundary apart from the cost of the process being busy.
-    load_models: bool = True
     ort_allow_spinning: bool = True
 
 
-class _Lane:
-    """One server thread: its own queue, its own embedder, shared sessions.
+def run_inference_process(config: InferenceConfig, lane_decode_qs: list,
+                          business_qs: dict, ring_specs: dict[str, RingSpec],
+                          ready_q, go_evt, stats_q) -> None:
+    """Entry point for one inference process: some number of lanes, one CUDA context.
 
-    Threads matter here more than they look. A single-threaded inference tier
-    runs its own CPU work -- decoding pose output, cropping for ReID -- in
-    series behind its GPU calls, so the GPU idles through all of it; measured,
-    that lost outright to the architecture it was meant to replace, 99.94 FPS
-    against 118.35. With two lanes one thread's CPU overlaps another's GPU
-    call. Four was worse than two: past that they contend for the same GIL.
-    """
-
-    def __init__(self, index: int, request_q, registry, config: ServerConfig,
-                 rings: dict, reply_qs: dict):
-        self.index = index
-        self.request_q = request_q
-        self.registry = registry
-        self.config = config
-        self.rings = rings
-        # Reply queues are looked up by camera, never carried in the request.
-        # A multiprocessing queue can be handed to a child at spawn but cannot
-        # be sent through another queue, so routing has to be by name.
-        self.reply_qs = reply_qs
-        self.served = 0
-        self.busy_s = 0.0
-
-        if config.load_models:
-            self.pose = registry.get_pose(config.pose_model)
-            self.reid = registry.get_reid_embedder(config.reid_model, build=self._build_reid)
-            self.till = (
-                registry.get_till(config.till_model, imgsz=config.till_imgsz)
-                if config.till_model else None
-            )
-            self.face = self._build_face()
-        else:
-            self.pose = self.reid = self.till = self.face = None
-
-    def _build_reid(self):
-        import stream_track as S
-
-        S.REID_MODEL = self.config.reid_model
-        S.ORT_PROVIDERS = ["CPUExecutionProvider"] if self.config.cpu_only else None
-        return S.Embedder()
-
-    def _build_face(self):
-        if not (self.config.face_model and self.config.arcface_model
-                and self.config.gallery_db_path):
-            return None
-        from backend.src.runtime.shared_inference import SharedFaceIdentifier
-
-        params = self.config.face_params
-        return SharedFaceIdentifier(
-            face_detector=self.registry.get_face_detector(self.config.face_model),
-            arcface=self.registry.get_arcface(self.config.arcface_model),
-            gallery_db_path=self.config.gallery_db_path,
-            face_conf=float(params.get("face_conf", 0.20)),
-            crop_expand=float(params.get("crop_expand", 0.12)),
-            iou=float(params.get("iou_thres", 0.45)),
-            match_threshold=float(params.get("match_threshold", 0.30)),
-            match_margin=float(params.get("match_margin", 0.10)),
-        )
-
-    def run(self) -> None:
-        while True:
-            item = self.request_q.get()
-            if item is None:
-                return
-            op, camera_id, slot, shape, args = item
-            if op == OP_SHUTDOWN:
-                return
-            reply_q = self.reply_qs[camera_id]
-            started = time.perf_counter()
-            try:
-                reply_q.put((True, self._dispatch(op, camera_id, slot, shape, args)))
-            except BaseException:
-                # A failure here must reach the caller, which is blocked on
-                # this reply. Dying quietly would hang the whole camera.
-                reply_q.put((False, traceback.format_exc()))
-            finally:
-                self.busy_s += time.perf_counter() - started
-                self.served += 1
-
-    def _frame(self, camera_id: str, slot: int, shape) -> np.ndarray:
-        return self.rings[camera_id].frame_slot(slot, shape)
-
-    def _dispatch(self, op, camera_id, slot, shape, args):
-        if op == OP_PING:
-            # Touch the frame so the cost of reaching into shared memory is
-            # included, but do nothing with it.
-            return int(self._frame(camera_id, slot, shape)[0, 0, 0])
-        if op == OP_POSE:
-            frame = self._frame(camera_id, slot, shape)
-            result = self.pose.detect(frame, conf=args["conf"])
-            return result.boxes, result.kpts, result.profile
-        if op == OP_REID:
-            frame = self._frame(camera_id, slot, shape)
-            feats = self.reid(frame, args["boxes"])
-            return feats, dict(self.reid.last_profile)
-        if op == OP_TILL:
-            frame = self._frame(camera_id, slot, shape)
-            result = self.till.detect(frame, conf=args["conf"])
-            return result.detections, result.profile
-        if op == OP_FACE:
-            frame = self._frame(camera_id, slot, shape)
-            return self.face.identify(
-                frame, args["person_box"],
-                store_id=args["store_id"], company_id=args["company_id"])
-        raise ValueError(f"unknown op {op!r}")
-
-
-def serve(config: ServerConfig, channels: list[ClientChannel], request_qs: list,
-          ready_q, go_evt, stats_q) -> None:
-    """Entry point for the inference process.
-
-    Loads every model, reports ready, and does not touch a frame until every
-    other process has reported ready too. Model loading has to sit outside
-    the measured window or the slowest loader sets the rate for everyone.
+    Loads everything and reports ready before touching a frame, so model
+    loading never lands inside a measured window -- the same discipline the
+    barrier-based preload already used, now crossing a process boundary
+    instead of just threads.
     """
     from backend.src.runtime.perf import cap_native_threads
     from backend.src.runtime.shared_inference import SharedInferenceRegistry
@@ -214,165 +280,30 @@ def serve(config: ServerConfig, channels: list[ClientChannel], request_qs: list,
     cap_native_threads(1)
     registry = SharedInferenceRegistry(
         cpu_only=config.cpu_only,
-        config={"pose_num_workers": 1, "pose_max_batch": 1,
-                "pose_batch_wait_s": 0.005, "pose_pad_batch": True,
-                "ort_intra_threads": config.ort_intra_threads,
+        config={"pose_num_workers": 1, "pose_max_batch": 1, "pose_batch_wait_s": 0.005,
+                "pose_pad_batch": True, "ort_intra_threads": config.ort_intra_threads,
                 "ort_allow_spinning": config.ort_allow_spinning},
     )
-    rings = {ch.camera_id: FrameRing(ch.ring_spec) for ch in channels}
-    reply_qs = {ch.camera_id: ch.reply_q for ch in channels}
-    lanes = [_Lane(i, q, registry, config, rings, reply_qs)
-             for i, q in enumerate(request_qs)]
+    rings = {cam_id: FrameRing(spec) for cam_id, spec in ring_specs.items()}
+    till = (registry.get_till(config.till_model, imgsz=config.till_imgsz)
+            if config.till_model else None)
+
+    lanes = [
+        InferenceLane(i, decode_q, registry, config.pose_model, config.reid_model,
+                      till=till, business_qs=business_qs, rings=rings, cpu_only=config.cpu_only)
+        for i, decode_q in enumerate(lane_decode_qs)
+    ]
 
     ready_q.put(("inference", len(lanes)))
     go_evt.wait()
 
-    threads = [threading.Thread(target=lane.run, name=f"lane-{i}", daemon=False)
-               for i, lane in enumerate(lanes)]
+    threads = [threading.Thread(target=lane.run, name=f"lane-{i}") for i, lane in enumerate(lanes)]
     for t in threads:
         t.start()
     for t in threads:
         t.join()
 
-    stats_q.put({
-        "served": sum(l.served for l in lanes),
-        "busy_s": sum(l.busy_s for l in lanes),
-        "per_lane": [(l.index, l.served, round(l.busy_s, 2)) for l in lanes],
-    })
+    stats_q.put([lane.stats for lane in lanes])
     for ring in rings.values():
         ring.close()
     registry.close()
-
-
-# --------------------------------------------------------------------------
-# client side: the same API the pipelines already call
-# --------------------------------------------------------------------------
-
-class _Caller:
-    """Shared plumbing: put the frame in a slot, send the index, wait.
-
-    Blocking is intentional. The caller is one camera's thread among many, so
-    while it waits the others keep working, which is exactly how the existing
-    in-process queue behaves. What must not happen is the frame travelling
-    with the request.
-    """
-
-    def __init__(self, channel: ClientChannel, ring: FrameRing, free_q, request_q):
-        self.channel = channel
-        self.ring = ring
-        self.free_q = free_q
-        self.request_q = request_q
-        self.last_wait_s = 0.0
-
-    def call(self, op: str, frame_bgr: np.ndarray, args: dict):
-        slot = self.free_q.get()
-        try:
-            shape = frame_bgr.shape
-            dst = self.ring.frame_slot(slot, shape)
-            np.copyto(dst, frame_bgr)
-            started = time.perf_counter()
-            self.request_q.put((op, self.channel.camera_id, slot, shape, args))
-            ok, payload = self.channel.reply_q.get()
-            self.last_wait_s = time.perf_counter() - started
-        finally:
-            # Released only after the reply, never before: the server is
-            # reading this slot until it answers.
-            self.free_q.put(slot)
-        if not ok:
-            raise RuntimeError(f"inference server failed on {op}:\n{payload}")
-        return payload
-
-
-class PoseProxy:
-    def __init__(self, caller: _Caller):
-        self._caller = caller
-        self.provider = "remote"
-
-    def detect(self, frame_bgr: np.ndarray, *, conf: float):
-        from backend.src.runtime.shared_inference import PoseResult
-
-        boxes, kpts, profile = self._caller.call(OP_POSE, frame_bgr, {"conf": float(conf)})
-        profile = dict(profile)
-        profile["transport_s"] = self._caller.last_wait_s - float(profile.get("total_s", 0.0))
-        return PoseResult(boxes=boxes, kpts=kpts, profile=profile)
-
-
-class ReidProxy:
-    def __init__(self, caller: _Caller):
-        self._caller = caller
-        self.provider = "remote"
-        self.last_profile: dict = {}
-
-    def __call__(self, frame_bgr: np.ndarray, boxes):
-        if not len(boxes):
-            self.last_profile = {"provider": self.provider, "infer_s": 0.0, "total_s": 0.0}
-            return np.empty((0, 512), np.float32)
-        feats, profile = self._caller.call(OP_REID, frame_bgr, {"boxes": boxes})
-        self.last_profile = profile
-        return feats
-
-
-class TillProxy:
-    def __init__(self, caller: _Caller):
-        self._caller = caller
-        self.provider = "remote"
-
-    def detect(self, frame_bgr: np.ndarray, *, conf: float):
-        from backend.src.runtime.shared_inference import TillResult
-
-        detections, profile = self._caller.call(OP_TILL, frame_bgr, {"conf": float(conf)})
-        return TillResult(detections=detections, profile=profile)
-
-
-class FaceProxy:
-    def __init__(self, caller: _Caller):
-        self._caller = caller
-
-    def identify(self, frame_bgr, person_box_xyxy, *, store_id, company_id):
-        return self._caller.call(OP_FACE, frame_bgr, {
-            "person_box": np.asarray(person_box_xyxy, np.float32),
-            "store_id": store_id, "company_id": company_id,
-        })
-
-
-class PingProxy:
-    """Transport with no model behind it, for pricing the boundary itself."""
-
-    def __init__(self, caller: _Caller):
-        self._caller = caller
-
-    def __call__(self, frame_bgr: np.ndarray):
-        return self._caller.call(OP_PING, frame_bgr, {})
-
-
-class InferenceClient:
-    """What a camera holds instead of its own models.
-
-    Mirrors SharedInferenceRegistry's factory methods so a pipeline can take
-    either one without noticing. The `build` argument on get_reid_embedder is
-    accepted and ignored: locally it constructs a session, here the session
-    already exists in another process.
-    """
-
-    def __init__(self, channel: ClientChannel, free_q, request_q):
-        self.channel = channel
-        self.ring = FrameRing(channel.ring_spec)
-        self._caller = _Caller(channel, self.ring, free_q, request_q)
-
-    def get_pose(self, model_path: str):
-        return PoseProxy(self._caller)
-
-    def get_reid_embedder(self, model_path: str, *, build=None):
-        return ReidProxy(self._caller)
-
-    def get_till(self, model_path: str, *, imgsz: int = 640, names=None):
-        return TillProxy(self._caller)
-
-    def get_ping(self):
-        return PingProxy(self._caller)
-
-    def get_face_identifier(self):
-        return FaceProxy(self._caller)
-
-    def close(self):
-        self.ring.close()

@@ -259,28 +259,53 @@ class SharedPoseService:
             infer_batch=self._infer_batch,
         )
 
-    def detect(self, frame_bgr: np.ndarray, *, conf: float) -> PoseResult:
-        # Letterbox and normalise on the calling camera thread. This used to run
-        # inside the batch-runner thread, which funnelled ~8ms of per-frame CPU
-        # work through num_workers threads while the camera threads sat idle
-        # waiting on submit(), and showed up as queue_wait being nearly twice the
-        # actual inference time.
+    def preprocess(self, frame_bgr: np.ndarray) -> tuple[np.ndarray, dict[str, Any]]:
+        """Letterbox and normalise, without submitting anything.
+
+        Exists so a CUDA-free decoder process can do this work and hand the
+        inference tier a finished blob, instead of the CUDA process doing its
+        own preprocessing and losing the whole point of splitting decode out:
+        that CPU work should scale with decoder count, not sit inside the one
+        or two processes holding a GPU context.
+        """
         tl0 = time.perf_counter()
         lb, r, dx, dy = _letterbox(frame_bgr, self.imgsz)
         tl1 = time.perf_counter()
         blob = cv2.cvtColor(lb, cv2.COLOR_BGR2RGB).transpose(2, 0, 1)
         blob = np.ascontiguousarray(blob, self.input_dtype) / self.input_dtype(255.0)
         tl2 = time.perf_counter()
+        meta = {
+            "frame_shape": frame_bgr.shape[:2], "ratio": r, "dx": dx, "dy": dy,
+            "letterbox_s": tl1 - tl0, "preprocess_s": tl2 - tl1,
+        }
+        return blob, meta
+
+    def detect(self, frame_bgr: np.ndarray, *, conf: float) -> PoseResult:
+        # Letterbox and normalise on the calling camera thread. This used to run
+        # inside the batch-runner thread, which funnelled ~8ms of per-frame CPU
+        # work through num_workers threads while the camera threads sat idle
+        # waiting on submit(), and showed up as queue_wait being nearly twice the
+        # actual inference time.
+        blob, meta = self.preprocess(frame_bgr)
+        return self.detect_preprocessed(blob, conf=conf, **meta)
+
+    def detect_preprocessed(self, blob: np.ndarray, *, conf: float, frame_shape,
+                            ratio: float, dx: int, dy: int,
+                            letterbox_s: float = 0.0, preprocess_s: float = 0.0) -> PoseResult:
+        """Submit a blob someone else already built. Same result either way:
+        this is the tail end of detect(), factored out so a decoder process's
+        preprocessing and an in-process caller's preprocessing land in the
+        exact same inference and box-decode arithmetic."""
         return self.runner.submit(
             {
                 "blob": blob,
-                "frame_shape": frame_bgr.shape[:2],
-                "ratio": r,
+                "frame_shape": tuple(frame_shape),
+                "ratio": ratio,
                 "dx": dx,
                 "dy": dy,
                 "conf": float(conf),
-                "letterbox_s": tl1 - tl0,
-                "preprocess_s": tl2 - tl1,
+                "letterbox_s": letterbox_s,
+                "preprocess_s": preprocess_s,
             }
         )
 
