@@ -1,6 +1,6 @@
 {
   "company_id": "liquor_store_demo",
-  "store_id": "local_dev_store_16cams",
+  "store_id": "local_dev_store",
   "display_name": "Local Development Store 16 Cams",
   "timezone": "Asia/Ho_Chi_Minh",
   "mode": "local_dev",
@@ -35,10 +35,20 @@
           "target_duration_s": 180
         }
       },
-      "runtime": { "target_fps": 5, "device": "cpu" },
+      "runtime": {
+        "target_fps": 5,
+        "device": "cpu"
+      },
       "perception": {
-        "person_detector": { "device": "cpu", "conf_thres": 0.5, "nms_thres": 0.7 },
-        "person_tracker": { "device": "cpu", "match_thres": 0.65 }
+        "person_detector": {
+          "device": "cpu",
+          "conf_thres": 0.5,
+          "nms_thres": 0.7
+        },
+        "person_tracker": {
+          "device": "cpu",
+          "match_thres": 0.65
+        }
       },
       "pipelines": [
         {
@@ -50,7 +60,11 @@
             "zones_path": "${REPO_ROOT}/outputs/top-side-view/top-side-view_zones.json",
             "till_conf": 0.7,
             "till_confirm_frames": 5,
-            "alert_clip": { "pre_s": 15, "post_s": 15 }
+            "alert_clip": {
+              "pre_s": 15,
+              "post_s": 15
+            },
+            "till_fps": 3
           }
         }
       ]
@@ -68,10 +82,20 @@
           "target_duration_s": 180
         }
       },
-      "runtime": { "target_fps": 5, "device": "cpu" },
+      "runtime": {
+        "target_fps": 5,
+        "device": "cpu"
+      },
       "perception": {
-        "person_detector": { "device": "cpu", "conf_thres": 0.5, "nms_thres": 0.7 },
-        "person_tracker": { "device": "cpu", "match_thres": 0.65 }
+        "person_detector": {
+          "device": "cpu",
+          "conf_thres": 0.5,
+          "nms_thres": 0.7
+        },
+        "person_tracker": {
+          "device": "cpu",
+          "match_thres": 0.65
+        }
       },
       "pipelines": [
         {
@@ -83,7 +107,11 @@
             "zones_path": "${REPO_ROOT}/outputs/top-side-view/top-side-view_zones.json",
             "till_conf": 0.7,
             "till_confirm_frames": 5,
-            "alert_clip": { "pre_s": 15, "post_s": 15 }
+            "alert_clip": {
+              "pre_s": 15,
+              "post_s": 15
+            },
+            "till_fps": 3
           }
         }
       ]
@@ -101,10 +129,20 @@
           "target_duration_s": 180
         }
       },
-      "runtime": { "target_fps": 5, "device": "cpu" },
+      "runtime": {
+        "target_fps": 5,
+        "device": "cpu"
+      },
       "perception": {
-        "person_detector": { "device": "cpu", "conf_thres": 0.5, "nms_thres": 0.7 },
-        "person_tracker": { "device": "cpu", "match_thres": 0.65 }
+        "person_detector": {
+          "device": "cpu",
+          "conf_thres": 0.5,
+          "nms_thres": 0.7
+        },
+        "person_tracker": {
+          "device": "cpu",
+          "match_thres": 0.65
+        }
       },
       "pipelines": [
         {
@@ -116,7 +154,11 @@
             "zones_path": "${REPO_ROOT}/outputs/top-side-view/top-side-view_zones.json",
             "till_conf": 0.7,
             "till_confirm_frames": 5,
-            "alert_clip": { "pre_s": 15, "post_s": 15 }
+            "alert_clip": {
+              "pre_s": 15,
+              "post_s": 15
+            },
+            "till_fps": 3
           }
         }
       ]
@@ -134,10 +176,20 @@
           "target_duration_s": 180
         }
       },
-      "runtime": { "target_fps": 5, "device": "cpu" },
+      "runtime": {
+        "target_fps": 5,
+        "device": "cpu"
+      },
       "perception": {
-        "person_detector": { "device": "cpu", "conf_thres": 0.5, "nms_thres": 0.7 },
-        "person_tracker": { "device": "cpu", "match_thres": 0.65 }
+        "person_detector": {
+          "device": "cpu",
+          "conf_thres": 0.5,
+          "nms_thres": 0.7
+        },
+        "person_tracker": {
+          "device": "cpu",
+          "match_thres": 0.65
+        }
       },
       "pipelines": [
         {
@@ -149,7 +201,11 @@
             "zones_path": "${REPO_ROOT}/outputs/top-side-view/top-side-view_zones.json",
             "till_conf": 0.7,
             "till_confirm_frames": 5,
-            "alert_clip": { "pre_s": 15, "post_s": 15 }
+            "alert_clip": {
+              "pre_s": 15,
+              "post_s": 15
+            },
+            "till_fps": 3
           }
         }
       ]
@@ -167,11 +223,26 @@
           "target_duration_s": 180
         }
       },
-      "runtime": { "target_fps": 3, "device": "cpu" },
+      "runtime": {
+        "target_fps": 3,
+        "device": "cpu"
+      },
       "perception": {
-        "person_detector": { "device": "cpu", "conf_thres": 0.5, "nms_thres": 0.7 },
-        "person_tracker": { "device": "cpu", "match_thres": 0.65 },
-        "face_identity": { "enabled": true, "device": "cpu", "match_threshold": 0.3, "match_margin": 0.1 }
+        "person_detector": {
+          "device": "cpu",
+          "conf_thres": 0.5,
+          "nms_thres": 0.7
+        },
+        "person_tracker": {
+          "device": "cpu",
+          "match_thres": 0.65
+        },
+        "face_identity": {
+          "enabled": true,
+          "device": "cpu",
+          "match_threshold": 0.3,
+          "match_margin": 0.1
+        }
       },
       "pipelines": [
         {
@@ -181,13 +252,43 @@
             "entry_confirm_seconds": 1.0,
             "zone_config_path": "${REPO_ROOT}/outputs/zones/storage_zones.json",
             "zone_asset_key": "storage_1",
-            "face_capture_window": { "start_status": "pending_in", "end_after_inside_s": 1.0 },
-            "alert_clip": { "pre_s": 15, "post_s": 15 },
+            "face_capture_window": {
+              "start_status": "pending_in",
+              "end_after_inside_s": 1.0
+            },
+            "alert_clip": {
+              "pre_s": 15,
+              "post_s": 15
+            },
             "access_schedule": {
               "timezone": "Asia/Ho_Chi_Minh",
               "allowed_windows": [
-                { "days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"], "start": "08:00", "end": "09:00" },
-                { "days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"], "start": "21:00", "end": "22:00" }
+                {
+                  "days": [
+                    "mon",
+                    "tue",
+                    "wed",
+                    "thu",
+                    "fri",
+                    "sat",
+                    "sun"
+                  ],
+                  "start": "08:00",
+                  "end": "09:00"
+                },
+                {
+                  "days": [
+                    "mon",
+                    "tue",
+                    "wed",
+                    "thu",
+                    "fri",
+                    "sat",
+                    "sun"
+                  ],
+                  "start": "21:00",
+                  "end": "22:00"
+                }
               ]
             }
           }
@@ -207,11 +308,26 @@
           "target_duration_s": 180
         }
       },
-      "runtime": { "target_fps": 3, "device": "cpu" },
+      "runtime": {
+        "target_fps": 3,
+        "device": "cpu"
+      },
       "perception": {
-        "person_detector": { "device": "cpu", "conf_thres": 0.5, "nms_thres": 0.7 },
-        "person_tracker": { "device": "cpu", "match_thres": 0.65 },
-        "face_identity": { "enabled": true, "device": "cpu", "match_threshold": 0.3, "match_margin": 0.1 }
+        "person_detector": {
+          "device": "cpu",
+          "conf_thres": 0.5,
+          "nms_thres": 0.7
+        },
+        "person_tracker": {
+          "device": "cpu",
+          "match_thres": 0.65
+        },
+        "face_identity": {
+          "enabled": true,
+          "device": "cpu",
+          "match_threshold": 0.3,
+          "match_margin": 0.1
+        }
       },
       "pipelines": [
         {
@@ -221,13 +337,43 @@
             "entry_confirm_seconds": 1.0,
             "zone_config_path": "${REPO_ROOT}/outputs/zones/storage_zones.json",
             "zone_asset_key": "storage_1",
-            "face_capture_window": { "start_status": "pending_in", "end_after_inside_s": 1.0 },
-            "alert_clip": { "pre_s": 15, "post_s": 15 },
+            "face_capture_window": {
+              "start_status": "pending_in",
+              "end_after_inside_s": 1.0
+            },
+            "alert_clip": {
+              "pre_s": 15,
+              "post_s": 15
+            },
             "access_schedule": {
               "timezone": "Asia/Ho_Chi_Minh",
               "allowed_windows": [
-                { "days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"], "start": "08:00", "end": "09:00" },
-                { "days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"], "start": "21:00", "end": "22:00" }
+                {
+                  "days": [
+                    "mon",
+                    "tue",
+                    "wed",
+                    "thu",
+                    "fri",
+                    "sat",
+                    "sun"
+                  ],
+                  "start": "08:00",
+                  "end": "09:00"
+                },
+                {
+                  "days": [
+                    "mon",
+                    "tue",
+                    "wed",
+                    "thu",
+                    "fri",
+                    "sat",
+                    "sun"
+                  ],
+                  "start": "21:00",
+                  "end": "22:00"
+                }
               ]
             }
           }
@@ -247,11 +393,26 @@
           "target_duration_s": 180
         }
       },
-      "runtime": { "target_fps": 3, "device": "cpu" },
+      "runtime": {
+        "target_fps": 3,
+        "device": "cpu"
+      },
       "perception": {
-        "person_detector": { "device": "cpu", "conf_thres": 0.5, "nms_thres": 0.7 },
-        "person_tracker": { "device": "cpu", "match_thres": 0.65 },
-        "face_identity": { "enabled": true, "device": "cpu", "match_threshold": 0.3, "match_margin": 0.1 }
+        "person_detector": {
+          "device": "cpu",
+          "conf_thres": 0.5,
+          "nms_thres": 0.7
+        },
+        "person_tracker": {
+          "device": "cpu",
+          "match_thres": 0.65
+        },
+        "face_identity": {
+          "enabled": true,
+          "device": "cpu",
+          "match_threshold": 0.3,
+          "match_margin": 0.1
+        }
       },
       "pipelines": [
         {
@@ -261,13 +422,43 @@
             "entry_confirm_seconds": 1.0,
             "zone_config_path": "${REPO_ROOT}/outputs/zones/storage_zones.json",
             "zone_asset_key": "storage_1",
-            "face_capture_window": { "start_status": "pending_in", "end_after_inside_s": 1.0 },
-            "alert_clip": { "pre_s": 15, "post_s": 15 },
+            "face_capture_window": {
+              "start_status": "pending_in",
+              "end_after_inside_s": 1.0
+            },
+            "alert_clip": {
+              "pre_s": 15,
+              "post_s": 15
+            },
             "access_schedule": {
               "timezone": "Asia/Ho_Chi_Minh",
               "allowed_windows": [
-                { "days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"], "start": "08:00", "end": "09:00" },
-                { "days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"], "start": "21:00", "end": "22:00" }
+                {
+                  "days": [
+                    "mon",
+                    "tue",
+                    "wed",
+                    "thu",
+                    "fri",
+                    "sat",
+                    "sun"
+                  ],
+                  "start": "08:00",
+                  "end": "09:00"
+                },
+                {
+                  "days": [
+                    "mon",
+                    "tue",
+                    "wed",
+                    "thu",
+                    "fri",
+                    "sat",
+                    "sun"
+                  ],
+                  "start": "21:00",
+                  "end": "22:00"
+                }
               ]
             }
           }
@@ -287,11 +478,26 @@
           "target_duration_s": 180
         }
       },
-      "runtime": { "target_fps": 3, "device": "cpu" },
+      "runtime": {
+        "target_fps": 3,
+        "device": "cpu"
+      },
       "perception": {
-        "person_detector": { "device": "cpu", "conf_thres": 0.5, "nms_thres": 0.7 },
-        "person_tracker": { "device": "cpu", "match_thres": 0.65 },
-        "face_identity": { "enabled": true, "device": "cpu", "match_threshold": 0.3, "match_margin": 0.1 }
+        "person_detector": {
+          "device": "cpu",
+          "conf_thres": 0.5,
+          "nms_thres": 0.7
+        },
+        "person_tracker": {
+          "device": "cpu",
+          "match_thres": 0.65
+        },
+        "face_identity": {
+          "enabled": true,
+          "device": "cpu",
+          "match_threshold": 0.3,
+          "match_margin": 0.1
+        }
       },
       "pipelines": [
         {
@@ -301,13 +507,43 @@
             "entry_confirm_seconds": 1.0,
             "zone_config_path": "${REPO_ROOT}/outputs/zones/storage_zones.json",
             "zone_asset_key": "storage_1",
-            "face_capture_window": { "start_status": "pending_in", "end_after_inside_s": 1.0 },
-            "alert_clip": { "pre_s": 15, "post_s": 15 },
+            "face_capture_window": {
+              "start_status": "pending_in",
+              "end_after_inside_s": 1.0
+            },
+            "alert_clip": {
+              "pre_s": 15,
+              "post_s": 15
+            },
             "access_schedule": {
               "timezone": "Asia/Ho_Chi_Minh",
               "allowed_windows": [
-                { "days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"], "start": "08:00", "end": "09:00" },
-                { "days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"], "start": "21:00", "end": "22:00" }
+                {
+                  "days": [
+                    "mon",
+                    "tue",
+                    "wed",
+                    "thu",
+                    "fri",
+                    "sat",
+                    "sun"
+                  ],
+                  "start": "08:00",
+                  "end": "09:00"
+                },
+                {
+                  "days": [
+                    "mon",
+                    "tue",
+                    "wed",
+                    "thu",
+                    "fri",
+                    "sat",
+                    "sun"
+                  ],
+                  "start": "21:00",
+                  "end": "22:00"
+                }
               ]
             }
           }
@@ -327,11 +563,26 @@
           "target_duration_s": 180
         }
       },
-      "runtime": { "target_fps": 3, "device": "cpu" },
+      "runtime": {
+        "target_fps": 3,
+        "device": "cpu"
+      },
       "perception": {
-        "person_detector": { "device": "cpu", "conf_thres": 0.5, "nms_thres": 0.7 },
-        "person_tracker": { "device": "cpu", "match_thres": 0.5 },
-        "face_identity": { "enabled": true, "device": "cpu", "match_threshold": 0.3, "match_margin": 0.1 }
+        "person_detector": {
+          "device": "cpu",
+          "conf_thres": 0.5,
+          "nms_thres": 0.7
+        },
+        "person_tracker": {
+          "device": "cpu",
+          "match_thres": 0.5
+        },
+        "face_identity": {
+          "enabled": true,
+          "device": "cpu",
+          "match_threshold": 0.3,
+          "match_margin": 0.1
+        }
       },
       "pipelines": [
         {
@@ -341,13 +592,43 @@
             "entry_confirm_seconds": 1.0,
             "zone_config_path": "${REPO_ROOT}/outputs/zones/storage_zones.json",
             "zone_asset_key": "storage_2",
-            "face_capture_window": { "start_status": "pending_in", "end_after_inside_s": 1.0 },
-            "alert_clip": { "pre_s": 15, "post_s": 15 },
+            "face_capture_window": {
+              "start_status": "pending_in",
+              "end_after_inside_s": 1.0
+            },
+            "alert_clip": {
+              "pre_s": 15,
+              "post_s": 15
+            },
             "access_schedule": {
               "timezone": "Asia/Ho_Chi_Minh",
               "allowed_windows": [
-                { "days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"], "start": "08:00", "end": "09:00" },
-                { "days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"], "start": "21:00", "end": "22:00" }
+                {
+                  "days": [
+                    "mon",
+                    "tue",
+                    "wed",
+                    "thu",
+                    "fri",
+                    "sat",
+                    "sun"
+                  ],
+                  "start": "08:00",
+                  "end": "09:00"
+                },
+                {
+                  "days": [
+                    "mon",
+                    "tue",
+                    "wed",
+                    "thu",
+                    "fri",
+                    "sat",
+                    "sun"
+                  ],
+                  "start": "21:00",
+                  "end": "22:00"
+                }
               ]
             }
           }
@@ -367,11 +648,26 @@
           "target_duration_s": 180
         }
       },
-      "runtime": { "target_fps": 3, "device": "cpu" },
+      "runtime": {
+        "target_fps": 3,
+        "device": "cpu"
+      },
       "perception": {
-        "person_detector": { "device": "cpu", "conf_thres": 0.5, "nms_thres": 0.7 },
-        "person_tracker": { "device": "cpu", "match_thres": 0.5 },
-        "face_identity": { "enabled": true, "device": "cpu", "match_threshold": 0.3, "match_margin": 0.1 }
+        "person_detector": {
+          "device": "cpu",
+          "conf_thres": 0.5,
+          "nms_thres": 0.7
+        },
+        "person_tracker": {
+          "device": "cpu",
+          "match_thres": 0.5
+        },
+        "face_identity": {
+          "enabled": true,
+          "device": "cpu",
+          "match_threshold": 0.3,
+          "match_margin": 0.1
+        }
       },
       "pipelines": [
         {
@@ -381,13 +677,43 @@
             "entry_confirm_seconds": 1.0,
             "zone_config_path": "${REPO_ROOT}/outputs/zones/storage_zones.json",
             "zone_asset_key": "storage_2",
-            "face_capture_window": { "start_status": "pending_in", "end_after_inside_s": 1.0 },
-            "alert_clip": { "pre_s": 15, "post_s": 15 },
+            "face_capture_window": {
+              "start_status": "pending_in",
+              "end_after_inside_s": 1.0
+            },
+            "alert_clip": {
+              "pre_s": 15,
+              "post_s": 15
+            },
             "access_schedule": {
               "timezone": "Asia/Ho_Chi_Minh",
               "allowed_windows": [
-                { "days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"], "start": "08:00", "end": "09:00" },
-                { "days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"], "start": "21:00", "end": "22:00" }
+                {
+                  "days": [
+                    "mon",
+                    "tue",
+                    "wed",
+                    "thu",
+                    "fri",
+                    "sat",
+                    "sun"
+                  ],
+                  "start": "08:00",
+                  "end": "09:00"
+                },
+                {
+                  "days": [
+                    "mon",
+                    "tue",
+                    "wed",
+                    "thu",
+                    "fri",
+                    "sat",
+                    "sun"
+                  ],
+                  "start": "21:00",
+                  "end": "22:00"
+                }
               ]
             }
           }
@@ -407,11 +733,26 @@
           "target_duration_s": 180
         }
       },
-      "runtime": { "target_fps": 3, "device": "cpu" },
+      "runtime": {
+        "target_fps": 3,
+        "device": "cpu"
+      },
       "perception": {
-        "person_detector": { "device": "cpu", "conf_thres": 0.5, "nms_thres": 0.7 },
-        "person_tracker": { "device": "cpu", "match_thres": 0.5 },
-        "face_identity": { "enabled": true, "device": "cpu", "match_threshold": 0.3, "match_margin": 0.1 }
+        "person_detector": {
+          "device": "cpu",
+          "conf_thres": 0.5,
+          "nms_thres": 0.7
+        },
+        "person_tracker": {
+          "device": "cpu",
+          "match_thres": 0.5
+        },
+        "face_identity": {
+          "enabled": true,
+          "device": "cpu",
+          "match_threshold": 0.3,
+          "match_margin": 0.1
+        }
       },
       "pipelines": [
         {
@@ -421,13 +762,43 @@
             "entry_confirm_seconds": 1.0,
             "zone_config_path": "${REPO_ROOT}/outputs/zones/storage_zones.json",
             "zone_asset_key": "storage_2",
-            "face_capture_window": { "start_status": "pending_in", "end_after_inside_s": 1.0 },
-            "alert_clip": { "pre_s": 15, "post_s": 15 },
+            "face_capture_window": {
+              "start_status": "pending_in",
+              "end_after_inside_s": 1.0
+            },
+            "alert_clip": {
+              "pre_s": 15,
+              "post_s": 15
+            },
             "access_schedule": {
               "timezone": "Asia/Ho_Chi_Minh",
               "allowed_windows": [
-                { "days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"], "start": "08:00", "end": "09:00" },
-                { "days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"], "start": "21:00", "end": "22:00" }
+                {
+                  "days": [
+                    "mon",
+                    "tue",
+                    "wed",
+                    "thu",
+                    "fri",
+                    "sat",
+                    "sun"
+                  ],
+                  "start": "08:00",
+                  "end": "09:00"
+                },
+                {
+                  "days": [
+                    "mon",
+                    "tue",
+                    "wed",
+                    "thu",
+                    "fri",
+                    "sat",
+                    "sun"
+                  ],
+                  "start": "21:00",
+                  "end": "22:00"
+                }
               ]
             }
           }
@@ -447,11 +818,26 @@
           "target_duration_s": 180
         }
       },
-      "runtime": { "target_fps": 3, "device": "cpu" },
+      "runtime": {
+        "target_fps": 3,
+        "device": "cpu"
+      },
       "perception": {
-        "person_detector": { "device": "cpu", "conf_thres": 0.5, "nms_thres": 0.7 },
-        "person_tracker": { "device": "cpu", "match_thres": 0.5 },
-        "face_identity": { "enabled": true, "device": "cpu", "match_threshold": 0.3, "match_margin": 0.1 }
+        "person_detector": {
+          "device": "cpu",
+          "conf_thres": 0.5,
+          "nms_thres": 0.7
+        },
+        "person_tracker": {
+          "device": "cpu",
+          "match_thres": 0.5
+        },
+        "face_identity": {
+          "enabled": true,
+          "device": "cpu",
+          "match_threshold": 0.3,
+          "match_margin": 0.1
+        }
       },
       "pipelines": [
         {
@@ -461,13 +847,43 @@
             "entry_confirm_seconds": 1.0,
             "zone_config_path": "${REPO_ROOT}/outputs/zones/storage_zones.json",
             "zone_asset_key": "storage_2",
-            "face_capture_window": { "start_status": "pending_in", "end_after_inside_s": 1.0 },
-            "alert_clip": { "pre_s": 15, "post_s": 15 },
+            "face_capture_window": {
+              "start_status": "pending_in",
+              "end_after_inside_s": 1.0
+            },
+            "alert_clip": {
+              "pre_s": 15,
+              "post_s": 15
+            },
             "access_schedule": {
               "timezone": "Asia/Ho_Chi_Minh",
               "allowed_windows": [
-                { "days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"], "start": "08:00", "end": "09:00" },
-                { "days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"], "start": "21:00", "end": "22:00" }
+                {
+                  "days": [
+                    "mon",
+                    "tue",
+                    "wed",
+                    "thu",
+                    "fri",
+                    "sat",
+                    "sun"
+                  ],
+                  "start": "08:00",
+                  "end": "09:00"
+                },
+                {
+                  "days": [
+                    "mon",
+                    "tue",
+                    "wed",
+                    "thu",
+                    "fri",
+                    "sat",
+                    "sun"
+                  ],
+                  "start": "21:00",
+                  "end": "22:00"
+                }
               ]
             }
           }
@@ -487,13 +903,29 @@
           "target_duration_s": 180
         }
       },
-      "runtime": { "target_fps": 5, "device": "cpu" },
+      "runtime": {
+        "target_fps": 5,
+        "device": "cpu"
+      },
       "perception": {
-        "person_detector": { "device": "cpu", "conf_thres": 0.5, "nms_thres": 0.7 },
-        "person_tracker": { "device": "cpu", "match_thres": 0.65 }
+        "person_detector": {
+          "device": "cpu",
+          "conf_thres": 0.5,
+          "nms_thres": 0.7
+        },
+        "person_tracker": {
+          "device": "cpu",
+          "match_thres": 0.65
+        }
       },
       "pipelines": [
-        { "pipeline_id": "whole_store_tracking_v1", "enabled": true, "params": { "emit_customer_tracks": true } }
+        {
+          "pipeline_id": "whole_store_tracking_v1",
+          "enabled": true,
+          "params": {
+            "emit_customer_tracks": true
+          }
+        }
       ]
     },
     {
@@ -509,13 +941,29 @@
           "target_duration_s": 180
         }
       },
-      "runtime": { "target_fps": 5, "device": "cpu" },
+      "runtime": {
+        "target_fps": 5,
+        "device": "cpu"
+      },
       "perception": {
-        "person_detector": { "device": "cpu", "conf_thres": 0.5, "nms_thres": 0.7 },
-        "person_tracker": { "device": "cpu", "match_thres": 0.65 }
+        "person_detector": {
+          "device": "cpu",
+          "conf_thres": 0.5,
+          "nms_thres": 0.7
+        },
+        "person_tracker": {
+          "device": "cpu",
+          "match_thres": 0.65
+        }
       },
       "pipelines": [
-        { "pipeline_id": "whole_store_tracking_v1", "enabled": true, "params": { "emit_customer_tracks": true } }
+        {
+          "pipeline_id": "whole_store_tracking_v1",
+          "enabled": true,
+          "params": {
+            "emit_customer_tracks": true
+          }
+        }
       ]
     },
     {
@@ -531,13 +979,29 @@
           "target_duration_s": 180
         }
       },
-      "runtime": { "target_fps": 5, "device": "cpu" },
+      "runtime": {
+        "target_fps": 5,
+        "device": "cpu"
+      },
       "perception": {
-        "person_detector": { "device": "cpu", "conf_thres": 0.5, "nms_thres": 0.7 },
-        "person_tracker": { "device": "cpu", "match_thres": 0.65 }
+        "person_detector": {
+          "device": "cpu",
+          "conf_thres": 0.5,
+          "nms_thres": 0.7
+        },
+        "person_tracker": {
+          "device": "cpu",
+          "match_thres": 0.65
+        }
       },
       "pipelines": [
-        { "pipeline_id": "whole_store_tracking_v1", "enabled": true, "params": { "emit_customer_tracks": true } }
+        {
+          "pipeline_id": "whole_store_tracking_v1",
+          "enabled": true,
+          "params": {
+            "emit_customer_tracks": true
+          }
+        }
       ]
     },
     {
@@ -553,13 +1017,29 @@
           "target_duration_s": 180
         }
       },
-      "runtime": { "target_fps": 5, "device": "cpu" },
+      "runtime": {
+        "target_fps": 5,
+        "device": "cpu"
+      },
       "perception": {
-        "person_detector": { "device": "cpu", "conf_thres": 0.5, "nms_thres": 0.7 },
-        "person_tracker": { "device": "cpu", "match_thres": 0.65 }
+        "person_detector": {
+          "device": "cpu",
+          "conf_thres": 0.5,
+          "nms_thres": 0.7
+        },
+        "person_tracker": {
+          "device": "cpu",
+          "match_thres": 0.65
+        }
       },
       "pipelines": [
-        { "pipeline_id": "whole_store_tracking_v1", "enabled": true, "params": { "emit_customer_tracks": true } }
+        {
+          "pipeline_id": "whole_store_tracking_v1",
+          "enabled": true,
+          "params": {
+            "emit_customer_tracks": true
+          }
+        }
       ]
     }
   ]

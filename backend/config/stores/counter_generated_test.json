@@ -1,0 +1,210 @@
+{
+  "company_id": "liquor_store_demo",
+  "store_id": "local_dev_store_16cams",
+  "display_name": "Local Development Store 16 Cams",
+  "timezone": "Asia/Ho_Chi_Minh",
+  "mode": "local_dev",
+  "runtime": {
+    "default_target_fps": 5,
+    "target_duration_s": 180,
+    "drop_if_lagging": true,
+    "simulation_clock": {
+      "enabled": true,
+      "started_at_local": "2026-08-23T20:30:00",
+      "playback_speed": 1.0
+    }
+  },
+  "policies": {
+    "identity_gallery_scope": "store",
+    "default_alert_clip": {
+      "pre_s": 15,
+      "post_s": 15
+    }
+  },
+  "cameras": [
+    {
+      "camera_id": "gen_left_43",
+      "display_name": "gen_left_43",
+      "camera_type": "counter",
+      "stream": {
+        "input_mode": "video_file",
+        "uri": "${REPO_ROOT}/videos/counter-generated/Left/cvlp_h3_00043_.mp4",
+        "simulation": {
+          "strategy": "trim",
+          "start_s": 0,
+          "target_duration_s": 8
+        }
+      },
+      "runtime": {
+        "target_fps": 5,
+        "device": "cpu"
+      },
+      "perception": {
+        "person_detector": {
+          "device": "cpu",
+          "conf_thres": 0.5,
+          "nms_thres": 0.7
+        },
+        "person_tracker": {
+          "device": "cpu",
+          "match_thres": 0.65
+        }
+      },
+      "pipelines": [
+        {
+          "pipeline_id": "counter_cash_theft_v1",
+          "enabled": true,
+          "params": {
+            "suppress_if_customer_recent": true,
+            "customer_recent_window_s": 3.0,
+            "zones_path": "${REPO_ROOT}/outputs/top-side-view/top-side-view_zones.json",
+            "till_conf": 0.7,
+            "till_confirm_frames": 5,
+            "alert_clip": {
+              "pre_s": 15,
+              "post_s": 15
+            }
+          }
+        }
+      ]
+    },
+    {
+      "camera_id": "gen_left_45",
+      "display_name": "gen_left_45",
+      "camera_type": "counter",
+      "stream": {
+        "input_mode": "video_file",
+        "uri": "${REPO_ROOT}/videos/counter-generated/Left/cvlp_h3_00045_.mp4",
+        "simulation": {
+          "strategy": "trim",
+          "start_s": 0,
+          "target_duration_s": 8
+        }
+      },
+      "runtime": {
+        "target_fps": 5,
+        "device": "cpu"
+      },
+      "perception": {
+        "person_detector": {
+          "device": "cpu",
+          "conf_thres": 0.5,
+          "nms_thres": 0.7
+        },
+        "person_tracker": {
+          "device": "cpu",
+          "match_thres": 0.65
+        }
+      },
+      "pipelines": [
+        {
+          "pipeline_id": "counter_cash_theft_v1",
+          "enabled": true,
+          "params": {
+            "suppress_if_customer_recent": true,
+            "customer_recent_window_s": 3.0,
+            "zones_path": "${REPO_ROOT}/outputs/top-side-view/top-side-view_zones.json",
+            "till_conf": 0.7,
+            "till_confirm_frames": 5,
+            "alert_clip": {
+              "pre_s": 15,
+              "post_s": 15
+            }
+          }
+        }
+      ]
+    },
+    {
+      "camera_id": "gen_right_13",
+      "display_name": "gen_right_13",
+      "camera_type": "counter",
+      "stream": {
+        "input_mode": "video_file",
+        "uri": "${REPO_ROOT}/videos/counter-generated/Right/cvlp_h3_00013_.mp4",
+        "simulation": {
+          "strategy": "trim",
+          "start_s": 0,
+          "target_duration_s": 8
+        }
+      },
+      "runtime": {
+        "target_fps": 5,
+        "device": "cpu"
+      },
+      "perception": {
+        "person_detector": {
+          "device": "cpu",
+          "conf_thres": 0.5,
+          "nms_thres": 0.7
+        },
+        "person_tracker": {
+          "device": "cpu",
+          "match_thres": 0.65
+        }
+      },
+      "pipelines": [
+        {
+          "pipeline_id": "counter_cash_theft_v1",
+          "enabled": true,
+          "params": {
+            "suppress_if_customer_recent": true,
+            "customer_recent_window_s": 3.0,
+            "zones_path": "${REPO_ROOT}/outputs/top-side-view/top-side-view_zones.json",
+            "till_conf": 0.7,
+            "till_confirm_frames": 5,
+            "alert_clip": {
+              "pre_s": 15,
+              "post_s": 15
+            }
+          }
+        }
+      ]
+    },
+    {
+      "camera_id": "gen_right_19",
+      "display_name": "gen_right_19",
+      "camera_type": "counter",
+      "stream": {
+        "input_mode": "video_file",
+        "uri": "${REPO_ROOT}/videos/counter-generated/Right/cvlp_h3_00019_.mp4",
+        "simulation": {
+          "strategy": "trim",
+          "start_s": 0,
+          "target_duration_s": 8
+        }
+      },
+      "runtime": {
+        "target_fps": 5,
+        "device": "cpu"
+      },
+      "perception": {
+        "person_detector": {
+          "device": "cpu",
+          "conf_thres": 0.5,
+          "nms_thres": 0.7
+        },
+        "person_tracker": {
+          "device": "cpu",
+          "match_thres": 0.65
+        }
+      },
+      "pipelines": [
+        {
+          "pipeline_id": "counter_cash_theft_v1",
+          "enabled": true,
+          "params": {
+            "suppress_if_customer_recent": true,
+            "customer_recent_window_s": 3.0,
+            "zones_path": "${REPO_ROOT}/outputs/top-side-view/top-side-view_zones.json",
+            "till_conf": 0.7,
+            "till_confirm_frames": 5,
+            "alert_clip": {
+              "pre_s": 15,
+              "post_s": 15
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

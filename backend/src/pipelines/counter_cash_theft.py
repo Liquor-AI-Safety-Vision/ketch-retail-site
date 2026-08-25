@@ -76,6 +76,7 @@ class CounterCashTheftPipeline:
         self.events_by_track: dict[int, Any] = {}
         self.last_till_box = None
         self.last_till_open = False
+        self.till_every_n = 1
         self.metrics = {
             "frames_processed": 0,
             "detections_total": 0,
@@ -83,6 +84,7 @@ class CounterCashTheftPipeline:
             "suppressed_events": 0,
             "state_transitions": 0,
             "till_state_changes": 0,
+            "till_frames_skipped": 0,
             "till_batch_size_last": 1,
             "till_batch_size_sum": 0,
             "till_batch_size_max": 1,
@@ -156,6 +158,18 @@ class CounterCashTheftPipeline:
         till_imgsz = int(self.params.get("till_imgsz", 640))
         till_conf = float(self.params.get("till_conf", 0.70))
         till_confirm = int(self.params.get("till_confirm_frames", 5))
+        # `till_confirm_frames` is a debounce expressed in samples, tuned when the
+        # drawer was sampled on every frame. Sampling it less often has to keep
+        # the same debounce *duration*, or a 5-sample streak at 1 Hz would take
+        # five seconds to confirm a drawer that opened.
+        camera_fps = float(self.spec.target_fps) or 1.0
+        confirm_window_s = till_confirm / camera_fps
+        self.till_every_n = max(1, int(round(camera_fps / float(self.params.get("till_fps", camera_fps)))))
+        till_sample_fps = camera_fps / self.till_every_n
+        till_confirm = max(1, int(round(confirm_window_s * till_sample_fps)))
+        self.metrics["till_every_n_frames"] = self.till_every_n
+        self.metrics["till_confirm_samples"] = till_confirm
+        self.metrics["till_confirm_window_s"] = round(till_confirm / till_sample_fps, 3)
         till_providers = (
             ["CPUExecutionProvider"]
             if self.cpu_only
@@ -334,17 +348,26 @@ class CounterCashTheftPipeline:
             for tid in removed:
                 self.voter.drop(tid)
 
+        # Sampling the drawer less often than every frame. The confirm streak is
+        # counted in till samples, so it is scaled at bootstrap to keep the
+        # debounce window the same length in seconds.
+        run_till = (frame.frame_idx % self.till_every_n) == 0
+        till_dets = None
+        till_profile = {}
         with self.timing.track("till_infer"):
-            if self.shared_inference is not None:
-                till_result = self.till.detect(
-                    frame.image_bgr,
-                    conf=float(self.params.get("till_conf", 0.70)),
-                )
-                till_dets = till_result.detections
-                till_profile = till_result.profile
+            if run_till:
+                if self.shared_inference is not None:
+                    till_result = self.till.detect(
+                        frame.image_bgr,
+                        conf=float(self.params.get("till_conf", 0.70)),
+                    )
+                    till_dets = till_result.detections
+                    till_profile = till_result.profile
+                else:
+                    till_dets = self.till(frame.image_bgr)
+                    till_profile = self.till.last_profile
             else:
-                till_dets = self.till(frame.image_bgr)
-                till_profile = self.till.last_profile
+                self.metrics["till_frames_skipped"] += 1
         self.timing.merge_dict(
             {
                 "till_infer::letterbox": float(till_profile.get("letterbox_s", 0.0)),
@@ -367,25 +390,31 @@ class CounterCashTheftPipeline:
         )
         self.metrics["till_queue_wait_ms_last"] = round(float(till_profile.get("queue_wait_s", 0.0)) * 1000.0, 3)
         self.metrics["till_batch_wait_ms_last"] = round(float(till_profile.get("batch_wait_s", 0.0)) * 1000.0, 3)
-        with self.timing.track("till_state_update"):
-            items_till, changes = self.till_reg.update(till_dets)
-        self.metrics["till_state_changes"] += len(changes)
-        self.metrics["max_live_tracks"] = max(self.metrics["max_live_tracks"], len(live))
+        # Only advance the confirm streak on frames that actually observed the
+        # drawer. Feeding it a repeated reading would reach `confirm` without any
+        # new evidence, which is exactly the false positive the streak guards
+        # against. On skipped frames the previous confirmed state stands.
+        changes: list = []  # no new drawer reading on a skipped frame
+        if run_till:
+            with self.timing.track("till_state_update"):
+                items_till, changes = self.till_reg.update(till_dets)
+            self.metrics["till_state_changes"] += len(changes)
 
-        open_boxes = []
-        self.last_till_open = False
-        for till_state, _raw_name, _score, poly in items_till:
-            box = [
-                float(poly[:, 0].min()),
-                float(poly[:, 1].min()),
-                float(poly[:, 0].max()),
-                float(poly[:, 1].max()),
-            ]
-            if till_state.state == "Open":
-                self.last_till_open = True
-                open_boxes.append(box)
-        if open_boxes:
-            self.last_till_box = open_boxes[0]
+            open_boxes = []
+            self.last_till_open = False
+            for till_state, _raw_name, _score, poly in items_till:
+                box = [
+                    float(poly[:, 0].min()),
+                    float(poly[:, 1].min()),
+                    float(poly[:, 0].max()),
+                    float(poly[:, 1].max()),
+                ]
+                if till_state.state == "Open":
+                    self.last_till_open = True
+                    open_boxes.append(box)
+            if open_boxes:
+                self.last_till_box = open_boxes[0]
+        self.metrics["max_live_tracks"] = max(self.metrics["max_live_tracks"], len(live))
 
         with self.timing.track("voter_role_update"):
             live_items = []

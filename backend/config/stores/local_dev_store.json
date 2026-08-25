@@ -63,7 +63,8 @@
             "alert_clip": {
               "pre_s": 15,
               "post_s": 15
-            }
+            },
+            "till_fps": 3
           }
         }
       ]
