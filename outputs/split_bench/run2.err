@@ -1,0 +1,7 @@
+cameras=16 decoders=4 inferers=2x2 business=2
+
+=== split pipeline ===
+model load (before clock) :    10.2 s
+frames                    : 11520
+tracks created            : 460
+serving                   :    88.6 s  -> 130.03 FPS
