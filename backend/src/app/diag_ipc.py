@@ -153,6 +153,69 @@ def bench_pickle(ctx, frame: np.ndarray, n: int) -> float:
     return _time_round_trips(ctx, _consumer_pickle, feed, n)
 
 
+def _consumer_ring(spec, inbox: mp.Queue, outbox: mp.Queue) -> None:
+    from backend.src.runtime.frame_ring import FrameRing
+
+    ring = FrameRing(spec)
+    try:
+        while True:
+            item = inbox.get()
+            if item is None:
+                return
+            arr = ring.frames[item]
+            outbox.put(int(arr[0, 0, 0]) + int(arr[-1, -1, -1]))
+    finally:
+        ring.close()
+
+
+def bench_frame_ring(ctx, frame: np.ndarray, n: int, pool: int, *, copy: bool = True) -> float:
+    """The production class, held to the number the prototype established.
+
+    An abstraction over shared memory is only worth having if it costs
+    nothing, so this measures the real FrameRing on the same footing as the
+    hand-rolled variants above.
+    """
+    import sys as _sys
+    from pathlib import Path as _Path
+
+    root = _Path(__file__).resolve().parents[3]
+    if str(root) not in _sys.path:
+        _sys.path.insert(0, str(root))
+    from backend.src.runtime.frame_ring import FrameRing
+
+    ring, free_q = FrameRing.create(ctx, slots=pool, frame_shape=frame.shape)
+
+    def feed(inbox, outbox, count):
+        for _ in range(count):
+            slot = free_q.get()
+            if copy:
+                ring.frame_slot(slot)[:] = frame
+            # With copy off, this stands in for a decoder handed frame_slot()
+            # as its destination: cv2.VideoCapture.read(dst) fills the shared
+            # block directly and the copy never happens.
+            inbox.put(slot)
+            outbox.get()
+            free_q.put(slot)
+
+    try:
+        inbox, outbox = ctx.Queue(), ctx.Queue()
+        proc = ctx.Process(target=_consumer_ring, args=(ring.spec, inbox, outbox))
+        proc.start()
+        try:
+            feed(inbox, outbox, 5)
+            start = time.perf_counter()
+            feed(inbox, outbox, n)
+            elapsed = time.perf_counter() - start
+        finally:
+            inbox.put(None)
+            proc.join(timeout=10)
+            if proc.is_alive():
+                proc.terminate()
+        return elapsed / n
+    finally:
+        ring.close()
+
+
 def bench_queue_only(ctx, frame: np.ndarray, n: int) -> float:
     """Round-trip a name and a shape, with no frame data involved at all."""
     def feed(inbox, outbox, count):
@@ -201,6 +264,8 @@ def main() -> None:
         f"shared memory, pool of {args.pool}": bench_shm(ctx, frame, args.frames, args.pool),
         "  ... reader keeps blocks mapped": bench_shm(ctx, frame, args.frames, args.pool, cached=True),
         "  ... and decoder writes in place": bench_shm(ctx, frame, args.frames, args.pool, cached=True, copy=False),
+        "FrameRing, copied in": bench_frame_ring(ctx, frame, args.frames, args.pool),
+        "FrameRing, decoder writes in place": bench_frame_ring(ctx, frame, args.frames, args.pool, copy=False),
         "shared memory, fresh block per frame": bench_shm_fresh(ctx, frame, args.frames),
         "pickle through mp.Queue": bench_pickle(ctx, frame, args.frames),
     }
