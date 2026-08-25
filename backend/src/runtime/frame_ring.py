@@ -157,6 +157,14 @@ class FrameRing:
         return self.blobs[slot]
 
     def close(self) -> None:
+        """Detach, and destroy the blocks if this process created them.
+
+        Only the creator unlinks. Attaching processes call close(), which
+        detaches without destroying, so a consumer shutting down early cannot
+        pull the memory out from under everyone else. A "leaked shared_memory
+        objects" warning at exit means an owner died before reaching here, not
+        that a consumer failed to clean up.
+        """
         for shm in self._shms:
             shm.close()
             if self.owner:

@@ -43,6 +43,35 @@ def _preferred_providers(cpu_only: bool) -> list[str]:
     return out or ["CPUExecutionProvider"]
 
 
+def _session_options(config: dict | None = None):
+    """Session options with the intra-op pool sized deliberately.
+
+    onnxruntime defaults its intra-op thread pool to the core count and does
+    not read OMP_NUM_THREADS, so cap_native_threads has no effect on it. With
+    several sessions in one process that is a few dozen native threads
+    competing for a 23-core quota, and the cost shows up as latency on every
+    call rather than as an obviously busy CPU.
+    """
+    import onnxruntime as ort
+
+    so = ort.SessionOptions()
+    so.log_severity_level = 3
+    cfg = config or {}
+    threads = int(cfg.get("ort_intra_threads", 0) or 0)
+    if threads > 0:
+        so.intra_op_num_threads = threads
+        so.inter_op_num_threads = 1
+    if not cfg.get("ort_allow_spinning", True):
+        # onnxruntime's pools spin before sleeping, which trades CPU for a
+        # little latency on the next call. In a process that also has to
+        # answer requests from other processes, that trade is the wrong way
+        # round: the spinning delays every reply, including ones no model is
+        # involved in.
+        so.add_session_config_entry("session.intra_op.allow_spinning", "0")
+        so.add_session_config_entry("session.inter_op.allow_spinning", "0")
+    return so
+
+
 def _letterbox(im: np.ndarray, size: int) -> tuple[np.ndarray, float, int, int]:
     h, w = im.shape[:2]
     r = min(size / h, size / w)
@@ -201,6 +230,7 @@ class SharedPoseService:
         model_path: str,
         *,
         cpu_only: bool,
+        session_config: dict[str, Any] | None = None,
         imgsz: int = 640,
         max_batch: int = 8,
         batch_wait_s: float = 0.005,
@@ -210,8 +240,7 @@ class SharedPoseService:
         self.model_path = model_path
         self.imgsz = imgsz
         self.providers = _preferred_providers(cpu_only)
-        so = ort.SessionOptions()
-        so.log_severity_level = 3
+        so = _session_options(session_config)
         self.sess = ort.InferenceSession(model_path, so, providers=self.providers)
         meta = self.sess.get_inputs()[0]
         self.inp = meta.name
@@ -337,6 +366,7 @@ class SharedFaceDetectorService:
         model_path: str,
         *,
         cpu_only: bool,
+        session_config: dict[str, Any] | None = None,
         imgsz: int = 640,
         max_batch: int = 8,
         batch_wait_s: float = 0.005,
@@ -345,8 +375,7 @@ class SharedFaceDetectorService:
         self.model_path = model_path
         self.imgsz = imgsz
         self.providers = _preferred_providers(cpu_only)
-        so = ort.SessionOptions()
-        so.log_severity_level = 3
+        so = _session_options(session_config)
         self.sess = ort.InferenceSession(model_path, so, providers=self.providers)
         self.inp = self.sess.get_inputs()[0].name
         self.provider = self.sess.get_providers()[0]
@@ -491,14 +520,14 @@ class SharedArcFaceService:
         model_path: str,
         *,
         cpu_only: bool,
+        session_config: dict[str, Any] | None = None,
         max_batch: int = 16,
         batch_wait_s: float = 0.005,
         num_workers: int = 1,
     ):
         self.model_path = model_path
         self.providers = _preferred_providers(cpu_only)
-        so = ort.SessionOptions()
-        so.log_severity_level = 3
+        so = _session_options(session_config)
         self.sess = ort.InferenceSession(model_path, so, providers=self.providers)
         self.inp = self.sess.get_inputs()[0].name
         self.provider = self.sess.get_providers()[0]
@@ -552,6 +581,7 @@ class SharedTillService:
         model_path: str,
         *,
         cpu_only: bool,
+        session_config: dict[str, Any] | None = None,
         imgsz: int = 640,
         names: tuple[str, ...] = ("Close", "Open"),
         max_batch: int = 8,
@@ -561,8 +591,7 @@ class SharedTillService:
         self.model_path = model_path
         self.imgsz = imgsz
         self.providers = _preferred_providers(cpu_only)
-        so = ort.SessionOptions()
-        so.log_severity_level = 3
+        so = _session_options(session_config)
         self.sess = ort.InferenceSession(model_path, so, providers=self.providers)
         meta = self.sess.get_inputs()[0]
         self.inp = meta.name
@@ -827,6 +856,7 @@ class SharedInferenceRegistry:
             lambda: SharedPoseService(
                 model_path,
                 cpu_only=self.cpu_only,
+                session_config=self.config,
                 num_workers=int(self.config.get("pose_num_workers", 2)),
                 max_batch=int(self.config.get("pose_max_batch", 8)),
                 batch_wait_s=float(self.config.get("pose_batch_wait_s", 0.005)),
@@ -841,6 +871,7 @@ class SharedInferenceRegistry:
             lambda: SharedFaceDetectorService(
                 model_path,
                 cpu_only=self.cpu_only,
+                session_config=self.config,
                 num_workers=int(self.config.get("face_det_num_workers", 1)),
                 max_batch=int(self.config.get("face_det_max_batch", 8)),
                 batch_wait_s=float(self.config.get("face_det_batch_wait_s", 0.005)),
@@ -854,6 +885,7 @@ class SharedInferenceRegistry:
             lambda: SharedArcFaceService(
                 model_path,
                 cpu_only=self.cpu_only,
+                session_config=self.config,
                 num_workers=int(self.config.get("arcface_num_workers", 1)),
                 max_batch=int(self.config.get("arcface_max_batch", 16)),
                 batch_wait_s=float(self.config.get("arcface_batch_wait_s", 0.005)),
@@ -905,6 +937,7 @@ class SharedInferenceRegistry:
             lambda: SharedTillService(
                 model_path,
                 cpu_only=self.cpu_only,
+                session_config=self.config,
                 imgsz=imgsz,
                 names=names,
                 num_workers=int(self.config.get("till_num_workers", 1)),
