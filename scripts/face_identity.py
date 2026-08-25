@@ -307,6 +307,38 @@ class FaceGallery:
                 "embedding": emb,
             }
 
+    def summarize(self, store_id=None, company_id=None):
+        """Count what match() would actually search under the same filters.
+
+        A scope that matches nothing is indistinguishable from a genuine
+        non-match at call time: both surface as "gallery_empty" on every
+        frame. Callers use this at startup to say so once, loudly.
+        """
+        query = """
+            SELECT COUNT(DISTINCT p.person_id) AS persons,
+                   COUNT(e.embedding_id) AS embeddings
+            FROM face_embeddings e
+            JOIN persons p USING(person_id)
+        """
+        where = []
+        params = []
+        if store_id is not None:
+            where.append("p.store_id = ?")
+            params.append(store_id)
+        if company_id is not None:
+            where.append("p.company_id = ?")
+            params.append(company_id)
+        if where:
+            query += " WHERE " + " AND ".join(where)
+        row = self.conn.execute(query, params).fetchone()
+        known = [r["store_id"] for r in self.conn.execute(
+            "SELECT DISTINCT store_id FROM persons WHERE store_id IS NOT NULL")]
+        return {
+            "persons": int(row["persons"]),
+            "embeddings": int(row["embeddings"]),
+            "known_store_ids": known,
+        }
+
     def match(self, embedding, threshold=0.30, margin=0.10,
               store_id=None, company_id=None):
         emb = np.asarray(embedding, np.float32).reshape(-1)

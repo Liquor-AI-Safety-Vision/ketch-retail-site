@@ -26,6 +26,7 @@ from backend.src.domain.models import CameraPipelineBindingSpec, CameraStreamSpe
 from backend.src.infra.local_media_store import LocalMediaStore
 from backend.src.infra.sqlite_alert_store import SqliteAlertStore
 from backend.src.pipelines.alert_clip_buffer import AlertClipBuffer, FinalizedAlertClip
+from backend.src.pipelines.track_quality import record_track_quality
 from backend.src.runtime.shared_inference import SharedInferenceRegistry
 
 
@@ -415,6 +416,7 @@ class CounterCashTheftPipeline:
             if open_boxes:
                 self.last_till_box = open_boxes[0]
         self.metrics["max_live_tracks"] = max(self.metrics["max_live_tracks"], len(live))
+        record_track_quality(self.metrics, self.tracker, live)
 
         with self.timing.track("voter_role_update"):
             live_items = []

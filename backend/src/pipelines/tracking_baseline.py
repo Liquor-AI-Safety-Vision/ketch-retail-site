@@ -17,6 +17,7 @@ import stream_track as S  # noqa: E402
 from uae_tracker import Detection, Tracker  # noqa: E402
 
 from backend.src.domain.models import CameraPipelineBindingSpec, CameraStreamSpec, FrameEnvelope
+from backend.src.pipelines.track_quality import record_track_quality
 from backend.src.runtime.shared_inference import SharedInferenceRegistry
 
 
@@ -158,6 +159,7 @@ class TrackingBaselinePipeline:
         self.metrics["frames_processed"] += 1
         self.metrics["detections_total"] += int(len(boxes))
         self.metrics["max_live_tracks"] = max(self.metrics["max_live_tracks"], len(live))
+        record_track_quality(self.metrics, self.tracker, live)
         self.metrics["timing"] = self.timing.as_dict()
         return {
             "alerts_emitted": 0,

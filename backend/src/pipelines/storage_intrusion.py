@@ -26,6 +26,7 @@ from backend.src.domain.models import CameraPipelineBindingSpec, CameraStreamSpe
 from backend.src.infra.local_media_store import LocalMediaStore
 from backend.src.infra.sqlite_alert_store import SqliteAlertStore
 from backend.src.pipelines.alert_clip_buffer import AlertClipBuffer, FinalizedAlertClip
+from backend.src.pipelines.track_quality import record_track_quality
 from backend.src.runtime.shared_inference import SharedFaceIdentifier, SharedInferenceRegistry
 
 
@@ -235,6 +236,8 @@ class StorageIntrusionPipeline:
                     match_threshold=float(face_cfg.get("match_threshold", 0.30)),
                     match_margin=float(face_cfg.get("match_margin", 0.10)),
                 )
+        if self.face_identifier is not None:
+            self._check_gallery_scope()
         face_detector_provider = None
         arcface_provider = None
         if self.face_identifier is not None:
@@ -250,6 +253,30 @@ class StorageIntrusionPipeline:
             "face_detector": face_detector_provider,
             "arcface_embedder": arcface_provider,
         }
+
+    def _check_gallery_scope(self) -> None:
+        """Say so at startup when the identity gallery resolves to nothing.
+
+        The store_id on the manifest has to match the one the staff were
+        registered under. When it does not, every match returns
+        "gallery_empty" and the run still looks healthy: alerts are emitted,
+        just with nobody ever recognised. That cost a full 16-camera
+        benchmark before it was noticed.
+        """
+        summary = self.face_identifier.gallery.summarize(
+            store_id=self.spec.store_id,
+            company_id=self.spec.company_id,
+        )
+        self.metrics["gallery"] = summary
+        if summary["embeddings"] > 0:
+            return
+        print(
+            f"WARNING [{self.spec.camera_id}] face identity is enabled but the gallery "
+            f"is empty for store_id={self.spec.store_id!r} "
+            f"company_id={self.spec.company_id!r}. Every identification will report "
+            f"gallery_empty. Registered store ids: {summary['known_store_ids']}",
+            file=sys.stderr,
+        )
 
     def warmup(self, frame: FrameEnvelope):
         if self.det is not None:
@@ -425,6 +452,7 @@ class StorageIntrusionPipeline:
             dets = [Detection(boxes[i, :4], boxes[i, 4], feats[i], kpts[i]) for i in range(len(boxes))]
         with self.timing.track("tracker_update"):
             live, removed = self.tracker.update(dets, frame.frame_idx)
+        record_track_quality(self.metrics, self.tracker, live)
         with self.timing.track("zone_monitor_drop"):
             self.monitor.drop(removed, frame.frame_idx)
 
