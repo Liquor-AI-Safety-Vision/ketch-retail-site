@@ -1,0 +1,43 @@
+=== current0 run 1  03:22:04 ===
+frames                    : 11520
+detections                : 15384
+serving                   :    71.6 s  -> 160.80 FPS
+=== split4 run 1  03:23:19 ===
+frames                    : 11520
+detections                : 15384
+serving                   :    64.6 s  -> 178.28 FPS
+gpu infer                 : 5.36 ms/frame
+=== split8 run 1  03:24:27 ===
+frames                    : 11520
+detections                : 15384
+serving                   :    70.0 s  -> 164.56 FPS
+gpu infer                 : 5.79 ms/frame
+=== current0 run 2  03:25:41 ===
+frames                    : 11520
+detections                : 15384
+serving                   :    69.6 s  -> 165.62 FPS
+=== split4 run 2  03:26:54 ===
+frames                    : 11520
+detections                : 15384
+serving                   :    72.7 s  -> 158.46 FPS
+gpu infer                 : 6.01 ms/frame
+=== split8 run 2  03:28:10 ===
+frames                    : 11520
+detections                : 15384
+serving                   :    64.9 s  -> 177.40 FPS
+gpu infer                 : 5.39 ms/frame
+=== current0 run 3  03:29:19 ===
+frames                    : 11520
+detections                : 15384
+serving                   :    71.9 s  -> 160.27 FPS
+=== split4 run 3  03:30:34 ===
+frames                    : 11520
+detections                : 15384
+serving                   :    71.0 s  -> 162.30 FPS
+gpu infer                 : 5.87 ms/frame
+=== split8 run 3  03:31:49 ===
+frames                    : 11520
+detections                : 15384
+serving                   :    69.9 s  -> 164.81 FPS
+gpu infer                 : 5.79 ms/frame
+ALLDONE
