@@ -1,0 +1,752 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Kiến trúc hệ thống giám sát đa camera — Liquor Store</title>
+<style>
+  @page { size: A4; margin: 14mm 13mm 16mm 13mm; }
+  * { box-sizing: border-box; }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body {
+    font-family: -apple-system, "Helvetica Neue", "Segoe UI", Arial, sans-serif;
+    color: #1c2430; margin: 0; font-size: 10.2pt; line-height: 1.55;
+  }
+  h1 { font-size: 26pt; margin: 0 0 6px; letter-spacing: -0.5px; color: #0f1826; }
+  h2 {
+    font-size: 15pt; margin: 0 0 12px; color: #0f1826;
+    padding-bottom: 6px; border-bottom: 2px solid #e3e8ef;
+  }
+  h3 { font-size: 11.5pt; margin: 18px 0 7px; color: #26456b; }
+  p { margin: 0 0 9px; }
+  code { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 0.87em;
+         background: #eef2f7; padding: 1px 4px; border-radius: 3px; color: #1d3557; }
+  .page { page-break-after: always; padding-top: 2mm; }
+  .page:last-child { page-break-after: auto; }
+  .lead { font-size: 11pt; color: #47566b; margin-bottom: 16px; }
+  .muted { color: #6b7a90; }
+
+  .cover { display: flex; flex-direction: column; justify-content: center; min-height: 250mm; }
+  .cover .kicker { font-size: 10pt; letter-spacing: 2.4px; text-transform: uppercase;
+                   color: #5b6ee0; font-weight: 700; margin-bottom: 14px; }
+  .cover h1 { font-size: 34pt; line-height: 1.15; }
+  .cover .sub { font-size: 13pt; color: #47566b; margin: 12px 0 30px; max-width: 135mm; }
+  .meta { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; max-width: 130mm; }
+  .meta div { border-left: 3px solid #5b6ee0; padding-left: 11px; }
+  .meta .k { font-size: 8pt; text-transform: uppercase; letter-spacing: 1px; color: #8494a8; }
+  .meta .v { font-size: 10.5pt; font-weight: 600; color: #1c2430; }
+
+  table { width: 100%; border-collapse: collapse; margin: 10px 0 14px; font-size: 9.2pt; }
+  th { text-align: left; background: #f1f4f9; color: #26456b; font-weight: 700;
+       padding: 7px 9px; border-bottom: 2px solid #dbe2ec; }
+  td { padding: 6px 9px; border-bottom: 1px solid #eaeef4; vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .hi { background: #f0fdf4; font-weight: 600; }
+
+  .note {
+    border-left: 3px solid #d99b1c; background: #fffbf0;
+    padding: 9px 13px; margin: 12px 0; font-size: 9.4pt; border-radius: 0 4px 4px 0;
+  }
+  .note b { color: #8a5d00; }
+  .good { border-left-color: #1f9d63; background: #f2fcf7; }
+  .good b { color: #0f6b41; }
+
+  figure { margin: 14px 0 18px; }
+  figcaption { font-size: 8.6pt; color: #6b7a90; margin-top: 7px; text-align: center; }
+  svg { display: block; width: 100%; height: auto; }
+
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .card { border: 1px solid #e3e8ef; border-radius: 6px; padding: 11px 13px; background: #fbfcfe; }
+  .card h4 { margin: 0 0 6px; font-size: 10pt; color: #26456b; }
+  .card p { font-size: 9.2pt; margin: 0 0 6px; }
+  ul { margin: 0 0 10px; padding-left: 18px; }
+  li { margin-bottom: 4px; }
+  .foot { position: running(footer); }
+</style>
+</head>
+<body>
+
+<!-- ============================ COVER ============================ -->
+<section class="page cover">
+  <div class="kicker">Tài liệu kiến trúc kỹ thuật</div>
+  <h1>Hệ thống giám sát<br>đa camera thời gian thực</h1>
+  <div class="sub">
+    Từ luồng video đầu vào đến cảnh báo đầu ra — kiến trúc hiện tại,
+    các khối chức năng, số liệu hiệu năng đo được, và lộ trình kiến trúc kỳ vọng.
+  </div>
+  <div class="meta">
+    <div><div class="k">Dự án</div><div class="v">Liquor Store Backend</div></div>
+    <div><div class="k">Ngày</div><div class="v">24 tháng 8, 2026</div></div>
+    <div><div class="k">Quy mô đo kiểm</div><div class="v">16 camera đồng thời</div></div>
+    <div><div class="k">Phần cứng</div><div class="v">NVIDIA L40S 46 GB</div></div>
+    <div><div class="k">Thông lượng đạt</div><div class="v">112–116 FPS tổng hợp</div></div>
+    <div><div class="k">Mục tiêu</div><div class="v">64 FPS (đạt 180%)</div></div>
+  </div>
+</section>
+
+<!-- ============================ 1. TỔNG QUAN ============================ -->
+<section class="page">
+  <h2>1. Tổng quan luồng xử lý</h2>
+  <p class="lead">
+    Hệ thống nhận nhiều luồng video song song, hạ tần số về <code>target_fps</code> của từng camera,
+    chạy qua chuỗi mô hình thị giác dùng chung, rồi áp luật nghiệp vụ riêng theo loại camera
+    để sinh cảnh báo kèm bằng chứng hình ảnh.
+  </p>
+
+  <figure>
+    <svg viewBox="0 0 900 250" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="ar" markerWidth="9" markerHeight="9" refX="7.5" refY="3.2" orient="auto">
+          <path d="M0,0 L7.5,3.2 L0,6.4 z" fill="#7c8ba1"/>
+        </marker>
+      </defs>
+      <!-- stage boxes -->
+      <g font-family="Helvetica, Arial" font-size="11">
+        <rect x="8"   y="70" width="126" height="72" rx="7" fill="#eef1fb" stroke="#5b6ee0" stroke-width="1.5"/>
+        <text x="71" y="96"  text-anchor="middle" font-weight="700" fill="#2c3b8f">Nguồn video</text>
+        <text x="71" y="113" text-anchor="middle" font-size="9" fill="#5a6782">file / RTSP</text>
+        <text x="71" y="128" text-anchor="middle" font-size="9" fill="#5a6782">16 luồng</text>
+
+        <rect x="163" y="70" width="132" height="72" rx="7" fill="#eef1fb" stroke="#5b6ee0" stroke-width="1.5"/>
+        <text x="229" y="92"  text-anchor="middle" font-weight="700" fill="#2c3b8f">Thu &amp; hạ tần</text>
+        <text x="229" y="109" text-anchor="middle" font-size="9" fill="#5a6782">VirtualVideo</text>
+        <text x="229" y="122" text-anchor="middle" font-size="9" fill="#5a6782">StreamSource</text>
+        <text x="229" y="135" text-anchor="middle" font-size="8.5" fill="#8494a8">3–5 FPS/cam</text>
+
+        <rect x="324" y="52" width="150" height="108" rx="7" fill="#e8f6ef" stroke="#1f9d63" stroke-width="1.5"/>
+        <text x="399" y="74"  text-anchor="middle" font-weight="700" fill="#0f6b41">Nhận thức chung</text>
+        <text x="399" y="92"  text-anchor="middle" font-size="9" fill="#3f6b57">Pose (YOLO26m)</text>
+        <text x="399" y="106" text-anchor="middle" font-size="9" fill="#3f6b57">ReID (OSNet)</text>
+        <text x="399" y="120" text-anchor="middle" font-size="9" fill="#3f6b57">Tracker đa đối tượng</text>
+        <text x="399" y="140" text-anchor="middle" font-size="8.5" fill="#6b9a83">session dùng chung</text>
+
+        <rect x="503" y="52" width="152" height="108" rx="7" fill="#fdf3e7" stroke="#d99b1c" stroke-width="1.5"/>
+        <text x="579" y="74"  text-anchor="middle" font-weight="700" fill="#8a5d00">Luật nghiệp vụ</text>
+        <text x="579" y="92"  text-anchor="middle" font-size="9" fill="#7a6432">Vùng &amp; vai trò</text>
+        <text x="579" y="106" text-anchor="middle" font-size="9" fill="#7a6432">Nhận diện khuôn mặt</text>
+        <text x="579" y="120" text-anchor="middle" font-size="9" fill="#7a6432">Máy trạng thái (FSM)</text>
+        <text x="579" y="140" text-anchor="middle" font-size="8.5" fill="#a8895a">theo loại camera</text>
+
+        <rect x="684" y="70" width="128" height="72" rx="7" fill="#fdeef0" stroke="#c0392b" stroke-width="1.5"/>
+        <text x="748" y="92"  text-anchor="middle" font-weight="700" fill="#9b2c1e">Đầu ra</text>
+        <text x="748" y="109" text-anchor="middle" font-size="9" fill="#8a5148">Cảnh báo (SQLite)</text>
+        <text x="748" y="124" text-anchor="middle" font-size="9" fill="#8a5148">Clip bằng chứng</text>
+
+        <!-- arrows -->
+        <line x1="136" y1="106" x2="160" y2="106" stroke="#7c8ba1" stroke-width="1.6" marker-end="url(#ar)"/>
+        <line x1="297" y1="106" x2="321" y2="106" stroke="#7c8ba1" stroke-width="1.6" marker-end="url(#ar)"/>
+        <line x1="476" y1="106" x2="500" y2="106" stroke="#7c8ba1" stroke-width="1.6" marker-end="url(#ar)"/>
+        <line x1="657" y1="106" x2="681" y2="106" stroke="#7c8ba1" stroke-width="1.6" marker-end="url(#ar)"/>
+
+        <!-- labels under -->
+        <text x="399" y="196" text-anchor="middle" font-size="8.5" fill="#8494a8">chạy trên GPU, chia sẻ giữa mọi camera</text>
+        <text x="579" y="196" text-anchor="middle" font-size="8.5" fill="#8494a8">chạy trên CPU, riêng từng camera</text>
+        <line x1="330" y1="168" x2="468" y2="168" stroke="#c9d2de" stroke-width="1"/>
+        <line x1="509" y1="168" x2="649" y2="168" stroke="#c9d2de" stroke-width="1"/>
+      </g>
+    </svg>
+    <figcaption>Hình 1 — Luồng xử lý tổng thể: từ video vào đến cảnh báo ra</figcaption>
+  </figure>
+
+  <h3>Bốn giai đoạn chính</h3>
+  <table>
+    <tr><th style="width:20%">Giai đoạn</th><th style="width:32%">Thành phần</th><th>Nhiệm vụ</th></tr>
+    <tr>
+      <td><b>Thu nhận</b></td>
+      <td><code>VirtualVideoStreamSource</code></td>
+      <td>Đọc video dần như luồng trực tiếp, bỏ bớt frame để đạt đúng <code>target_fps</code> cấu hình cho từng camera (3 FPS cho kho, 5 FPS cho quầy).</td>
+    </tr>
+    <tr>
+      <td><b>Điều phối</b></td>
+      <td><code>RuntimeSupervisor</code>, <code>CameraRuntime</code></td>
+      <td>Chia camera vào các tiến trình, nạp sẵn toàn bộ mô hình, rồi mới cho các camera đồng loạt bắt đầu kéo frame.</td>
+    </tr>
+    <tr>
+      <td><b>Nhận thức</b></td>
+      <td><code>SharedInferenceRegistry</code></td>
+      <td>Phát hiện người + khớp xương, trích đặc trưng ngoại hình, bám vết đa đối tượng. Các phiên mô hình dùng chung cho mọi camera trong cùng tiến trình.</td>
+    </tr>
+    <tr>
+      <td><b>Nghiệp vụ</b></td>
+      <td>3 pipeline theo loại camera</td>
+      <td>Áp luật riêng: xâm nhập kho, trộm tiền quầy thu ngân, bám vết toàn cửa hàng. Sinh cảnh báo và trích clip bằng chứng.</td>
+    </tr>
+  </table>
+
+  <div class="note good">
+    <b>Nguyên tắc thiết kế cốt lõi:</b> số lượng camera và số lượng tiến trình được tách rời hoàn toàn.
+    Thêm camera không làm tăng số phiên mô hình hay số ngữ cảnh GPU — đây là điểm khác biệt căn bản
+    so với thiết kế ban đầu (mỗi camera một tiến trình) vốn sụp đổ khi lên 16 luồng.
+  </div>
+</section>
+
+<!-- ============================ 2. TOPOLOGY ============================ -->
+<section class="page">
+  <h2>2. Mô hình tiến trình &amp; luồng (chế độ <code>hybrid</code>)</h2>
+  <p class="lead">
+    Camera được chia đều vào một số tiến trình <b>cố định</b>. Mỗi tiến trình sở hữu đúng
+    một ngữ cảnh CUDA và một bộ phiên mô hình, phục vụ toàn bộ camera thuộc phân mảnh của nó.
+  </p>
+
+  <figure>
+    <svg viewBox="0 0 900 400" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="ar2" markerWidth="9" markerHeight="9" refX="7.5" refY="3.2" orient="auto">
+          <path d="M0,0 L7.5,3.2 L0,6.4 z" fill="#7c8ba1"/>
+        </marker>
+      </defs>
+      <g font-family="Helvetica, Arial" font-size="10">
+        <!-- manifest -->
+        <rect x="330" y="6" width="240" height="40" rx="6" fill="#f1f4f9" stroke="#8494a8" stroke-width="1.3"/>
+        <text x="450" y="24" text-anchor="middle" font-weight="700" fill="#2b3a4d">Manifest cấu hình cửa hàng</text>
+        <text x="450" y="38" text-anchor="middle" font-size="8.5" fill="#6b7a90">16 camera · vùng · luật · target_fps</text>
+
+        <rect x="355" y="62" width="190" height="32" rx="6" fill="#eef1fb" stroke="#5b6ee0" stroke-width="1.4"/>
+        <text x="450" y="82" text-anchor="middle" font-weight="700" fill="#2c3b8f">RuntimeSupervisor</text>
+        <line x1="450" y1="47" x2="450" y2="60" stroke="#7c8ba1" stroke-width="1.5" marker-end="url(#ar2)"/>
+
+        <line x1="450" y1="95" x2="450" y2="108" stroke="#7c8ba1" stroke-width="1.5"/>
+        <line x1="228" y1="108" x2="672" y2="108" stroke="#7c8ba1" stroke-width="1.5"/>
+        <line x1="228" y1="108" x2="228" y2="124" stroke="#7c8ba1" stroke-width="1.5" marker-end="url(#ar2)"/>
+        <line x1="672" y1="108" x2="672" y2="124" stroke="#7c8ba1" stroke-width="1.5" marker-end="url(#ar2)"/>
+
+        <!-- process A -->
+        <rect x="30" y="128" width="396" height="248" rx="9" fill="#fbfcfe" stroke="#5b6ee0" stroke-width="2"/>
+        <text x="48" y="150" font-weight="700" fill="#2c3b8f" font-size="11">Tiến trình 1 — 8 camera</text>
+        <text x="48" y="165" font-size="8.5" fill="#6b7a90">1 ngữ cảnh CUDA · 1 bộ mô hình</text>
+
+        <!-- camera threads -->
+        <rect x="46" y="176" width="168" height="128" rx="6" fill="#eef1fb" stroke="#9aa8e8" stroke-width="1.2"/>
+        <text x="130" y="194" text-anchor="middle" font-size="9.5" font-weight="700" fill="#2c3b8f">8 luồng camera</text>
+        <g font-size="8" fill="#4a5878">
+          <rect x="56" y="202" width="148" height="17" rx="3" fill="#fff" stroke="#c3cdf2"/>
+          <text x="130" y="214" text-anchor="middle">giải mã → hạ tần</text>
+          <rect x="56" y="223" width="148" height="17" rx="3" fill="#fff" stroke="#c3cdf2"/>
+          <text x="130" y="235" text-anchor="middle">letterbox + chuẩn hoá</text>
+          <rect x="56" y="244" width="148" height="17" rx="3" fill="#fff" stroke="#c3cdf2"/>
+          <text x="130" y="256" text-anchor="middle">bám vết + luật nghiệp vụ</text>
+          <rect x="56" y="265" width="148" height="17" rx="3" fill="#fff" stroke="#c3cdf2"/>
+          <text x="130" y="277" text-anchor="middle">ghi cảnh báo + clip</text>
+        </g>
+        <text x="130" y="296" text-anchor="middle" font-size="8" fill="#8494a8">công việc CPU — bị ràng buộc bởi GIL</text>
+
+        <!-- registry -->
+        <rect x="234" y="176" width="176" height="128" rx="6" fill="#e8f6ef" stroke="#5bbd8e" stroke-width="1.2"/>
+        <text x="322" y="194" text-anchor="middle" font-size="9.5" font-weight="700" fill="#0f6b41">SharedInferenceRegistry</text>
+        <g font-size="8" fill="#3f6b57">
+          <rect x="244" y="202" width="156" height="16" rx="3" fill="#fff" stroke="#a9dcc4"/>
+          <text x="322" y="213.5" text-anchor="middle">Pose · 2 luồng chạy mô hình</text>
+          <rect x="244" y="222" width="156" height="16" rx="3" fill="#fff" stroke="#a9dcc4"/>
+          <text x="322" y="233.5" text-anchor="middle">ReID · phiên dùng chung</text>
+          <rect x="244" y="242" width="156" height="16" rx="3" fill="#fff" stroke="#a9dcc4"/>
+          <text x="322" y="253.5" text-anchor="middle">Till (ngăn kéo tiền)</text>
+          <rect x="244" y="262" width="156" height="16" rx="3" fill="#fff" stroke="#a9dcc4"/>
+          <text x="322" y="273.5" text-anchor="middle">Face detect + ArcFace</text>
+        </g>
+        <text x="322" y="296" text-anchor="middle" font-size="8" fill="#6b9a83">công việc GPU</text>
+
+        <!-- queue arrow -->
+        <line x1="216" y1="240" x2="232" y2="240" stroke="#1f9d63" stroke-width="1.6" marker-end="url(#ar2)"/>
+        <text x="224" y="322" text-anchor="middle" font-size="8" fill="#6b7a90">hàng đợi yêu cầu suy luận</text>
+
+        <rect x="46" y="330" width="364" height="32" rx="5" fill="#fdf3e7" stroke="#e0b45f" stroke-width="1.1"/>
+        <text x="228" y="350" text-anchor="middle" font-size="9" fill="#8a5d00">Rào đồng bộ: mọi mô hình nạp xong → camera mới bắt đầu chạy</text>
+
+        <!-- process B -->
+        <rect x="446" y="128" width="424" height="248" rx="9" fill="#fbfcfe" stroke="#5b6ee0" stroke-width="2"/>
+        <text x="464" y="150" font-weight="700" fill="#2c3b8f" font-size="11">Tiến trình 2 — 8 camera</text>
+        <text x="464" y="165" font-size="8.5" fill="#6b7a90">cấu trúc giống hệt, ngữ cảnh CUDA độc lập</text>
+        <rect x="462" y="176" width="392" height="128" rx="6" fill="#f4f6fb" stroke="#c3cdf2" stroke-width="1.2" stroke-dasharray="5 3"/>
+        <text x="658" y="230" text-anchor="middle" font-size="10" fill="#6b7a90">(đối xứng với Tiến trình 1)</text>
+        <text x="658" y="250" text-anchor="middle" font-size="8.5" fill="#8494a8">8 luồng camera + registry riêng</text>
+
+        <rect x="462" y="330" width="392" height="32" rx="5" fill="#fdeef0" stroke="#e0a49b" stroke-width="1.1"/>
+        <text x="658" y="350" text-anchor="middle" font-size="9" fill="#9b2c1e">Kho lưu chung: SQLite (cảnh báo) + thư mục media (clip)</text>
+      </g>
+    </svg>
+    <figcaption>Hình 2 — Topology chế độ hybrid: 2 tiến trình × 8 camera, mỗi tiến trình một ngữ cảnh GPU</figcaption>
+  </figure>
+
+  <h3>Vì sao là 2 tiến trình?</h3>
+  <p>
+    Con số này không tuỳ ý mà rút ra từ thực nghiệm. Độ trễ suy luận tỉ lệ thuận với số ngữ cảnh
+    CUDA cùng tranh một GPU, trong khi gộp quá ít tiến trình lại gây nghẽn GIL của Python:
+  </p>
+  <table>
+    <tr>
+      <th>Số tiến trình</th><th class="num">FPS tổng hợp</th>
+      <th class="num">Thời gian suy luận</th><th class="num">Thời gian chờ hàng đợi</th><th>Nút thắt</th>
+    </tr>
+    <tr><td>1</td><td class="num">17.5</td><td class="num">19.1 ms</td><td class="num">64.1 ms</td><td>GIL nghẽn nặng</td></tr>
+    <tr class="hi"><td><b>2</b></td><td class="num"><b>35.9</b></td><td class="num">19.1 ms</td><td class="num">29.5 ms</td><td>điểm cân bằng</td></tr>
+    <tr><td>4</td><td class="num">30.0</td><td class="num">44.7 ms</td><td class="num">14.7 ms</td><td>tranh chấp GPU</td></tr>
+    <tr><td>8</td><td class="num">23.4</td><td class="num">152.9 ms</td><td class="num">0.5 ms</td><td>GPU sụp đổ</td></tr>
+  </table>
+  <p class="muted" style="font-size:9pt">
+    Đo trên 16 camera, 60 giây mỗi luồng. Cột suy luận cho thấy rõ: từ 2 lên 8 tiến trình,
+    cùng một phép tính trên cùng một GPU chậm đi <b>8 lần</b> chỉ vì số ngữ cảnh tăng.
+  </p>
+</section>
+
+<!-- ============================ 3. LUỒNG 1 FRAME ============================ -->
+<section class="page">
+  <h2>3. Đường đi của một khung hình</h2>
+  <p class="lead">
+    Mỗi khung hình đi qua chuỗi sau bên trong luồng của camera. Phần nền xanh chạy trên GPU
+    thông qua hàng đợi dùng chung; phần còn lại chạy trên CPU trong chính luồng camera đó.
+  </p>
+
+  <figure>
+    <svg viewBox="0 0 900 330" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="ar3" markerWidth="8" markerHeight="8" refX="6.8" refY="2.9" orient="auto">
+          <path d="M0,0 L6.8,2.9 L0,5.8 z" fill="#7c8ba1"/>
+        </marker>
+      </defs>
+      <g font-family="Helvetica, Arial" font-size="9.5">
+        <!-- row 1 -->
+        <rect x="14" y="30" width="112" height="52" rx="6" fill="#f1f4f9" stroke="#8494a8" stroke-width="1.2"/>
+        <text x="70" y="52" text-anchor="middle" font-weight="700" fill="#2b3a4d">Giải mã</text>
+        <text x="70" y="68" text-anchor="middle" font-size="8" fill="#6b7a90">OpenCV, bỏ frame thừa</text>
+
+        <rect x="146" y="30" width="122" height="52" rx="6" fill="#f1f4f9" stroke="#8494a8" stroke-width="1.2"/>
+        <text x="207" y="46" text-anchor="middle" font-weight="700" fill="#2b3a4d">Tiền xử lý</text>
+        <text x="207" y="61" text-anchor="middle" font-size="8" fill="#6b7a90">letterbox 640×640</text>
+        <text x="207" y="73" text-anchor="middle" font-size="8" fill="#6b7a90">chuẩn hoá + đổi kênh</text>
+
+        <rect x="288" y="24" width="128" height="64" rx="6" fill="#e8f6ef" stroke="#1f9d63" stroke-width="1.5"/>
+        <text x="352" y="44" text-anchor="middle" font-weight="700" fill="#0f6b41">Pose</text>
+        <text x="352" y="59" text-anchor="middle" font-size="8" fill="#3f6b57">hộp người + 17 khớp</text>
+        <text x="352" y="74" text-anchor="middle" font-size="8" fill="#3f6b57">YOLO26m · ~16 ms</text>
+
+        <rect x="436" y="24" width="128" height="64" rx="6" fill="#e8f6ef" stroke="#1f9d63" stroke-width="1.5"/>
+        <text x="500" y="44" text-anchor="middle" font-weight="700" fill="#0f6b41">ReID</text>
+        <text x="500" y="59" text-anchor="middle" font-size="8" fill="#3f6b57">vector ngoại hình 512-d</text>
+        <text x="500" y="74" text-anchor="middle" font-size="8" fill="#3f6b57">OSNet · ~10 ms</text>
+
+        <rect x="584" y="24" width="128" height="64" rx="6" fill="#f1f4f9" stroke="#8494a8" stroke-width="1.2"/>
+        <text x="648" y="44" text-anchor="middle" font-weight="700" fill="#2b3a4d">Bám vết</text>
+        <text x="648" y="59" text-anchor="middle" font-size="8" fill="#6b7a90">gán ID xuyên frame</text>
+        <text x="648" y="74" text-anchor="middle" font-size="8" fill="#6b7a90">~2 ms</text>
+
+        <rect x="732" y="24" width="126" height="64" rx="6" fill="#fdf3e7" stroke="#d99b1c" stroke-width="1.4"/>
+        <text x="795" y="44" text-anchor="middle" font-weight="700" fill="#8a5d00">Vai trò</text>
+        <text x="795" y="59" text-anchor="middle" font-size="8" fill="#7a6432">nhân viên / khách</text>
+        <text x="795" y="74" text-anchor="middle" font-size="8" fill="#7a6432">theo vùng đã vẽ</text>
+
+        <line x1="128" y1="56" x2="144" y2="56" stroke="#7c8ba1" stroke-width="1.5" marker-end="url(#ar3)"/>
+        <line x1="270" y1="56" x2="286" y2="56" stroke="#7c8ba1" stroke-width="1.5" marker-end="url(#ar3)"/>
+        <line x1="418" y1="56" x2="434" y2="56" stroke="#7c8ba1" stroke-width="1.5" marker-end="url(#ar3)"/>
+        <line x1="566" y1="56" x2="582" y2="56" stroke="#7c8ba1" stroke-width="1.5" marker-end="url(#ar3)"/>
+        <line x1="714" y1="56" x2="730" y2="56" stroke="#7c8ba1" stroke-width="1.5" marker-end="url(#ar3)"/>
+
+        <!-- wrap arrow -->
+        <path d="M795,92 L795,112 L120,112 L120,132" fill="none" stroke="#7c8ba1"
+              stroke-width="1.5" marker-end="url(#ar3)"/>
+
+        <!-- row 2: per-type branches -->
+        <text x="24" y="150" font-size="9" font-weight="700" fill="#6b7a90">RẼ NHÁNH THEO LOẠI CAMERA</text>
+
+        <rect x="14" y="160" width="272" height="106" rx="7" fill="#fdf3e7" stroke="#d99b1c" stroke-width="1.4"/>
+        <text x="150" y="180" text-anchor="middle" font-weight="700" fill="#8a5d00">Quầy thu ngân</text>
+        <g font-size="8.3" fill="#7a6432">
+          <text x="28" y="199">1. Phát hiện ngăn kéo mở (mô hình Till)</text>
+          <text x="28" y="214">2. FSM: tay vào ngăn kéo → rút về người</text>
+          <text x="28" y="229">3. Kiểm tra: có khách gần quầy không?</text>
+          <text x="28" y="244">4. Không có khách → cảnh báo nghi trộm</text>
+          <text x="28" y="259" fill="#a8895a">chống nhiễu: cần 2 mẫu liên tiếp</text>
+        </g>
+
+        <rect x="300" y="160" width="272" height="106" rx="7" fill="#eef1fb" stroke="#5b6ee0" stroke-width="1.4"/>
+        <text x="436" y="180" text-anchor="middle" font-weight="700" fill="#2c3b8f">Kho / kho lạnh</text>
+        <g font-size="8.3" fill="#4a5878">
+          <text x="314" y="199">1. Phát hiện người vào vùng cấm</text>
+          <text x="314" y="214">2. Cắt mặt → ArcFace → so thư viện</text>
+          <text x="314" y="229">3. Khớp nhân viên → kiểm tra khung giờ</text>
+          <text x="314" y="244">4. Ngoài giờ / không khớp → cảnh báo</text>
+          <text x="314" y="259" fill="#8494a8">thư viện: Staff A, Staff B</text>
+        </g>
+
+        <rect x="586" y="160" width="272" height="106" rx="7" fill="#f1f4f9" stroke="#8494a8" stroke-width="1.3"/>
+        <text x="722" y="180" text-anchor="middle" font-weight="700" fill="#2b3a4d">Toàn cửa hàng</text>
+        <g font-size="8.3" fill="#6b7a90">
+          <text x="600" y="199">1. Bám vết khách hàng liên tục</text>
+          <text x="600" y="214">2. Ghi nhận quỹ đạo di chuyển</text>
+          <text x="600" y="229">3. Nền tảng cho phát hiện trộm hàng</text>
+          <text x="600" y="252" fill="#a0adc0">(mô-đun tương lai)</text>
+        </g>
+
+        <!-- output -->
+        <path d="M150,270 L150,288 L436,288" fill="none" stroke="#7c8ba1" stroke-width="1.4"/>
+        <path d="M722,270 L722,288 L436,288" fill="none" stroke="#7c8ba1" stroke-width="1.4"/>
+        <line x1="436" y1="270" x2="436" y2="288" stroke="#7c8ba1" stroke-width="1.4"/>
+        <line x1="436" y1="288" x2="436" y2="298" stroke="#7c8ba1" stroke-width="1.5" marker-end="url(#ar3)"/>
+        <rect x="286" y="300" width="300" height="26" rx="5" fill="#fdeef0" stroke="#c0392b" stroke-width="1.3"/>
+        <text x="436" y="317" text-anchor="middle" font-size="9.5" font-weight="700" fill="#9b2c1e">Cảnh báo + clip bằng chứng (trước 15s / sau 15s)</text>
+      </g>
+    </svg>
+    <figcaption>Hình 3 — Chuỗi xử lý một khung hình và ba nhánh nghiệp vụ</figcaption>
+  </figure>
+
+  <div class="note">
+    <b>Điểm cần lưu ý:</b> khối Pose và ReID chạy trên <i>mọi</i> khung hình của <i>mọi</i> camera,
+    chiếm khoảng 77% tổng thời gian xử lý. Đây là lý do mọi nỗ lực tối ưu đều tập trung vào hai khối này,
+    và cũng là chỗ mà việc thêm mô-đun mới cần cân nhắc kỹ nhất.
+  </div>
+</section>
+
+<!-- ============================ 4. HIỆU NĂNG ============================ -->
+<section class="page">
+  <h2>4. Hiệu năng hiện tại</h2>
+  <p class="lead">
+    Số liệu đo trên 16 camera chạy đồng thời, mỗi luồng 3 phút, tổng 11.520 khung hình,
+    trên một GPU NVIDIA L40S.
+  </p>
+
+  <div class="grid2" style="margin-bottom:6px">
+    <div class="card">
+      <h4>Thông lượng</h4>
+      <table style="margin:4px 0 0">
+        <tr><td>Mục tiêu thiết kế</td><td class="num">64 FPS</td></tr>
+        <tr><td>Kể cả thời gian nạp mô hình</td><td class="num">~90 FPS</td></tr>
+        <tr class="hi"><td><b>Thuần xử lý</b></td><td class="num"><b>112–116 FPS</b></td></tr>
+        <tr><td>Nạp mô hình (một lần)</td><td class="num">~26 s</td></tr>
+        <tr><td>Camera trễ hơn nhịp riêng</td><td class="num">0 / 16</td></tr>
+      </table>
+    </div>
+    <div class="card">
+      <h4>Sử dụng tài nguyên</h4>
+      <table style="margin:4px 0 0">
+        <tr><td>GPU (lúc chạy ổn định)</td><td class="num">~79 %</td></tr>
+        <tr><td>Bộ nhớ GPU</td><td class="num">6.2 / 46 GB</td></tr>
+        <tr><td>Ngữ cảnh CUDA</td><td class="num">2</td></tr>
+        <tr><td>Phiên mô hình</td><td class="num">10</td></tr>
+        <tr><td>Luồng camera</td><td class="num">16</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <h3>Thời gian tiêu tốn theo khối</h3>
+  <figure>
+    <svg viewBox="0 0 900 210" xmlns="http://www.w3.org/2000/svg">
+      <g font-family="Helvetica, Arial" font-size="9.5">
+        <!-- bar chart -->
+        <text x="14" y="18" font-size="9" fill="#6b7a90">Tỉ lệ thời gian xử lý mỗi khung hình</text>
+        <!-- rows -->
+        <g>
+          <text x="14" y="45" fill="#1c2430">Phát hiện tư thế</text>
+          <rect x="150" y="34" width="484" height="15" rx="3" fill="#1f9d63"/>
+          <text x="644" y="45" fill="#0f6b41" font-weight="700">60.5 %</text>
+          <text x="700" y="45" fill="#8494a8" font-size="8.5">55.4 ms — gồm chờ hàng đợi</text>
+        </g>
+        <g>
+          <text x="14" y="70" fill="#1c2430">Trích đặc trưng ReID</text>
+          <rect x="150" y="59" width="134" height="15" rx="3" fill="#4bb583"/>
+          <text x="294" y="70" fill="#0f6b41" font-weight="700">16.7 %</text>
+          <text x="700" y="70" fill="#8494a8" font-size="8.5">15.3 ms</text>
+        </g>
+        <g>
+          <text x="14" y="95" fill="#1c2430">Ngăn kéo tiền</text>
+          <rect x="150" y="84" width="60" height="15" rx="3" fill="#d99b1c"/>
+          <text x="220" y="95" fill="#8a5d00" font-weight="700">7.5 %</text>
+          <text x="700" y="95" fill="#8494a8" font-size="8.5">22.0 ms — chỉ 4 camera quầy</text>
+        </g>
+        <g>
+          <text x="14" y="120" fill="#1c2430">Ghi clip bằng chứng</text>
+          <rect x="150" y="109" width="59" height="15" rx="3" fill="#c0392b"/>
+          <text x="219" y="120" fill="#9b2c1e" font-weight="700">7.4 %</text>
+          <text x="700" y="120" fill="#8494a8" font-size="8.5">nằm trên đường tới hạn</text>
+        </g>
+        <g>
+          <text x="14" y="145" fill="#1c2430">Nhận diện khuôn mặt</text>
+          <rect x="150" y="134" width="23" height="15" rx="3" fill="#5b6ee0"/>
+          <text x="183" y="145" fill="#2c3b8f" font-weight="700">2.9 %</text>
+          <text x="700" y="145" fill="#8494a8" font-size="8.5">chỉ chạy khi có người</text>
+        </g>
+        <g>
+          <text x="14" y="170" fill="#1c2430">Bám vết</text>
+          <rect x="150" y="159" width="18" height="15" rx="3" fill="#8494a8"/>
+          <text x="178" y="170" fill="#4a5878" font-weight="700">2.3 %</text>
+        </g>
+        <g>
+          <text x="14" y="195" fill="#1c2430">Luật, vùng, FSM…</text>
+          <rect x="150" y="184" width="20" height="15" rx="3" fill="#c9d2de"/>
+          <text x="180" y="195" fill="#6b7a90" font-weight="700">2.7 %</text>
+          <text x="700" y="195" fill="#8494a8" font-size="8.5">chi phí không đáng kể</text>
+        </g>
+      </g>
+    </svg>
+    <figcaption>Hình 4 — Phân bổ thời gian xử lý theo khối chức năng</figcaption>
+  </figure>
+
+  <h3>Chặng đường tối ưu đã đi</h3>
+  <table>
+    <tr><th>Cải tiến</th><th>Bản chất vấn đề</th><th class="num">FPS</th></tr>
+    <tr><td class="muted">Điểm xuất phát</td><td class="muted">mỗi camera một tiến trình — sụp đổ ở 16 luồng</td><td class="num muted">23</td></tr>
+    <tr><td>Cố định hình dạng lô suy luận</td><td>GPU phải thiết lập lại mỗi khi kích thước lô đổi, tốn ~150 ms/lần</td><td class="num">30</td></tr>
+    <tr><td>Giảm còn 2 tiến trình</td><td>mỗi ngữ cảnh CUDA thêm vào làm chậm toàn bộ phần suy luận</td><td class="num">66</td></tr>
+    <tr><td>Dùng chung phiên ReID</td><td>mỗi camera tự nạp mô hình riêng, xếp hàng sau cùng một khoá</td><td class="num">78</td></tr>
+    <tr><td>Nạp trước toàn bộ mô hình</td><td>mô hình nạp giữa lúc đang chạy, camera đầu chạy khi hệ thống chưa sẵn sàng</td><td class="num">113</td></tr>
+    <tr class="hi"><td><b>Giảm nhịp quét ngăn kéo</b></td><td>quét 5 lần/giây cho một trạng thái vài phút mới đổi</td><td class="num"><b>116</b></td></tr>
+  </table>
+
+  <div class="note">
+    <b>Đã thử và loại bỏ:</b> CUDA MPS (chênh lệch nằm trong sai số), đổi sang mô hình pose nhỏ hơn
+    (chỉ nhanh hơn 14% dù nhẹ hơn 7 lần), gom lô thật sự bằng cách chờ lâu hơn (càng chờ càng chậm),
+    tăng số luồng OpenCV (giảm đều khi tăng). Các hướng này đã được đo và không mang lại lợi ích —
+    ghi lại để không lặp lại công sức.
+  </div>
+</section>
+
+<!-- ============================ 5. KIẾN TRÚC KỲ VỌNG ============================ -->
+<section class="page">
+  <h2>5. Kiến trúc kỳ vọng</h2>
+  <p class="lead">
+    Kiến trúc hiện tại đang chạm trần vì bị kẹt giữa hai ràng buộc đối nghịch. Hướng đi tiếp theo
+    tham khảo mô hình đã được kiểm chứng ở hệ thống giám sát giao thông đô thị <i>uae-main</i>.
+  </p>
+
+  <h3>Thế kẹt hiện tại</h3>
+  <figure>
+    <svg viewBox="0 0 900 150" xmlns="http://www.w3.org/2000/svg">
+      <g font-family="Helvetica, Arial" font-size="9.5">
+        <rect x="60" y="30" width="230" height="88" rx="8" fill="#eef1fb" stroke="#5b6ee0" stroke-width="1.6"/>
+        <text x="175" y="54" text-anchor="middle" font-weight="700" fill="#2c3b8f">Ít tiến trình</text>
+        <text x="175" y="74" text-anchor="middle" font-size="8.8" fill="#4a5878">GPU nhanh, ít tranh chấp</text>
+        <text x="175" y="92" text-anchor="middle" font-size="8.8" fill="#c0392b">nhưng nghẽn GIL Python</text>
+        <text x="175" y="108" text-anchor="middle" font-size="8" fill="#8494a8">CPU không mở rộng được</text>
+
+        <rect x="610" y="30" width="230" height="88" rx="8" fill="#fdeef0" stroke="#c0392b" stroke-width="1.6"/>
+        <text x="725" y="54" text-anchor="middle" font-weight="700" fill="#9b2c1e">Nhiều tiến trình</text>
+        <text x="725" y="74" text-anchor="middle" font-size="8.8" fill="#8a5148">CPU mở rộng thoải mái</text>
+        <text x="725" y="92" text-anchor="middle" font-size="8.8" fill="#c0392b">nhưng GPU chậm 8 lần</text>
+        <text x="725" y="108" text-anchor="middle" font-size="8" fill="#8494a8">quá nhiều ngữ cảnh CUDA</text>
+
+        <rect x="330" y="46" width="240" height="56" rx="8" fill="#fdf3e7" stroke="#d99b1c" stroke-width="1.8"/>
+        <text x="450" y="70" text-anchor="middle" font-weight="700" fill="#8a5d00">Hiện tại: 2 tiến trình</text>
+        <text x="450" y="88" text-anchor="middle" font-size="8.5" fill="#7a6432">thoả hiệp giữa hai ràng buộc</text>
+
+        <line x1="292" y1="74" x2="326" y2="74" stroke="#7c8ba1" stroke-width="1.5"/>
+        <line x1="574" y1="74" x2="608" y2="74" stroke="#7c8ba1" stroke-width="1.5"/>
+      </g>
+    </svg>
+    <figcaption>Hình 5 — Hệ thống đang bị ép giữa nghẽn GIL và tranh chấp ngữ cảnh GPU</figcaption>
+  </figure>
+
+  <p>
+    Gốc rễ: <b>công việc CPU và công việc GPU đang bị buộc vào cùng một tiến trình</b>.
+    Muốn thêm năng lực CPU thì phải thêm tiến trình, mà thêm tiến trình lại kéo theo ngữ cảnh CUDA mới.
+    Giải pháp là tách rời hai loại công việc này.
+  </p>
+
+  <h3>Kiến trúc đề xuất: tách tầng giải mã khỏi tầng suy luận</h3>
+  <figure>
+    <svg viewBox="0 0 900 330" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="ar5" markerWidth="9" markerHeight="9" refX="7.5" refY="3.2" orient="auto">
+          <path d="M0,0 L7.5,3.2 L0,6.4 z" fill="#7c8ba1"/>
+        </marker>
+      </defs>
+      <g font-family="Helvetica, Arial" font-size="9.5">
+        <!-- decode tier -->
+        <text x="20" y="22" font-size="9" font-weight="700" fill="#6b7a90">TẦNG GIẢI MÃ — mở rộng theo số CPU, không giữ ngữ cảnh GPU</text>
+        <g>
+          <rect x="20"  y="32" width="118" height="66" rx="6" fill="#eef1fb" stroke="#5b6ee0" stroke-width="1.4"/>
+          <text x="79" y="54" text-anchor="middle" font-weight="700" fill="#2c3b8f">Tiến trình A</text>
+          <text x="79" y="70" text-anchor="middle" font-size="8" fill="#4a5878">giải mã 4 camera</text>
+          <text x="79" y="84" text-anchor="middle" font-size="8" fill="#4a5878">+ tiền xử lý</text>
+
+          <rect x="150" y="32" width="118" height="66" rx="6" fill="#eef1fb" stroke="#5b6ee0" stroke-width="1.4"/>
+          <text x="209" y="54" text-anchor="middle" font-weight="700" fill="#2c3b8f">Tiến trình B</text>
+          <text x="209" y="70" text-anchor="middle" font-size="8" fill="#4a5878">giải mã 4 camera</text>
+          <text x="209" y="84" text-anchor="middle" font-size="8" fill="#4a5878">+ tiền xử lý</text>
+
+          <rect x="280" y="32" width="118" height="66" rx="6" fill="#eef1fb" stroke="#5b6ee0" stroke-width="1.4"/>
+          <text x="339" y="54" text-anchor="middle" font-weight="700" fill="#2c3b8f">Tiến trình C</text>
+          <text x="339" y="70" text-anchor="middle" font-size="8" fill="#4a5878">giải mã 4 camera</text>
+          <text x="339" y="84" text-anchor="middle" font-size="8" fill="#4a5878">+ tiền xử lý</text>
+
+          <rect x="410" y="32" width="118" height="66" rx="6" fill="#eef1fb" stroke="#5b6ee0" stroke-width="1.4"/>
+          <text x="469" y="54" text-anchor="middle" font-weight="700" fill="#2c3b8f">Tiến trình D</text>
+          <text x="469" y="70" text-anchor="middle" font-size="8" fill="#4a5878">giải mã 4 camera</text>
+          <text x="469" y="84" text-anchor="middle" font-size="8" fill="#4a5878">+ tiền xử lý</text>
+
+          <rect x="540" y="32" width="88" height="66" rx="6" fill="#f4f6fb" stroke="#c3cdf2" stroke-width="1.3" stroke-dasharray="5 3"/>
+          <text x="584" y="60" text-anchor="middle" font-size="9" fill="#8494a8">… thêm</text>
+          <text x="584" y="76" text-anchor="middle" font-size="8" fill="#a0adc0">tuỳ số CPU</text>
+        </g>
+
+        <!-- shared memory ring -->
+        <rect x="20" y="122" width="608" height="46" rx="8" fill="#e8f6ef" stroke="#1f9d63" stroke-width="1.8"/>
+        <text x="324" y="141" text-anchor="middle" font-weight="700" fill="#0f6b41">Bộ nhớ chia sẻ + hàng đợi có giới hạn</text>
+        <text x="324" y="158" text-anchor="middle" font-size="8.3" fill="#3f6b57">chuyển con trỏ khung hình, không sao chép dữ liệu · đầy thì bỏ frame cũ thay vì dồn ứ vô hạn</text>
+
+        <line x1="79"  y1="100" x2="79"  y2="120" stroke="#7c8ba1" stroke-width="1.4" marker-end="url(#ar5)"/>
+        <line x1="209" y1="100" x2="209" y2="120" stroke="#7c8ba1" stroke-width="1.4" marker-end="url(#ar5)"/>
+        <line x1="339" y1="100" x2="339" y2="120" stroke="#7c8ba1" stroke-width="1.4" marker-end="url(#ar5)"/>
+        <line x1="469" y1="100" x2="469" y2="120" stroke="#7c8ba1" stroke-width="1.4" marker-end="url(#ar5)"/>
+
+        <!-- inference tier -->
+        <text x="20" y="196" font-size="9" font-weight="700" fill="#6b7a90">TẦNG SUY LUẬN — số lượng cố định theo số GPU, giữ ít ngữ cảnh</text>
+        <rect x="20" y="206" width="290" height="88" rx="7" fill="#fdf3e7" stroke="#d99b1c" stroke-width="1.7"/>
+        <text x="165" y="228" text-anchor="middle" font-weight="700" fill="#8a5d00">Tiến trình suy luận (1–2)</text>
+        <g font-size="8.2" fill="#7a6432">
+          <text x="34" y="248">· gom lô cơ hội — lấy sẵn từ hàng đợi, không chờ</text>
+          <text x="34" y="263">· nhiều phiên theo kích thước lô cố định</text>
+          <text x="34" y="278">· chỉ làm đúng việc gọi GPU</text>
+        </g>
+
+        <line x1="312" y1="250" x2="336" y2="250" stroke="#7c8ba1" stroke-width="1.5" marker-end="url(#ar5)"/>
+
+        <rect x="340" y="206" width="288" height="88" rx="7" fill="#f1f4f9" stroke="#8494a8" stroke-width="1.4"/>
+        <text x="484" y="228" text-anchor="middle" font-weight="700" fill="#2b3a4d">Tầng nghiệp vụ</text>
+        <g font-size="8.2" fill="#6b7a90">
+          <text x="354" y="248">· bám vết, vai trò, FSM, nhận diện</text>
+          <text x="354" y="263">· ghi cảnh báo</text>
+          <text x="354" y="278">· ghi clip bằng chứng (luồng nền)</text>
+        </g>
+
+        <line x1="630" y1="250" x2="654" y2="250" stroke="#7c8ba1" stroke-width="1.5" marker-end="url(#ar5)"/>
+        <rect x="658" y="206" width="222" height="88" rx="7" fill="#fdeef0" stroke="#c0392b" stroke-width="1.4"/>
+        <text x="769" y="234" text-anchor="middle" font-weight="700" fill="#9b2c1e">Đầu ra</text>
+        <text x="769" y="254" text-anchor="middle" font-size="8.3" fill="#8a5148">cảnh báo · clip · chỉ số</text>
+        <text x="769" y="272" text-anchor="middle" font-size="8.3" fill="#8a5148">sẵn sàng đẩy sang hàng đợi</text>
+        <text x="769" y="286" text-anchor="middle" font-size="8" fill="#c08a82">(Kafka / gateway khi lên production)</text>
+
+        <!-- side note -->
+        <rect x="648" y="122" width="232" height="46" rx="6" fill="#fbfcfe" stroke="#c9d2de" stroke-width="1.2"/>
+        <text x="764" y="140" text-anchor="middle" font-size="8.5" font-weight="700" fill="#4a5878">Vì sao cách này gỡ được thế kẹt</text>
+        <text x="764" y="157" text-anchor="middle" font-size="8" fill="#6b7a90">CPU mở rộng mà GPU không thêm ngữ cảnh</text>
+      </g>
+    </svg>
+    <figcaption>Hình 6 — Kiến trúc kỳ vọng: tầng giải mã mở rộng tự do, tầng suy luận giữ số ngữ cảnh GPU tối thiểu</figcaption>
+  </figure>
+
+  <p>
+    Điểm mấu chốt: các tiến trình giải mã <b>không khởi tạo ngữ cảnh CUDA</b>, nên có thể tăng số lượng
+    theo số nhân CPU sẵn có mà không hề ảnh hưởng tới tốc độ GPU. Khung hình được truyền qua bộ nhớ
+    chia sẻ nên không tốn chi phí sao chép. Nhờ hàng đợi luôn có sẵn dữ liệu, việc gom lô diễn ra
+    <i>tức thì</i> — khác hẳn cách chờ gom hiện tại vốn đã được đo là gây hại.
+  </p>
+</section>
+
+<!-- ============================ 6. LỘ TRÌNH ============================ -->
+<section class="page">
+  <h2>6. Các cải tiến đề xuất</h2>
+
+  <table>
+    <tr>
+      <th style="width:26%">Cải tiến</th><th style="width:38%">Nội dung</th>
+      <th style="width:16%">Kỳ vọng</th><th style="width:20%">Mức độ</th>
+    </tr>
+    <tr>
+      <td><b>Lọc theo chuyển động</b></td>
+      <td>Bỏ qua hoàn toàn khối nhận thức trên khung hình không có chuyển động. Các camera kho phần lớn thời gian là cảnh trống.</td>
+      <td>Tiết kiệm lớn ở 8 camera kho</td>
+      <td>Thấp — thêm một bước so sánh khung hình rẻ tiền</td>
+    </tr>
+    <tr>
+      <td><b>ReID có điều kiện</b></td>
+      <td>Chỉ trích đặc trưng ngoại hình khi bám vết thực sự cần (đối tượng mới hoặc vừa mất dấu), thay vì mọi người ở mọi khung hình.</td>
+      <td>Giảm phần lớn trong 16.7%</td>
+      <td>Trung bình — cần chỉnh logic bám vết</td>
+    </tr>
+    <tr>
+      <td><b>Ghi clip bất đồng bộ</b></td>
+      <td>Đẩy việc ghi clip bằng chứng ra luồng nền, tách khỏi đường xử lý chính.</td>
+      <td>Thu hồi phần lớn 7.4%</td>
+      <td>Thấp — thay đổi cục bộ</td>
+    </tr>
+    <tr>
+      <td><b>Nhiều phiên theo kích thước lô</b></td>
+      <td>Mỗi kích thước lô một phiên mô hình cố định, chọn phiên theo lượng yêu cầu đang chờ. Tránh được cả chi phí đổi hình dạng lẫn lãng phí khi độn thêm.</td>
+      <td>~1.5× ở khối suy luận</td>
+      <td>Trung bình — bộ nhớ GPU còn dư nhiều</td>
+    </tr>
+    <tr class="hi">
+      <td><b>Tách tầng giải mã</b></td>
+      <td>Kiến trúc ở Hình 6 — phá vỡ thế kẹt giữa GIL và ngữ cảnh GPU.</td>
+      <td>Phá trần hiện tại</td>
+      <td>Cao — thay đổi kiến trúc nền</td>
+    </tr>
+    <tr>
+      <td>TensorRT</td>
+      <td>Trình thực thi tối ưu hơn cho GPU NVIDIA. Hiện chưa cài được thư viện hệ thống trên máy thử nghiệm.</td>
+      <td>Chưa đo được</td>
+      <td>Cao — rủi ro xung đột phiên bản</td>
+    </tr>
+  </table>
+
+  <h3>Chuẩn bị cho các mô-đun sắp thêm</h3>
+  <p>
+    Khi bổ sung mô-đun mới (phát hiện trộm hàng, đếm khách, nhận diện hành vi…), bài học quan trọng nhất
+    rút ra từ đợt tối ưu này là:
+  </p>
+
+  <div class="grid2">
+    <div class="card">
+      <h4>Bài học: chi phí nằm ở tần suất, không nằm ở số lượng mô hình</h4>
+      <p>
+        Camera quầy có 3 mô hình nhưng chậm hơn camera kho có 4 mô hình. Lý do:
+        khối nhận diện khuôn mặt chỉ chạy khi phát hiện có người, còn khối ngăn kéo tiền
+        chạy trên mọi khung hình.
+      </p>
+      <p class="muted" style="font-size:8.8pt">
+        → Mô-đun mới nên được kích hoạt có điều kiện, đừng chạy vô điều kiện.
+      </p>
+    </div>
+    <div class="card">
+      <h4>Ngân sách còn lại</h4>
+      <p>
+        Ở đúng mức tải mục tiêu 64 FPS, GPU mới dùng khoảng 59%, còn dư chừng 40%.
+        Bộ nhớ GPU gần như còn nguyên (6.2 trên 46 GB).
+      </p>
+      <p class="muted" style="font-size:8.8pt">
+        → Dư địa có thật nhưng không vô hạn: một mô-đun chạy trên mọi khung hình
+        của cả 16 camera hoàn toàn có thể tiêu hết phần dư này.
+      </p>
+    </div>
+  </div>
+
+  <h3>Thứ tự triển khai đề xuất</h3>
+  <figure>
+    <svg viewBox="0 0 900 96" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="ar6" markerWidth="8" markerHeight="8" refX="6.8" refY="2.9" orient="auto">
+          <path d="M0,0 L6.8,2.9 L0,5.8 z" fill="#7c8ba1"/>
+        </marker>
+      </defs>
+      <g font-family="Helvetica, Arial" font-size="9">
+        <rect x="14" y="26" width="196" height="52" rx="6" fill="#e8f6ef" stroke="#1f9d63" stroke-width="1.5"/>
+        <text x="112" y="46" text-anchor="middle" font-weight="700" fill="#0f6b41">Giai đoạn 1 — Giảm việc</text>
+        <text x="112" y="62" text-anchor="middle" font-size="8.2" fill="#3f6b57">lọc chuyển động · ReID có điều kiện</text>
+
+        <rect x="240" y="26" width="196" height="52" rx="6" fill="#fdf3e7" stroke="#d99b1c" stroke-width="1.5"/>
+        <text x="338" y="46" text-anchor="middle" font-weight="700" fill="#8a5d00">Giai đoạn 2 — Dọn đường</text>
+        <text x="338" y="62" text-anchor="middle" font-size="8.2" fill="#7a6432">ghi clip nền · phiên theo lô</text>
+
+        <rect x="466" y="26" width="196" height="52" rx="6" fill="#eef1fb" stroke="#5b6ee0" stroke-width="1.5"/>
+        <text x="564" y="46" text-anchor="middle" font-weight="700" fill="#2c3b8f">Giai đoạn 3 — Đổi kiến trúc</text>
+        <text x="564" y="62" text-anchor="middle" font-size="8.2" fill="#4a5878">tách tầng giải mã · bộ nhớ chia sẻ</text>
+
+        <rect x="692" y="26" width="194" height="52" rx="6" fill="#f1f4f9" stroke="#8494a8" stroke-width="1.4"/>
+        <text x="789" y="46" text-anchor="middle" font-weight="700" fill="#2b3a4d">Giai đoạn 4 — Production</text>
+        <text x="789" y="62" text-anchor="middle" font-size="8.2" fill="#6b7a90">RTSP thật · hàng đợi sự kiện</text>
+
+        <line x1="212" y1="52" x2="236" y2="52" stroke="#7c8ba1" stroke-width="1.5" marker-end="url(#ar6)"/>
+        <line x1="438" y1="52" x2="462" y2="52" stroke="#7c8ba1" stroke-width="1.5" marker-end="url(#ar6)"/>
+        <line x1="664" y1="52" x2="688" y2="52" stroke="#7c8ba1" stroke-width="1.5" marker-end="url(#ar6)"/>
+      </g>
+    </svg>
+    <figcaption>Hình 7 — Lộ trình: ưu tiên phần rẻ và an toàn trước, đổi kiến trúc sau</figcaption>
+  </figure>
+
+  <div class="note good">
+    <b>Khuyến nghị:</b> hoàn thành Giai đoạn 1 và 2 trước khi bổ sung mô-đun nghiệp vụ mới.
+    Hai giai đoạn này giải phóng ngân sách tính toán mà không đụng tới kiến trúc nền,
+    tạo chỗ trống cho mô-đun mới thay vì phải tối ưu lại sau khi hệ thống đã quá tải.
+  </div>
+</section>
+
+</body>
+</html>
