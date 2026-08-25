@@ -128,7 +128,8 @@ def _camera_face_config(spec):
 def run(specs, *, decoders: int, inferers: int, infer_threads: int, businesses: int,
        pose_model: str, reid_model: str, till_model: str, till_imgsz: int,
        face_model: str, arcface_model: str, db_path: str, media_root: str,
-       gallery_db_path: str, slots_per_camera: int):
+       gallery_db_path: str, slots_per_camera: int,
+       pose_num_workers: int = 1, pose_max_batch: int = 1):
     from backend.src.runtime.business_tier import run_business_process
     from backend.src.runtime.decode_tier import run_decoder_process
     from backend.src.runtime.frame_ring import FrameRing
@@ -181,7 +182,8 @@ def run(specs, *, decoders: int, inferers: int, infer_threads: int, businesses: 
                     pose_model=pose_model, reid_model=reid_model, till_model=till_model,
                     till_imgsz=till_imgsz, face_model=face_model, arcface_model=arcface_model,
                     db_path=db_path, media_root=media_root, gallery_db_path=gallery_db_path,
-                    slots_per_camera=slots_per_camera)
+                    slots_per_camera=slots_per_camera, pose_num_workers=pose_num_workers,
+                    pose_max_batch=pose_max_batch)
     finally:
         # The rings are owned here, so this is the only place that can unlink
         # them. Without the finally, any failure between allocation and the
@@ -224,7 +226,7 @@ def _validate_topology(n_cameras: int, *, decoders: int, inferers: int,
 def _run(specs, *, ctx, rings, free_qs, ring_specs, camera_decode_cfg, camera_face_cfg,
          needs_till, decoders, inferers, infer_threads, businesses, pose_model, reid_model,
          till_model, till_imgsz, face_model, arcface_model, db_path, media_root,
-         gallery_db_path, slots_per_camera):
+         gallery_db_path, slots_per_camera, pose_num_workers=1, pose_max_batch=1):
     """Start the tiers, run them, shut them down in the order frames flow.
 
     Split out from run() so the rings run() owns are closed in its finally
@@ -265,7 +267,9 @@ def _run(specs, *, ctx, rings, free_qs, ring_specs, camera_decode_cfg, camera_fa
         for i, shard in enumerate(dec_shards)]
 
     infer_config = InferenceConfig(pose_model=pose_model, reid_model=reid_model,
-                                   till_model=till_model, till_imgsz=till_imgsz)
+                                   till_model=till_model, till_imgsz=till_imgsz,
+                                   pose_num_workers=pose_num_workers,
+                                   pose_max_batch=pose_max_batch)
     infer_procs = []
     for k in range(inferers):
         my_lanes = lane_shards[k * infer_threads:(k + 1) * infer_threads]
@@ -310,14 +314,24 @@ def _run(specs, *, ctx, rings, free_qs, ring_specs, camera_decode_cfg, camera_fa
         load_s = time.time() - load_started
         go_evt.set()
 
+        # extend, not append. A decoder process reports one list of
+        # DecoderStats (one per camera in its shard) and an inference process
+        # one list of LaneStats (one per lane), exactly as a business process
+        # reports a list of BusinessStats. Appending buried those lists one
+        # level deep while business was flattened, so all_stats held a mix of
+        # lists and objects -- and every consumer that filters it by type,
+        # including the tier tool's own report, silently found no decoder and
+        # no lane stats at all. That is how "decoders done: 0.0s" and a
+        # missing per-model breakdown got past review: the data was collected
+        # and thrown away at the last step.
         all_stats = []
         for _ in dec_procs:
-            all_stats.append(await_message(stats_q, all_procs, what="decoder stats"))
+            all_stats.extend(await_message(stats_q, all_procs, what="decoder stats"))
         for q in {id(q): q for q in decode_qs.values()}.values():
             q.put(None)
 
         for _ in infer_procs:
-            all_stats.append(await_message(stats_q, all_procs, what="inference stats"))
+            all_stats.extend(await_message(stats_q, all_procs, what="inference stats"))
 
         # Business workers are told perception is over now, but they keep
         # running -- draining any FaceAnswer messages still due -- until every

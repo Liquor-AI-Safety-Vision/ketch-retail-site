@@ -337,6 +337,15 @@ class LaneStats:
     pose_s: float
     reid_s: float
     till_s: float
+    # How much of pose_s was spent queued rather than computing.
+    #
+    # pose runs on a shared batch runner with one worker, so every lane in
+    # this process submits into the same queue: with 8 lanes, 7 of them are
+    # waiting whenever one is running. Without this split, that waiting is
+    # indistinguishable from model cost, and pose reads as ~80% of inference
+    # time -- which points optimisation at the model when the cost is
+    # actually serialisation in front of it.
+    pose_queue_wait_s: float = 0.0
 
 
 class InferenceLane:
@@ -429,6 +438,7 @@ class InferenceLane:
             blob, conf=msg.conf, frame_shape=msg.frame_shape[:2], ratio=msg.ratio,
             dx=msg.dx, dy=msg.dy, letterbox_s=msg.letterbox_s, preprocess_s=msg.preprocess_s)
         self.stats.pose_s += time.perf_counter() - t0
+        self.stats.pose_queue_wait_s += float(pose_result.profile.get("queue_wait_s", 0.0))
 
         t0 = time.perf_counter()
         feats = self.reid(frame, pose_result.boxes)
@@ -462,6 +472,14 @@ class InferenceConfig:
     cpu_only: bool = False
     ort_intra_threads: int = 0
     ort_allow_spinning: bool = True
+    # Pose runner shape. Exposed because measurement showed it is the single
+    # largest cost in the system: with one worker serving every lane in a
+    # process, 81% of a lane's pose time is spent queued behind other lanes,
+    # which is 64% of all inference time. Whether widening it helps is a
+    # measurement -- pose_pad_batch keeps the input shape constant, so unlike
+    # till a batch here does not force the CUDA EP to re-plan.
+    pose_num_workers: int = 1
+    pose_max_batch: int = 1
 
 
 def run_inference_process(config: InferenceConfig, lane_decode_qs: list,
@@ -496,7 +514,9 @@ def _run_inference_process(config, lane_decode_qs, business_qs, ring_specs,
     cap_native_threads(1)
     registry = SharedInferenceRegistry(
         cpu_only=config.cpu_only,
-        config={"pose_num_workers": 1, "pose_max_batch": 1, "pose_batch_wait_s": 0.005,
+        config={"pose_num_workers": config.pose_num_workers,
+                "pose_max_batch": config.pose_max_batch,
+                "pose_batch_wait_s": 0.005,
                 "pose_pad_batch": True,
                 # Till, unlike pose, has no pad_batch: a batch of 2 really is
                 # a different input shape than a batch of 1, and the CUDA EP
