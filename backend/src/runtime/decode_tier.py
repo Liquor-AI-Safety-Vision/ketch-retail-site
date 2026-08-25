@@ -40,6 +40,23 @@ class DecoderStats:
     started: float
     ended: float
 
+    # Where a decoder thread's wall time actually goes. Split into work and
+    # blocking, because the two mean opposite things: a decoder heavy on
+    # grab/retrieve is the bottleneck, while one heavy on free_wait or
+    # put_wait is idle behind a slower tier and its "decode FPS" is really a
+    # measurement of downstream.
+    #
+    # grab/retrieve were already measured per frame by the source and thrown
+    # away, because the tier called iter_frames() -- which drops the timing
+    # dict iter_timed_frames() yields alongside every frame.
+    free_wait_s: float = 0.0      # blocked waiting for a free ring slot
+    grab_s: float = 0.0           # demux/decode of every source frame
+    retrieve_s: float = 0.0       # full decode of the frames actually kept
+    frame_copy_s: float = 0.0     # copying the BGR frame into the ring
+    letterbox_s: float = 0.0      # resize/pad to the pose input size
+    preprocess_s: float = 0.0     # BGR->RGB, CHW, /255 into the blob slot
+    put_wait_s: float = 0.0       # blocked pushing to the lane's queue
+
 
 @dataclass
 class CameraDecodeConfig:
@@ -62,7 +79,13 @@ def _run_camera(spec, cfg: CameraDecodeConfig, ring: FrameRing, free_q, decode_q
     source = VirtualVideoStreamSource(spec)
     frames = 0
     started = time.time()
-    for frame in source.iter_frames(pace_realtime=False):
+    acc = {"free_wait_s": 0.0, "grab_s": 0.0, "retrieve_s": 0.0, "frame_copy_s": 0.0,
+           "letterbox_s": 0.0, "preprocess_s": 0.0, "put_wait_s": 0.0}
+    # iter_timed_frames, not iter_frames: same frames, but it also yields the
+    # grab/retrieve cost the source already measured for each one.
+    for frame, source_timing in source.iter_timed_frames(pace_realtime=False):
+        acc["grab_s"] += source_timing["source_grab_s"]
+        acc["retrieve_s"] += source_timing["source_retrieve_s"]
         if frames == 0:
             # Checked once, on the first frame, rather than per frame. A
             # source larger than the ring was sized for would otherwise fail
@@ -76,9 +99,13 @@ def _run_camera(spec, cfg: CameraDecodeConfig, ring: FrameRing, free_q, decode_q
                     f"{spec.camera_id} decodes {fw}x{fh} frames but the ring was sized "
                     f"for at most {rw}x{rh}; raise MAX_FRAME_SHAPE in the driver, since "
                     f"a slot cannot hold this frame")
+        tf0 = time.perf_counter()
         slot = free_q.get()
+        tf1 = time.perf_counter()
+        acc["free_wait_s"] += tf1 - tf0
         dst = ring.frame_slot(slot, frame.image_bgr.shape)
         np.copyto(dst, frame.image_bgr)
+        acc["frame_copy_s"] += time.perf_counter() - tf1
 
         tl0 = time.perf_counter()
         lb, ratio, dx, dy = _letterbox(frame.image_bgr, pose_imgsz)
@@ -88,7 +115,11 @@ def _run_camera(spec, cfg: CameraDecodeConfig, ring: FrameRing, free_q, decode_q
         np.copyto(blob_dst, np.ascontiguousarray(rgb, pose_dtype) / pose_dtype(255.0))
         tl2 = time.perf_counter()
 
+        acc["letterbox_s"] += tl1 - tl0
+        acc["preprocess_s"] += tl2 - tl1
+
         run_till = cfg.till_conf is not None and (frame.frame_idx % cfg.till_every_n == 0)
+        tp0 = time.perf_counter()
         decode_q.put(DecodeMessage(
             camera_id=spec.camera_id, slot=slot, frame_shape=frame.image_bgr.shape,
             frame_idx=frame.frame_idx, frame_meta=FrameMeta.from_envelope(frame),
@@ -96,8 +127,10 @@ def _run_camera(spec, cfg: CameraDecodeConfig, ring: FrameRing, free_q, decode_q
             letterbox_s=tl1 - tl0, preprocess_s=tl2 - tl1, conf=cfg.conf,
             till_conf=cfg.till_conf if run_till else None,
         ))
+        acc["put_wait_s"] += time.perf_counter() - tp0
         frames += 1
-    return DecoderStats(camera_id=spec.camera_id, frames=frames, started=started, ended=time.time())
+    return DecoderStats(camera_id=spec.camera_id, frames=frames, started=started,
+                        ended=time.time(), **acc)
 
 
 def run_decoder_process(shard: list, ring_specs: dict, free_qs: dict, decode_qs: dict,
