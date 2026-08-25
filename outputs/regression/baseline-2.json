@@ -1,0 +1,144 @@
+{
+  "behaviour": {
+    "cold_storage_1": {
+      "alerts": 4,
+      "frames": 540,
+      "staff_outside_schedule_alerts": 0,
+      "unknown_alerts": 4
+    },
+    "cold_storage_2": {
+      "alerts": 4,
+      "frames": 540,
+      "staff_outside_schedule_alerts": 0,
+      "unknown_alerts": 4
+    },
+    "cold_storage_3": {
+      "alerts": 4,
+      "frames": 540,
+      "staff_outside_schedule_alerts": 0,
+      "unknown_alerts": 4
+    },
+    "cold_storage_4": {
+      "alerts": 4,
+      "frames": 540,
+      "staff_outside_schedule_alerts": 0,
+      "unknown_alerts": 4
+    },
+    "counter_1": {
+      "alerts": 0,
+      "frames": 900,
+      "till_state_changes": 4
+    },
+    "counter_2": {
+      "alerts": 0,
+      "frames": 900,
+      "till_state_changes": 4
+    },
+    "counter_3": {
+      "alerts": 0,
+      "frames": 900,
+      "till_state_changes": 4
+    },
+    "counter_4": {
+      "alerts": 0,
+      "frames": 900,
+      "till_state_changes": 4
+    },
+    "storage_1": {
+      "alerts": 2,
+      "frames": 540,
+      "staff_outside_schedule_alerts": 2,
+      "unknown_alerts": 0
+    },
+    "storage_2": {
+      "alerts": 2,
+      "frames": 540,
+      "staff_outside_schedule_alerts": 2,
+      "unknown_alerts": 0
+    },
+    "storage_3": {
+      "alerts": 2,
+      "frames": 540,
+      "staff_outside_schedule_alerts": 2,
+      "unknown_alerts": 0
+    },
+    "storage_4": {
+      "alerts": 2,
+      "frames": 540,
+      "staff_outside_schedule_alerts": 2,
+      "unknown_alerts": 0
+    },
+    "whole_store_1": {
+      "alerts": 0,
+      "frames": 900
+    },
+    "whole_store_2": {
+      "alerts": 0,
+      "frames": 900
+    },
+    "whole_store_3": {
+      "alerts": 0,
+      "frames": 900
+    },
+    "whole_store_4": {
+      "alerts": 0,
+      "frames": 900
+    }
+  },
+  "cameras": 16,
+  "fps": 113.41707809393007,
+  "frames": 11520,
+  "identity": {
+    "lifetime_avg": 38.84848484848485,
+    "track_frames_total": 15384,
+    "tracks_created": 396
+  },
+  "phases": {
+    "alert_io": 341.0644,
+    "bootstrap": 5738.7711,
+    "bootstrap::detector": 0.0163,
+    "bootstrap::embedder": 466.7364,
+    "bootstrap::face": 5003.9873,
+    "bootstrap::till": 5855.1628,
+    "bootstrap::tracker": 8.784,
+    "bootstrap::zones": 2140.0505,
+    "clip_buffer_collect": 0.5357,
+    "clip_buffer_push": 3.0703,
+    "clip_persist_io": 9.0398,
+    "customer_zone_update": 0.5157,
+    "detect_pose": 43.0759,
+    "detect_pose::batch_wait": 0.0027,
+    "detect_pose::decode": 0.6676,
+    "detect_pose::infer": 18.2823,
+    "detect_pose::letterbox": 4.0223,
+    "detect_pose::preprocess": 5.8001,
+    "detect_pose::queue_wait": 11.3743,
+    "embed_reid": 16.0224,
+    "embed_reid::crop_resize": 1.2501,
+    "embed_reid::infer": 9.7729,
+    "embed_reid::l2norm": 0.2295,
+    "embed_reid::pack_norm": 3.1615,
+    "embed_reid::post_concat": 1.5702,
+    "entry_window_state_update": 0.004,
+    "face_identity": 3.7205,
+    "finalize_expired_entry_windows": 1.6486,
+    "finalize_removed_tracks": 0.2525,
+    "fsm_logic": 0.2882,
+    "process_zone_events": 0.0017,
+    "till_infer": 29.617,
+    "till_infer::batch_wait": 2.7975,
+    "till_infer::decode_masks": 1.9369,
+    "till_infer::infer": 13.6455,
+    "till_infer::letterbox": 1.8295,
+    "till_infer::preprocess": 2.3502,
+    "till_infer::queue_wait": 5.6641,
+    "till_state_update": 0.3029,
+    "tracker_prepare_detections": 0.0705,
+    "tracker_update": 2.3879,
+    "voter_drop_removed": 0.0028,
+    "voter_role_update": 0.8104,
+    "zone_monitor_drop": 0.0038,
+    "zone_monitor_update": 0.1801
+  },
+  "serving_s": 101.57200479507446
+}
