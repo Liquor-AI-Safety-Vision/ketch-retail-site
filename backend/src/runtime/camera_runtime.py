@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from backend.src.common.timing import TimingCollector
@@ -37,6 +38,8 @@ class CameraRuntime:
         self.source = VirtualVideoStreamSource(spec)
         self.run_id: str | None = None
         self.pipeline_handlers = []
+        self._prepared = False
+        self.processing_started_at: float | None = None
         self.metrics = {
             "frames_processed": 0,
             "alerts_emitted": 0,
@@ -86,7 +89,17 @@ class CameraRuntime:
             shared_inference=self.shared_inference,
         )
 
-    def run(self, *, pace_realtime: bool = False, limit_frames: int | None = None) -> dict[str, Any]:
+    def prepare(self) -> None:
+        """Build the pipeline handlers and load their models.
+
+        Split out of run() so a caller can finish loading every camera's models
+        before any camera starts pulling frames. Model init used to happen inside
+        the timed loop, where it cost up to 20s of a 135s 16-camera run and left
+        the first seconds of every stream behind its target_fps. Idempotent, so
+        run() can still call it for callers that do not prepare up front.
+        """
+        if self._prepared:
+            return
         self.run_id = self.alert_store.start_run(
             self.spec.camera_id,
             source_ref=self.spec.source_uri,
@@ -103,6 +116,13 @@ class CameraRuntime:
                 warmup = getattr(handler, "warmup", None)
                 if callable(warmup):
                     warmup(warmup_frame)
+        self._prepared = True
+
+    def run(self, *, pace_realtime: bool = False, limit_frames: int | None = None) -> dict[str, Any]:
+        self.prepare()
+        # Marks the boundary between loading models and actually serving frames,
+        # so throughput can be reported without model init folded into it.
+        self.processing_started_at = time.time()
         status = "completed"
         try:
             for frame, source_timing in self.source.iter_timed_frames(pace_realtime=pace_realtime):
@@ -161,6 +181,8 @@ class CameraRuntime:
             "processing_mode": self.metrics["processing_mode"],
             "source_skipped_source_frames": self.metrics["source_skipped_source_frames"],
             "source_metrics": self.source.snapshot_metrics(),
+            "processing_started_at": self.processing_started_at,
+            "processing_ended_at": time.time(),
             "timing": self.timing.as_dict(),
             "pipeline_metrics": pipeline_metrics,
         }

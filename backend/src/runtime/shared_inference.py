@@ -231,36 +231,47 @@ class SharedPoseService:
         )
 
     def detect(self, frame_bgr: np.ndarray, *, conf: float) -> PoseResult:
-        return self.runner.submit({"frame_bgr": frame_bgr, "conf": conf})
+        # Letterbox and normalise on the calling camera thread. This used to run
+        # inside the batch-runner thread, which funnelled ~8ms of per-frame CPU
+        # work through num_workers threads while the camera threads sat idle
+        # waiting on submit(), and showed up as queue_wait being nearly twice the
+        # actual inference time.
+        tl0 = time.perf_counter()
+        lb, r, dx, dy = _letterbox(frame_bgr, self.imgsz)
+        tl1 = time.perf_counter()
+        blob = cv2.cvtColor(lb, cv2.COLOR_BGR2RGB).transpose(2, 0, 1)
+        blob = np.ascontiguousarray(blob, self.input_dtype) / self.input_dtype(255.0)
+        tl2 = time.perf_counter()
+        return self.runner.submit(
+            {
+                "blob": blob,
+                "frame_shape": frame_bgr.shape[:2],
+                "ratio": r,
+                "dx": dx,
+                "dy": dy,
+                "conf": float(conf),
+                "letterbox_s": tl1 - tl0,
+                "preprocess_s": tl2 - tl1,
+            }
+        )
 
     def close(self):
         self.runner.close()
 
     def _infer_batch(self, requests: list[dict[str, Any]]) -> list[PoseResult]:
-        metas = []
-        blobs = []
-        letterbox_total_s = 0.0
-        preprocess_total_s = 0.0
-        for req in requests:
-            frame = req["frame_bgr"]
-            tl0 = time.perf_counter()
-            lb, r, dx, dy = _letterbox(frame, self.imgsz)
-            tl1 = time.perf_counter()
-            blob = cv2.cvtColor(lb, cv2.COLOR_BGR2RGB).transpose(2, 0, 1)
-            blob = np.ascontiguousarray(blob, self.input_dtype) / self.input_dtype(255.0)
-            tl2 = time.perf_counter()
-            letterbox_total_s += tl1 - tl0
-            preprocess_total_s += tl2 - tl1
-            metas.append(
-                {
-                    "frame_shape": frame.shape[:2],
-                    "ratio": r,
-                    "dx": dx,
-                    "dy": dy,
-                    "conf": float(req["conf"]),
-                }
-            )
-            blobs.append(blob)
+        metas = [
+            {
+                "frame_shape": req["frame_shape"],
+                "ratio": req["ratio"],
+                "dx": req["dx"],
+                "dy": req["dy"],
+                "conf": req["conf"],
+                "letterbox_s": req["letterbox_s"],
+                "preprocess_s": req["preprocess_s"],
+            }
+            for req in requests
+        ]
+        blobs = [req["blob"] for req in requests]
         batch = np.stack(blobs, axis=0)
         real_n = len(blobs)
         if self.pad_batch and real_n < self.runner.max_batch:
@@ -275,8 +286,6 @@ class SharedPoseService:
         td0 = time.perf_counter()
         results = []
         batch_size = max(1, len(requests))
-        per_item_letterbox = letterbox_total_s / batch_size
-        per_item_preprocess = preprocess_total_s / batch_size
         per_item_infer = infer_s / max(1, len(requests))
         for idx, (out, meta) in enumerate(zip(raw, metas)):
             h, w = meta["frame_shape"]
@@ -307,12 +316,12 @@ class SharedPoseService:
                     kpts=kpts,
                     profile={
                         "provider": self.provider,
-                        "letterbox_s": float(per_item_letterbox),
-                        "preprocess_s": float(per_item_preprocess),
+                        "letterbox_s": float(meta["letterbox_s"]),
+                        "preprocess_s": float(meta["preprocess_s"]),
                         "infer_s": float(per_item_infer),
                         "decode_s": float(decode_s / max(1, len(raw))),
                         "total_s": float(
-                            per_item_letterbox + per_item_preprocess + per_item_infer
+                            meta["letterbox_s"] + meta["preprocess_s"] + per_item_infer
                         ),
                         "detections": int(len(boxes)),
                         "batch_size": int(batch_size),

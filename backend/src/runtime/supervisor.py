@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import multiprocessing as mp
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
@@ -58,24 +59,37 @@ def _run_camera_shard_worker(
         config=shared_inference_config,
     )
     results: dict[str, dict[str, Any]] = {}
+    # Every camera loads its models, then all of them start pulling frames
+    # together. Warming up inside the frame loop put model init on the clock and
+    # left the first seconds of each stream behind its target_fps. The barrier
+    # keeps each camera on one thread throughout, which its SQLite connection
+    # requires.
+    ready = threading.Barrier(len(shard) or 1)
+
+    def _prepare_then_run(spec: CameraStreamSpec) -> dict[str, Any]:
+        runtime = CameraRuntime(
+            spec,
+            db_path=db_path,
+            media_root=media_root,
+            gallery_db_path=gallery_db_path,
+            cpu_only=cpu_only,
+            shared_inference=shared_inference,
+            skip_pipelines=skip_pipelines,
+        )
+        try:
+            runtime.prepare()
+        except BaseException:
+            ready.abort()  # release the others instead of hanging them
+            raise
+        ready.wait()
+        return runtime.run(
+            pace_realtime=pace_realtime,
+            limit_frames=limit_frames_by_camera.get(spec.camera_id),
+        )
+
     try:
         with ThreadPoolExecutor(max_workers=len(shard) or 1, thread_name_prefix="camera-runtime") as pool:
-            future_map = {
-                pool.submit(
-                    _run_camera_worker,
-                    spec,
-                    db_path=db_path,
-                    media_root=media_root,
-                    gallery_db_path=gallery_db_path,
-                    cpu_only=cpu_only,
-                    pace_realtime=pace_realtime,
-                    limit_frames=limit_frames_by_camera.get(spec.camera_id),
-                    native_threads=native_threads,
-                    shared_inference=shared_inference,
-                    skip_pipelines=skip_pipelines,
-                ): spec.camera_id
-                for spec in shard
-            }
+            future_map = {pool.submit(_prepare_then_run, spec): spec.camera_id for spec in shard}
             for future in as_completed(future_map):
                 camera_id = future_map[future]
                 results[camera_id] = future.result()

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
 import sys
 from pathlib import Path
 
@@ -29,7 +30,32 @@ def _parse_camera_float_map(raw: str | None) -> dict[str, float]:
     return out
 
 
+def _print_throughput_summary(results: list[dict], started_at: float) -> None:
+    """Report throughput with and without model loading.
+
+    Models are loaded before any camera starts serving frames, so folding that
+    one-off cost into the rate understates what the running system sustains.
+    """
+    frames = sum(int(r.get("frames_processed", 0)) for r in results)
+    starts = [r["processing_started_at"] for r in results if r.get("processing_started_at")]
+    ends = [r["processing_ended_at"] for r in results if r.get("processing_ended_at")]
+    total_s = time.time() - started_at
+    print(f"\n=== throughput ===", file=sys.stderr)
+    print(f"frames                 : {frames}", file=sys.stderr)
+    print(f"wall-clock incl. load  : {total_s:7.1f} s  -> {frames / total_s:6.2f} FPS", file=sys.stderr)
+    if starts and ends:
+        load_s = min(starts) - started_at
+        serving_s = max(ends) - min(starts)
+        print(f"model load (before any) : {load_s:7.1f} s", file=sys.stderr)
+        print(
+            f"serving frames only    : {serving_s:7.1f} s  -> {frames / serving_s:6.2f} FPS",
+            file=sys.stderr,
+        )
+    print("", file=sys.stderr)
+
+
 def main():
+    started_at = time.time()
     p = argparse.ArgumentParser(description="Run local backend runtime on virtual camera streams.")
     p.add_argument(
         "--manifest",
@@ -143,6 +169,15 @@ def main():
         action="store_true",
         help="Only read and downsample sources without running any pipeline modules.",
     )
+    p.add_argument(
+        "--till-fps",
+        type=float,
+        help=(
+            "Override how often the cash drawer is sampled, in Hz. Defaults to the "
+            "camera's target_fps (every frame). The confirm streak is rescaled so "
+            "the debounce window keeps the same length in seconds."
+        ),
+    )
     a = p.parse_args()
     cap_native_threads(a.native_threads)
 
@@ -154,6 +189,11 @@ def main():
             spec.start_s = start_overrides[spec.camera_id]
         if spec.camera_id in duration_overrides:
             spec.target_duration_s = duration_overrides[spec.camera_id]
+    if a.till_fps is not None:
+        for spec in specs:
+            for binding in spec.pipeline_bindings:
+                if binding.pipeline_id == "counter_cash_theft_v1":
+                    binding.params["till_fps"] = a.till_fps
     selected = None
     if a.camera_ids:
         selected = [part.strip() for part in a.camera_ids.split(",") if part.strip()]
@@ -186,6 +226,7 @@ def main():
         limit_seconds=limit_seconds,
         concurrency_mode=a.concurrency_mode,
     )
+    _print_throughput_summary(results, started_at)
     print(json.dumps(results, ensure_ascii=False, indent=2, default=str))
 
 
