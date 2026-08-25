@@ -129,7 +129,8 @@ def run(specs, *, decoders: int, inferers: int, infer_threads: int, businesses: 
        pose_model: str, reid_model: str, till_model: str, till_imgsz: int,
        face_model: str, arcface_model: str, db_path: str, media_root: str,
        gallery_db_path: str, slots_per_camera: int,
-       pose_num_workers: int = 1, pose_max_batch: int = 1):
+       pose_num_workers: int = 1, pose_max_batch: int = 1,
+       pose_blob_dtype: str = POSE_BLOB_DTYPE):
     from backend.src.runtime.business_tier import run_business_process
     from backend.src.runtime.decode_tier import run_decoder_process
     from backend.src.runtime.frame_ring import FrameRing
@@ -170,7 +171,7 @@ def run(specs, *, decoders: int, inferers: int, infer_threads: int, businesses: 
         for spec in specs:
             ring, free_q = FrameRing.create(
                 ctx, slots=slots_per_camera, frame_shape=MAX_FRAME_SHAPE,
-                blob_shape=(3, POSE_IMGSZ, POSE_IMGSZ), blob_dtype=POSE_BLOB_DTYPE)
+                blob_shape=(3, POSE_IMGSZ, POSE_IMGSZ), blob_dtype=pose_blob_dtype)
             rings[spec.camera_id] = ring
             free_qs[spec.camera_id] = free_q
             ring_specs[spec.camera_id] = ring.spec
@@ -183,7 +184,7 @@ def run(specs, *, decoders: int, inferers: int, infer_threads: int, businesses: 
                     till_imgsz=till_imgsz, face_model=face_model, arcface_model=arcface_model,
                     db_path=db_path, media_root=media_root, gallery_db_path=gallery_db_path,
                     slots_per_camera=slots_per_camera, pose_num_workers=pose_num_workers,
-                    pose_max_batch=pose_max_batch)
+                    pose_max_batch=pose_max_batch, pose_blob_dtype=pose_blob_dtype)
     finally:
         # The rings are owned here, so this is the only place that can unlink
         # them. Without the finally, any failure between allocation and the
@@ -226,7 +227,8 @@ def _validate_topology(n_cameras: int, *, decoders: int, inferers: int,
 def _run(specs, *, ctx, rings, free_qs, ring_specs, camera_decode_cfg, camera_face_cfg,
          needs_till, decoders, inferers, infer_threads, businesses, pose_model, reid_model,
          till_model, till_imgsz, face_model, arcface_model, db_path, media_root,
-         gallery_db_path, slots_per_camera, pose_num_workers=1, pose_max_batch=1):
+         gallery_db_path, slots_per_camera, pose_num_workers=1, pose_max_batch=1,
+         pose_blob_dtype=POSE_BLOB_DTYPE):
     """Start the tiers, run them, shut them down in the order frames flow.
 
     Split out from run() so the rings run() owns are closed in its finally
@@ -262,7 +264,7 @@ def _run(specs, *, ctx, rings, free_qs, ring_specs, camera_decode_cfg, camera_fa
     dec_procs = [ctx.Process(
         target=run_decoder_process, name=f"decode-{i}",
         args=(shard, ring_specs, free_qs, decode_qs, camera_decode_cfg),
-        kwargs=dict(pose_imgsz=POSE_IMGSZ, pose_dtype_name=POSE_BLOB_DTYPE,
+        kwargs=dict(pose_imgsz=POSE_IMGSZ, pose_dtype_name=pose_blob_dtype,
                    ready_q=ready_q, go_evt=go_evt, stats_q=stats_q))
         for i, shard in enumerate(dec_shards)]
 

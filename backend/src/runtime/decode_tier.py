@@ -112,7 +112,17 @@ def _run_camera(spec, cfg: CameraDecodeConfig, ring: FrameRing, free_q, decode_q
         tl1 = time.perf_counter()
         blob_dst = ring.blob_slot(slot)
         rgb = cv2.cvtColor(lb, cv2.COLOR_BGR2RGB).transpose(2, 0, 1)
-        np.copyto(blob_dst, np.ascontiguousarray(rgb, pose_dtype) / pose_dtype(255.0))
+        # Normalise in float32 and let copyto do the narrowing, rather than
+        # dividing in the blob's own dtype.
+        #
+        # For a float32 blob this is exactly what it did before. For float16
+        # it is the difference between working and not: numpy has no SIMD
+        # path for float16 arithmetic on CPU, so a /255 in float16 is
+        # emulated element by element. Measured at 16 cameras over 3 minutes,
+        # that one division took decode preprocessing from 69.3s to 539.8s --
+        # 7.8x -- and made fp16 pose 15% *slower* end to end than fp32 while
+        # the GPU sat idle waiting for it.
+        np.copyto(blob_dst, np.ascontiguousarray(rgb, np.float32) / np.float32(255.0))
         tl2 = time.perf_counter()
 
         acc["letterbox_s"] += tl1 - tl0
