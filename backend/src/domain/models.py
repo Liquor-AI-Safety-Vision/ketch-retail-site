@@ -26,6 +26,57 @@ class FrameEnvelope:
 
 
 @dataclass
+class FrameMeta:
+    """Everything in FrameEnvelope except the pixels.
+
+    A FrameEnvelope's image_bgr is the one field too large to put on a
+    multiprocessing queue by value (pickling a 1080p array costs 35.6ms
+    against 0.85ms for a slot index, measured in diag_ipc.py). The split
+    architecture's decode tier keeps the pixels in a FrameRing and forwards
+    this instead; the business tier reconstructs a full FrameEnvelope by
+    pairing it with the frame it reads back out of the ring.
+    """
+
+    company_id: Optional[str]
+    store_id: str
+    camera_id: str
+    camera_type: str
+    frame_idx: int
+    ts_utc: datetime
+    simulated_local_ts: Optional[datetime]
+    source_kind: str
+    source_uri: str
+    source_path: str
+    source_frame_idx: int
+    source_time_s: float
+    loop_index: int
+
+    @classmethod
+    def from_envelope(cls, frame: "FrameEnvelope") -> "FrameMeta":
+        return cls(
+            company_id=frame.company_id, store_id=frame.store_id,
+            camera_id=frame.camera_id, camera_type=frame.camera_type,
+            frame_idx=frame.frame_idx, ts_utc=frame.ts_utc,
+            simulated_local_ts=frame.simulated_local_ts,
+            source_kind=frame.source_kind, source_uri=frame.source_uri,
+            source_path=frame.source_path, source_frame_idx=frame.source_frame_idx,
+            source_time_s=frame.source_time_s, loop_index=frame.loop_index,
+        )
+
+    def to_envelope(self, image_bgr: np.ndarray) -> "FrameEnvelope":
+        return FrameEnvelope(
+            company_id=self.company_id, store_id=self.store_id,
+            camera_id=self.camera_id, camera_type=self.camera_type,
+            frame_idx=self.frame_idx, ts_utc=self.ts_utc,
+            simulated_local_ts=self.simulated_local_ts,
+            source_kind=self.source_kind, source_uri=self.source_uri,
+            source_path=self.source_path, image_bgr=image_bgr,
+            source_frame_idx=self.source_frame_idx, source_time_s=self.source_time_s,
+            loop_index=self.loop_index,
+        )
+
+
+@dataclass
 class StreamSourceInfo:
     path: str
     native_fps: float

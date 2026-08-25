@@ -42,6 +42,7 @@ class TrackingBaselinePipeline:
         self.det = None
         self.emb = None
         self.tracker = None
+        self._business_ready = False
         self.metrics = {
             "frames_processed": 0,
             "detections_total": 0,
@@ -56,6 +57,19 @@ class TrackingBaselinePipeline:
             "providers": {},
         }
         self.timing = TimingCollector()
+
+    def _bootstrap_business(self, frame: FrameEnvelope):
+        """The tracker, and nothing that needs a model session.
+
+        Split out for the split-architecture business tier, which never
+        loads det/emb -- those live in the inference tier -- so it can build
+        just the tracker.
+        """
+        if self._business_ready:
+            return
+        h, w = frame.image_bgr.shape[:2]
+        self.tracker = Tracker(img_h=h, img_w=w, fps=self.spec.target_fps)
+        self._business_ready = True
 
     def _bootstrap(self, frame: FrameEnvelope):
         pose_model = self.spec.perception_profile.get("person_detector", {}).get(
@@ -92,8 +106,7 @@ class TrackingBaselinePipeline:
                 )
             else:
                 self.emb = _build_embedder()
-        h, w = frame.image_bgr.shape[:2]
-        self.tracker = Tracker(img_h=h, img_w=w, fps=self.spec.target_fps)
+        self._bootstrap_business(frame)
         self.metrics["providers"] = {
             "pose_detector": getattr(self.det, "provider", "unknown"),
             "reid_embedder": getattr(self.emb, "provider", "unknown"),
@@ -152,6 +165,12 @@ class TrackingBaselinePipeline:
                 "embed_reid::l2norm": float(self.emb.last_profile.get("l2norm_s", 0.0)),
             }
         )
+        return self.handle_perceived(frame, boxes, kpts, feats)
+
+    def handle_perceived(self, frame: FrameEnvelope, boxes, kpts, feats):
+        """Tracking for one frame's perception, wherever it ran."""
+        if not self._business_ready:
+            self._bootstrap_business(frame)
         with self.timing.track("tracker_prepare_detections"):
             dets = [Detection(boxes[i, :4], boxes[i, 4], feats[i], kpts[i]) for i in range(len(boxes))]
         with self.timing.track("tracker_update"):

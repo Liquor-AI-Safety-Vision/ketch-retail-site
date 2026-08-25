@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import json
 import sys
 import threading
@@ -46,14 +47,33 @@ def _in_allowed_window(local_ts: datetime | None, access_schedule: dict[str, Any
     if not windows:
         return False
     day_name = DAY_NAMES[local_ts.weekday()]
+    # A window that crosses midnight is listed under the day it *starts* on,
+    # which is how a shift roster reads: "Friday 22:00-06:00" is Friday
+    # night, and its small hours fall on Saturday. So a Saturday 02:00 sample
+    # has to be tested against Friday's windows, not Saturday's -- which
+    # means the day of the sample is not enough to pick which windows apply.
+    #
+    # Getting this wrong is not a near miss. Checking `day_name in days`
+    # first, before the wrap is considered, accepts the evening half and
+    # rejects the morning half of the very same shift: staff on shift at
+    # 02:00 read as intruders. An earlier version of this function did
+    # exactly that while carrying a comment claiming otherwise.
+    prev_day_name = DAY_NAMES[(local_ts.weekday() - 1) % 7]
     minute_of_day = local_ts.hour * 60 + local_ts.minute
     for window in windows:
-        if day_name not in window.get("days", DAY_NAMES):
-            continue
+        days = window.get("days", DAY_NAMES)
         start_min = _parse_hhmm(window["start"])
         end_min = _parse_hhmm(window["end"])
-        if start_min <= minute_of_day <= end_min:
-            return True
+        if start_min <= end_min:
+            if day_name in days and start_min <= minute_of_day <= end_min:
+                return True
+            continue
+        # Crosses midnight: two halves, listed under two different calendar
+        # days but belonging to one shift.
+        if day_name in days and minute_of_day >= start_min:
+            return True                      # tonight's evening half
+        if prev_day_name in days and minute_of_day <= end_min:
+            return True                      # last night's morning half
     return False
 
 
@@ -76,8 +96,14 @@ class EntryFaceWindow:
     def is_collecting(self, frame_idx: int) -> bool:
         return self.end_frame is None or frame_idx <= self.end_frame
 
-    def consider(self, decision: MatchDecision):
-        if decision.observation is None:
+    def consider(self, decision: MatchDecision | None):
+        # None means no identification happened at all -- the async face tier
+        # answering a request that raised, so the business worker's count can
+        # come down. Guarded here as well as at the call site: the call site
+        # guard is what the current path relies on, but a method that
+        # dereferences its argument unconditionally is one new caller away
+        # from the same crash.
+        if decision is None or decision.observation is None:
             return
         key = (
             float(decision.top1.similarity if decision.top1 is not None else 0.0),
@@ -123,14 +149,32 @@ class StorageIntrusionPipeline:
         self.tracker = None
         self.monitor = None
         self.face_identifier = None
+        self._business_ready = False
+        # Whether identity checks apply to this camera at all is pure config,
+        # independent of whether a face_identifier object has been built.
+        # The split business tier never builds one -- that model lives in its
+        # own process -- but still needs to know to collect identification
+        # targets and route them there instead of skipping face work
+        # entirely.
+        self.face_enabled = bool(self.spec.perception_profile.get("face_identity", {}).get("enabled", False))
         self.entry_windows: dict[int, EntryFaceWindow] = {}
         self.pending_entries: dict[int, PendingEntry] = {}
+        # Tracks whose face request came back as a failure rather than as a
+        # verdict. Without this, "the face tier is broken" and "this person
+        # never turned toward the camera" both arrive as no decision at all,
+        # and both raise an identical unknown-person alert -- so a dead face
+        # model reads as a night of intruders, and nothing in the alert says
+        # otherwise. Alerting either way is deliberate (a real stranger
+        # during an outage must not be missed); telling them apart is what
+        # lets an operator see an outage for what it is.
+        self.face_failed_tracks: set[int] = set()
         self.metrics = {
             "frames_processed": 0,
             "detections_total": 0,
             "alerts_emitted": 0,
             "entries_seen": 0,
             "unknown_alerts": 0,
+            "face_identification_failures": 0,
             "staff_outside_schedule_alerts": 0,
             "pose_batch_size_last": 1,
             "pose_batch_size_sum": 0,
@@ -155,6 +199,33 @@ class StorageIntrusionPipeline:
                 * self.spec.target_fps
             ),
         )
+
+    def _bootstrap_business(self, frame: FrameEnvelope):
+        """Everything process_frame needs that is not a model session.
+
+        Split out so the split-architecture business tier -- which never
+        loads det/emb/face itself, since those live in the inference and
+        face tiers -- can build the tracker and zone monitor without
+        touching a GPU. Called from both `_bootstrap` (the local/
+        current-architecture path) and directly by callers that only need
+        this half.
+        """
+        if self._business_ready:
+            return
+        conf = float(self.spec.perception_profile.get("person_detector", {}).get("conf_thres", 0.45))
+        cfg = warehouse.Config(fps=self.spec.target_fps)
+        cfg.person_conf = conf
+        if "entry_confirm_seconds" in self.params:
+            cfg.entry_confirmation_s = float(self.params["entry_confirm_seconds"])
+            cfg.__post_init__()
+        if "min_box_h_frac" in self.zone_cfg:
+            cfg.min_box_h_frac = float(self.zone_cfg["min_box_h_frac"])
+
+        h, w = frame.image_bgr.shape[:2]
+        with self.timing.track("bootstrap::tracker"):
+            self.tracker = Tracker(img_h=h, img_w=w, fps=self.spec.target_fps)
+            self.monitor = warehouse.ZoneMonitor(self.zone_cfg["zone_norm"], w, h, cfg)
+        self._business_ready = True
 
     def _bootstrap(self, frame: FrameEnvelope):
         pose_model = self.spec.perception_profile.get("person_detector", {}).get(
@@ -192,18 +263,7 @@ class StorageIntrusionPipeline:
             else:
                 self.emb = _build_embedder()
 
-        cfg = warehouse.Config(fps=self.spec.target_fps)
-        cfg.person_conf = conf
-        if "entry_confirm_seconds" in self.params:
-            cfg.entry_confirmation_s = float(self.params["entry_confirm_seconds"])
-            cfg.__post_init__()
-        if "min_box_h_frac" in self.zone_cfg:
-            cfg.min_box_h_frac = float(self.zone_cfg["min_box_h_frac"])
-
-        h, w = frame.image_bgr.shape[:2]
-        with self.timing.track("bootstrap::tracker"):
-            self.tracker = Tracker(img_h=h, img_w=w, fps=self.spec.target_fps)
-            self.monitor = warehouse.ZoneMonitor(self.zone_cfg["zone_norm"], w, h, cfg)
+        self._bootstrap_business(frame)
 
         face_cfg = self.spec.perception_profile.get("face_identity", {})
         if face_cfg.get("enabled", False):
@@ -299,10 +359,40 @@ class StorageIntrusionPipeline:
                     metadata=clip.metadata,
                 )
 
-    def finalize(self):
+    def finalize(self) -> int:
+        """Close out anything still open. Returns alerts emitted while doing so.
+
+        The count is returned rather than only counted in self.metrics
+        because both runtimes accumulate their alert totals from what
+        process_frame/handle_perceived returned, and finalize happens after
+        the last of those -- so an alert raised here would otherwise be
+        written to the alert store while missing from the run's own summary.
+        """
+        # Entries still waiting on a face window are resolved here rather
+        # than abandoned. A window normally closes post_entry_frames after
+        # the entry, and that is around a second of footage -- so anyone who
+        # walks into the zone in the last second of a stream, or of a trimmed
+        # benchmark clip, has an open window when the frames run out. Without
+        # this the run reports "completed" with the alert never emitted, and
+        # the loss is invisible: no error, just a smaller number. It is also
+        # exactly the kind of entry worth catching, since a trim boundary is
+        # arbitrary and a real stream simply ends when it ends.
+        #
+        # Uses whatever the window resolved to, the same value the expiry
+        # path passes -- an entry closed early by the stream ending is not a
+        # different kind of entry, it just ran out of frames to improve on.
+        emitted = 0
+        for track_id in list(self.pending_entries):
+            window = self.entry_windows.get(track_id)
+            emitted += self._finalize_entry(
+                track_id, window.resolved_decision() if window else None)
+
+        # Flushed after, not before: an alert raised just above opens a clip,
+        # and flushing first would leave that clip unwritten.
         self._persist_ready_clips(self.clip_buffer.flush_all())
         if self.shared_inference is not None and self.face_identifier is not None:
             self.face_identifier.close()
+        return emitted
 
     def _finalize_entry(self, track_id: int, decision: MatchDecision | None):
         pending = self.pending_entries.get(track_id)
@@ -329,11 +419,19 @@ class StorageIntrusionPipeline:
                 is_staff = bool(decision.person.is_staff)
                 similarity = float(decision.person.similarity)
 
+        # A failed identification still alerts -- an outage is not a reason to
+        # stop watching the door -- but it says so, instead of blaming the
+        # person for a broken model.
+        face_failed = decision is None and track_id in self.face_failed_tracks
+        if face_failed:
+            reason = "face_identification_failed"
+
         event_type = None
         reason_codes = [reason]
         if is_unknown:
             event_type = "unknown_entry"
-            reason_codes.append("UNKNOWN_PERSON_ENTERED_STORAGE")
+            reason_codes.append(
+                "FACE_IDENTIFICATION_FAILED" if face_failed else "UNKNOWN_PERSON_ENTERED_STORAGE")
             self.metrics["unknown_alerts"] += 1
         elif is_staff and not _in_allowed_window(pending.event_local_ts, self.access_schedule):
             event_type = "staff_outside_schedule"
@@ -343,6 +441,7 @@ class StorageIntrusionPipeline:
         if event_type is None:
             self.pending_entries.pop(track_id, None)
             self.entry_windows.pop(track_id, None)
+            self.face_failed_tracks.discard(track_id)
             return 0
 
         metadata = {
@@ -391,14 +490,12 @@ class StorageIntrusionPipeline:
         self.metrics["alerts_emitted"] += 1
         self.pending_entries.pop(track_id, None)
         self.entry_windows.pop(track_id, None)
+        self.face_failed_tracks.discard(track_id)
         return 1
 
     def process_frame(self, frame: FrameEnvelope):
         if self.det is None:
             self.warmup(frame)
-        with self.timing.track("clip_buffer_push"):
-            self.clip_buffer.push(frame)
-
         with self.timing.track("detect_pose"):
             if self.shared_inference is not None:
                 pose_result = self.det.detect(frame.image_bgr, conf=float(
@@ -431,12 +528,6 @@ class StorageIntrusionPipeline:
         )
         self.metrics["pose_queue_wait_ms_last"] = round(float(pose_profile.get("queue_wait_s", 0.0)) * 1000.0, 3)
         self.metrics["pose_batch_wait_ms_last"] = round(float(pose_profile.get("batch_wait_s", 0.0)) * 1000.0, 3)
-        min_h = self.monitor.cfg.min_box_h_frac * frame.image_bgr.shape[0]
-        if len(boxes) and min_h > 0:
-            keep = (boxes[:, 3] - boxes[:, 1]) >= min_h
-            boxes = boxes[keep]
-            kpts = [k for k, keep_one in zip(kpts, keep) if keep_one]
-
         with self.timing.track("embed_reid"):
             feats = self.emb(frame.image_bgr, boxes)
         self.timing.merge_dict(
@@ -448,6 +539,47 @@ class StorageIntrusionPipeline:
                 "embed_reid::l2norm": float(self.emb.last_profile.get("l2norm_s", 0.0)),
             }
         )
+        result, face_targets = self.handle_perceived(frame, boxes, kpts, feats)
+        # In local/current-architecture mode self.face_identifier is a real
+        # object (built in _bootstrap whenever face is enabled), so
+        # handle_perceived already resolved every identification
+        # synchronously and face_targets is always empty here.
+        assert not face_targets, "local mode produced async face targets with no async path to send them"
+        return result
+
+    def handle_perceived(self, frame: FrameEnvelope, boxes, kpts, feats):
+        """Tracking, zone logic, entry alerts and clip handling for one frame's perception.
+
+        Takes boxes/kpts/feats already computed -- by process_frame's own
+        det/emb calls in local mode, or by the inference tier's
+        PerceptionResult in the split architecture -- so this is the one
+        place the business logic lives regardless of where perception ran.
+
+        The min_box_h filter runs here rather than where boxes first arrive,
+        which costs a little wasted ReID compute in split mode (the
+        inference tier embeds boxes this filter then discards, since it has
+        no reason to know a zone-monitor threshold). The alternative --
+        threading min_box_h_frac through to the inference tier -- would
+        make a business-only config reach into perception. Filtering here
+        keeps tracker.update() fed the exact same detections either way,
+        which is the property that actually needs to hold.
+
+        Returns (result_dict, face_targets). face_targets is empty except in
+        split mode: entries needing identification that this pipeline has no
+        model to resolve itself, for the caller to route to the face tier.
+        """
+        if not self._business_ready:
+            self._bootstrap_business(frame)
+        with self.timing.track("clip_buffer_push"):
+            self.clip_buffer.push(frame)
+
+        min_h = self.monitor.cfg.min_box_h_frac * frame.image_bgr.shape[0]
+        if len(boxes) and min_h > 0:
+            keep = (boxes[:, 3] - boxes[:, 1]) >= min_h
+            boxes = boxes[keep]
+            kpts = [k for k, keep_one in zip(kpts, keep) if keep_one]
+            feats = feats[keep] if len(feats) else feats
+
         with self.timing.track("tracker_prepare_detections"):
             dets = [Detection(boxes[i, :4], boxes[i, 4], feats[i], kpts[i]) for i in range(len(boxes))]
         with self.timing.track("tracker_update"):
@@ -473,7 +605,7 @@ class StorageIntrusionPipeline:
 
         with self.timing.track("entry_window_state_update"):
             for tid, st in state_of.items():
-                if self.face_identifier is None:
+                if not self.face_enabled:
                     continue
                 if st == warehouse.PENDING_IN:
                     self.entry_windows.setdefault(tid, EntryFaceWindow(frame.frame_idx))
@@ -482,7 +614,11 @@ class StorageIntrusionPipeline:
                     decision = window.resolved_decision() if window is not None else None
                     alerts_from_finalize += self._finalize_entry(tid, decision)
 
-        if self.face_identifier is not None:
+        # Targets this pipeline cannot resolve itself in split mode
+        # (self.face_identifier is None there): the caller sends these to
+        # the face tier and later reports back through handle_face_answer.
+        face_targets: list[tuple[int, Any, str | None, str | None]] = []
+        if self.face_enabled:
             with self.timing.track("face_identity"):
                 identify_calls = 0
                 for tid, ltrb, _kp, st, _pt, _streak in items:
@@ -492,13 +628,16 @@ class StorageIntrusionPipeline:
                     if st not in (warehouse.PENDING_IN, warehouse.INSIDE):
                         continue
                     identify_calls += 1
-                    decision = self.face_identifier.identify(
-                        frame.image_bgr,
-                        ltrb,
-                        store_id=self.spec.store_id,
-                        company_id=self.spec.company_id,
-                    )
-                    window.consider(decision)
+                    if self.face_identifier is not None:
+                        decision = self.face_identifier.identify(
+                            frame.image_bgr,
+                            ltrb,
+                            store_id=self.spec.store_id,
+                            company_id=self.spec.company_id,
+                        )
+                        window.consider(decision)
+                    else:
+                        face_targets.append((tid, ltrb, self.spec.store_id, self.spec.company_id))
                 self.timing.merge_dict({"face_identity::calls": float(identify_calls)})
 
         new_events = self.monitor.events[events_before:]
@@ -513,15 +652,22 @@ class StorageIntrusionPipeline:
                     event_frame_idx=frame.frame_idx,
                     event_ts_utc=frame.ts_utc,
                     event_local_ts=frame.simulated_local_ts,
-                    snapshot_frame=frame,
+                    # A copy, not the frame itself. This gets read back out
+                    # for a snapshot whenever the entry window closes, up to
+                    # post_entry_frames later -- and in the split
+                    # architecture frame.image_bgr is a view into a ring
+                    # slot the decoder will have overwritten several times
+                    # over by then. Cheap to always copy here since a zone
+                    # entry is rare, not once per frame.
+                    snapshot_frame=dataclasses.replace(frame, image_bgr=frame.image_bgr.copy()),
                 )
-                if self.face_identifier is None:
+                if not self.face_enabled:
                     alerts_from_finalize += self._finalize_entry(tid, None)
                     continue
                 window = self.entry_windows.setdefault(tid, EntryFaceWindow(frame.frame_idx))
                 window.end_frame = frame.frame_idx + self.post_entry_frames
 
-        if self.face_identifier is not None:
+        if self.face_enabled:
             with self.timing.track("finalize_expired_entry_windows"):
                 for tid, window in list(self.entry_windows.items()):
                     st = state_of.get(tid)
@@ -542,4 +688,33 @@ class StorageIntrusionPipeline:
             "events_emitted": len(new_events),
             "live_tracks": len(items),
             "removed_tracks": len(removed),
-        }
+        }, face_targets
+
+    def handle_face_answer(self, track_id: int, decision) -> None:
+        """Feed an async identification result in whenever it arrives.
+
+        Called from the split business tier only; the local/current path
+        never has anything to feed here since it resolves identity inline.
+        A window that has already been finalized or was never opened (the
+        track left before its request came back) is silently ignored --
+        exactly the same case handle_perceived already tolerates when
+        resolved_decision() finds nothing.
+
+        decision=None is the face tier saying it could not identify at all.
+        It has to answer something for every request or the business worker
+        never finishes counting them down, so None is the answer it sends
+        when identify() raised. Ignoring it here is the same outcome as the
+        request never having been made, which is what an exception in the
+        local path would also have produced -- but consider() dereferences
+        decision.observation, so it has to be filtered before that.
+        """
+        if decision is None:
+            # Remembered, not just ignored: the alert this track eventually
+            # raises has to be able to say the identification failed rather
+            # than that the person was unrecognised.
+            self.face_failed_tracks.add(int(track_id))
+            self.metrics["face_identification_failures"] += 1
+            return
+        window = self.entry_windows.get(track_id)
+        if window is not None:
+            window.consider(decision)

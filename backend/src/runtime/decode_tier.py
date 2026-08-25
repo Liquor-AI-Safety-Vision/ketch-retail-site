@@ -28,6 +28,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from backend.src.domain.models import FrameMeta
 from backend.src.runtime.frame_ring import FrameRing
 from backend.src.runtime.inference_server import DecodeMessage
 
@@ -40,9 +41,18 @@ class DecoderStats:
     ended: float
 
 
-def _run_camera(spec, ring: FrameRing, free_q, decode_q, pose_imgsz: int,
-                pose_dtype, conf: float, till_conf: float | None,
-                till_every_n: int) -> DecoderStats:
+@dataclass
+class CameraDecodeConfig:
+    """Per-camera decode settings. Only till_conf/till_every_n vary by
+    pipeline -- counter cameras sample a drawer, storage cameras do not."""
+
+    conf: float
+    till_conf: float | None = None
+    till_every_n: int = 1
+
+
+def _run_camera(spec, cfg: CameraDecodeConfig, ring: FrameRing, free_q, decode_q,
+                pose_imgsz: int, pose_dtype) -> DecoderStats:
     """Pull one camera's frames to completion. Runs on a thread inside the decoder process."""
     from backend.src.runtime.shared_inference import _letterbox
     from backend.src.runtime.virtual_video_stream import VirtualVideoStreamSource
@@ -53,6 +63,19 @@ def _run_camera(spec, ring: FrameRing, free_q, decode_q, pose_imgsz: int,
     frames = 0
     started = time.time()
     for frame in source.iter_frames(pace_realtime=False):
+        if frames == 0:
+            # Checked once, on the first frame, rather than per frame. A
+            # source larger than the ring was sized for would otherwise fail
+            # inside np.copyto with a broadcast error, on a pool thread, in a
+            # decoder process -- which surfaces as the parent waiting forever
+            # on stats it will never receive, with the real cause buried.
+            rh, rw = ring.spec.frame_shape[:2]
+            fh, fw = frame.image_bgr.shape[:2]
+            if fh > rh or fw > rw:
+                raise ValueError(
+                    f"{spec.camera_id} decodes {fw}x{fh} frames but the ring was sized "
+                    f"for at most {rw}x{rh}; raise MAX_FRAME_SHAPE in the driver, since "
+                    f"a slot cannot hold this frame")
         slot = free_q.get()
         dst = ring.frame_slot(slot, frame.image_bgr.shape)
         np.copyto(dst, frame.image_bgr)
@@ -65,20 +88,21 @@ def _run_camera(spec, ring: FrameRing, free_q, decode_q, pose_imgsz: int,
         np.copyto(blob_dst, np.ascontiguousarray(rgb, pose_dtype) / pose_dtype(255.0))
         tl2 = time.perf_counter()
 
-        run_till = till_conf is not None and (frame.frame_idx % till_every_n == 0)
+        run_till = cfg.till_conf is not None and (frame.frame_idx % cfg.till_every_n == 0)
         decode_q.put(DecodeMessage(
             camera_id=spec.camera_id, slot=slot, frame_shape=frame.image_bgr.shape,
-            frame_idx=frame.frame_idx, ratio=ratio, dx=dx, dy=dy,
-            letterbox_s=tl1 - tl0, preprocess_s=tl2 - tl1, conf=conf,
-            till_conf=till_conf if run_till else None,
+            frame_idx=frame.frame_idx, frame_meta=FrameMeta.from_envelope(frame),
+            ratio=ratio, dx=dx, dy=dy,
+            letterbox_s=tl1 - tl0, preprocess_s=tl2 - tl1, conf=cfg.conf,
+            till_conf=cfg.till_conf if run_till else None,
         ))
         frames += 1
     return DecoderStats(camera_id=spec.camera_id, frames=frames, started=started, ended=time.time())
 
 
-def run_decoder_process(shard: list, ring_specs: dict, free_qs: dict, decode_qs: dict, *,
-                        pose_imgsz: int, pose_dtype_name: str, conf: float,
-                        till_conf: float | None, till_every_n: int,
+def run_decoder_process(shard: list, ring_specs: dict, free_qs: dict, decode_qs: dict,
+                        camera_configs: dict[str, CameraDecodeConfig], *,
+                        pose_imgsz: int, pose_dtype_name: str,
                         ready_q, go_evt, stats_q) -> None:
     """Entry point for one decoder process: some cameras, each on its own thread.
 
@@ -91,22 +115,31 @@ def run_decoder_process(shard: list, ring_specs: dict, free_qs: dict, decode_qs:
 
     from backend.src.runtime.frame_ring import FrameRing
     from backend.src.runtime.perf import cap_native_threads
+    from backend.src.runtime.tier_status import tier_guard
 
-    cap_native_threads(1)
-    pose_dtype = np.float16 if pose_dtype_name == "float16" else np.float32
-    rings = {spec.camera_id: FrameRing(ring_specs[spec.camera_id]) for spec in shard}
+    # Everything, including the setup above ready_q.put, sits inside the
+    # guard: a failure while opening a video or mapping a ring happens
+    # before this process has ever spoken, and the parent is blocked on
+    # ready_q at exactly that moment.
+    with tier_guard("decode", ready_q, stats_q):
+        cap_native_threads(1)
+        pose_dtype = np.float16 if pose_dtype_name == "float16" else np.float32
+        rings = {spec.camera_id: FrameRing(ring_specs[spec.camera_id]) for spec in shard}
+        try:
+            ready_q.put(("decode", 1))
+            go_evt.wait()
 
-    ready_q.put(("decode", 1))
-    go_evt.wait()
+            def run_one(spec):
+                return _run_camera(
+                    spec, camera_configs[spec.camera_id], rings[spec.camera_id],
+                    free_qs[spec.camera_id], decode_qs[spec.camera_id], pose_imgsz, pose_dtype)
 
-    def run_one(spec):
-        return _run_camera(
-            spec, rings[spec.camera_id], free_qs[spec.camera_id],
-            decode_qs[spec.camera_id], pose_imgsz, pose_dtype, conf,
-            till_conf, till_every_n)
-
-    with ThreadPoolExecutor(max_workers=len(shard)) as pool:
-        stats = list(pool.map(run_one, shard))
-    stats_q.put(stats)
-    for ring in rings.values():
-        ring.close()
+            with ThreadPoolExecutor(max_workers=len(shard)) as pool:
+                stats = list(pool.map(run_one, shard))
+            stats_q.put(stats)
+        finally:
+            # Detaching in a finally matters even on the failure path: these
+            # are consumer mappings, so close() only detaches, but leaving
+            # them mapped keeps the block alive past the owner's unlink.
+            for ring in rings.values():
+                ring.close()

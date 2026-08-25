@@ -26,11 +26,32 @@ from backend.src.domain.models import CameraPipelineBindingSpec, CameraStreamSpe
 from backend.src.infra.local_media_store import LocalMediaStore
 from backend.src.infra.sqlite_alert_store import SqliteAlertStore
 from backend.src.pipelines.alert_clip_buffer import AlertClipBuffer, FinalizedAlertClip
+from backend.src.pipelines.till_schedule import compute_till_schedule
 from backend.src.pipelines.track_quality import record_track_quality
 from backend.src.runtime.shared_inference import SharedInferenceRegistry
 
 
 BOOTSTRAP_LOCK = threading.Lock()
+
+# What the concealment FSM was last configured with, and by which camera.
+#
+# problem2_fsm keeps its tuning in module-level globals -- FPS, the confirm
+# counts, ANY_HAND, WRIST_CONF_TH -- and _configure_fsm_globals writes into
+# them. That is fine for one camera per process, which is how the FSM was
+# originally driven. It is not fine here: the split business tier runs
+# several cameras as threads in one process, so the second camera to
+# bootstrap silently retunes the first one's FSM and every alert after that
+# is judged against another camera's thresholds.
+#
+# Today every counter in the manifest shares identical parameters, so all of
+# them write the same values and the race is harmless. That is luck, not
+# design, and it is the kind of luck that runs out during a deployment rather
+# than during a test. Until the FSM takes its tuning as an argument instead
+# of reading globals -- 21 constants across 703 lines, threaded through the
+# code that decides whether to raise a theft alert, so not a change to make
+# casually -- this at least refuses to be silently wrong.
+_FSM_GLOBALS_OWNER: dict[str, object] = {}
+_FSM_GLOBALS_LOCK = threading.Lock()
 
 
 class CounterCashTheftPipeline:
@@ -78,6 +99,7 @@ class CounterCashTheftPipeline:
         self.last_till_box = None
         self.last_till_open = False
         self.till_every_n = 1
+        self._business_ready = False
         self.metrics = {
             "frames_processed": 0,
             "detections_total": 0,
@@ -106,18 +128,78 @@ class CounterCashTheftPipeline:
 
     def _configure_fsm_globals(self):
         scale = lambda frames_10fps: max(1, int(round(frames_10fps * self.spec.target_fps / 10.0)))
-        F.FPS = float(self.spec.target_fps)
-        F.HAND_INSIDE_CONFIRM = scale(3)
-        F.HAND_EXIT_CONFIRM = scale(3)
-        F.POSE_GRACE = scale(5)
-        F.DWELL_CONFIRM = scale(5)
-        F.STATE_TIMEOUT = scale(50)
-        F.POST_EVENT = scale(30)
-        F.TRAJ_WINDOW = scale(25)
-        F.TRAJ_LOOKBACK = max(1, scale(5))
-        F.ANY_HAND = bool(self.params.get("any_hand", False))
+        values = {
+            "FPS": float(self.spec.target_fps),
+            "HAND_INSIDE_CONFIRM": scale(3),
+            "HAND_EXIT_CONFIRM": scale(3),
+            "POSE_GRACE": scale(5),
+            "DWELL_CONFIRM": scale(5),
+            "STATE_TIMEOUT": scale(50),
+            "POST_EVENT": scale(30),
+            "TRAJ_WINDOW": scale(25),
+            "TRAJ_LOOKBACK": max(1, scale(5)),
+            "ANY_HAND": bool(self.params.get("any_hand", False)),
+        }
         if "wrist_conf_th" in self.params:
-            F.WRIST_CONF_TH = float(self.params["wrist_conf_th"])
+            values["WRIST_CONF_TH"] = float(self.params["wrist_conf_th"])
+
+        # Refuse to be the second camera that retunes a shared FSM to
+        # something else. Two counters with the same settings are fine and
+        # common -- they write identical values, which is why this has never
+        # bitten. Two with different settings would corrupt each other's
+        # alert decisions with nothing in the log to show for it.
+        with _FSM_GLOBALS_LOCK:
+            previous = _FSM_GLOBALS_OWNER.get("values")
+            owner = _FSM_GLOBALS_OWNER.get("camera_id")
+            if previous is not None and previous != values and owner != self.spec.camera_id:
+                differing = {k: (previous.get(k), v) for k, v in values.items()
+                             if previous.get(k) != v}
+                raise RuntimeError(
+                    f"{self.spec.camera_id} needs different concealment-FSM tuning than "
+                    f"{owner}, which already configured it in this process: {differing}. "
+                    f"problem2_fsm holds its tuning in module globals, so both cameras "
+                    f"would share whichever was written last and one of them would be "
+                    f"judged against the other's thresholds. Run them in separate "
+                    f"processes, or give them matching parameters, until the FSM takes "
+                    f"its tuning per instance.")
+            _FSM_GLOBALS_OWNER["values"] = values
+            _FSM_GLOBALS_OWNER["camera_id"] = self.spec.camera_id
+            for name, value in values.items():
+                setattr(F, name, value)
+
+    def _bootstrap_business(self, frame: FrameEnvelope):
+        """Everything process_frame needs that is not a model session.
+
+        Split out so the split-architecture business tier -- which never
+        loads det/emb/till itself, since those live in the inference tier --
+        can build the tracker, the till debounce registry, the zone voter and
+        the FSM globals without touching a GPU. Called from both
+        `_bootstrap` (the local/current-architecture path) and directly by
+        callers that only need this half.
+        """
+        till_confirm_frames = int(self.params.get("till_confirm_frames", 5))
+        schedule = compute_till_schedule(
+            self.spec.target_fps, till_confirm_frames, self.params.get("till_fps"))
+        self.till_every_n = schedule.every_n
+        self.till_reg = TillRegistry(schedule.confirm_samples)
+        self.metrics["till_every_n_frames"] = schedule.every_n
+        self.metrics["till_confirm_samples"] = schedule.confirm_samples
+        self.metrics["till_confirm_window_s"] = schedule.confirm_window_s
+
+        h, w = frame.image_bgr.shape[:2]
+        with self.timing.track("bootstrap::tracker"):
+            self.tracker = Tracker(img_h=h, img_w=w, fps=self.spec.target_fps)
+
+        zones_path = self.params.get(
+            "zones_path",
+            str(ROOT / "outputs/top-side-view/top-side-view_zones.json"),
+        )
+        with self.timing.track("bootstrap::zones"):
+            divider, _name = zones.load_divider(zones_path, size=(w, h))
+            self.voter = zones.RoleVoter(divider)
+            self.checkout = F.load_checkout_zones(zones_path, (w, h))
+            self._configure_fsm_globals()
+        self._business_ready = True
 
     def _bootstrap(self, frame: FrameEnvelope):
         pose_model = self.spec.perception_profile.get("person_detector", {}).get(
@@ -158,25 +240,12 @@ class CounterCashTheftPipeline:
         till_model_path = self.params.get("till_model_path", str(ROOT / "models/till_seg_v4_640.onnx"))
         till_imgsz = int(self.params.get("till_imgsz", 640))
         till_conf = float(self.params.get("till_conf", 0.70))
-        till_confirm = int(self.params.get("till_confirm_frames", 5))
-        # `till_confirm_frames` is a debounce expressed in samples, tuned when the
-        # drawer was sampled on every frame. Sampling it less often has to keep
-        # the same debounce *duration*, or a 5-sample streak at 1 Hz would take
-        # five seconds to confirm a drawer that opened.
-        camera_fps = float(self.spec.target_fps) or 1.0
-        confirm_window_s = till_confirm / camera_fps
-        self.till_every_n = max(1, int(round(camera_fps / float(self.params.get("till_fps", camera_fps)))))
-        till_sample_fps = camera_fps / self.till_every_n
-        till_confirm = max(1, int(round(confirm_window_s * till_sample_fps)))
-        self.metrics["till_every_n_frames"] = self.till_every_n
-        self.metrics["till_confirm_samples"] = till_confirm
-        self.metrics["till_confirm_window_s"] = round(till_confirm / till_sample_fps, 3)
         till_providers = (
             ["CPUExecutionProvider"]
             if self.cpu_only
             else ["CUDAExecutionProvider", "CPUExecutionProvider"]
         )
-        self.till_reg = TillRegistry(till_confirm)
+        self._bootstrap_business(frame)
         with self.timing.track("bootstrap::till"):
             if self.shared_inference is not None:
                 self.till = self.shared_inference.get_till(
@@ -184,28 +253,22 @@ class CounterCashTheftPipeline:
                     imgsz=till_imgsz,
                 )
             else:
+                # confirm_samples, not the raw till_confirm_frames param: the
+                # schedule already rescaled it for till_every_n, and the local
+                # Till's own registry must debounce over the same window
+                # _bootstrap_business's TillRegistry would have.
                 self.till = Till(
                     till_model_path,
                     till_imgsz,
                     till_conf,
-                    confirm=till_confirm,
+                    confirm=self.metrics["till_confirm_samples"],
                     providers=till_providers,
                 )
+                # The local Till owns its own TillRegistry built with that
+                # same count; use it instead of the one _bootstrap_business
+                # just built, so there is exactly one registry either way.
                 self.till_reg = self.till.reg
 
-        h, w = frame.image_bgr.shape[:2]
-        with self.timing.track("bootstrap::tracker"):
-            self.tracker = Tracker(img_h=h, img_w=w, fps=self.spec.target_fps)
-
-        zones_path = self.params.get(
-            "zones_path",
-            str(ROOT / "outputs/top-side-view/top-side-view_zones.json"),
-        )
-        with self.timing.track("bootstrap::zones"):
-            divider, _name = zones.load_divider(zones_path, size=(w, h))
-            self.voter = zones.RoleVoter(divider)
-            self.checkout = F.load_checkout_zones(zones_path, (w, h))
-            self._configure_fsm_globals()
         self.metrics["providers"] = {
             "pose_detector": getattr(self.det, "provider", "unknown"),
             "reid_embedder": getattr(self.emb, "provider", "unknown"),
@@ -292,9 +355,6 @@ class CounterCashTheftPipeline:
         if self.det is None:
             self.warmup(frame)
 
-        with self.timing.track("clip_buffer_push"):
-            self.clip_buffer.push(frame)
-
         with self.timing.track("detect_pose"):
             if self.shared_inference is not None:
                 pose_result = self.det.detect(frame.image_bgr, conf=float(
@@ -338,17 +398,6 @@ class CounterCashTheftPipeline:
                 "embed_reid::l2norm": float(self.emb.last_profile.get("l2norm_s", 0.0)),
             }
         )
-        with self.timing.track("tracker_prepare_detections"):
-            dets = [
-                Detection(boxes[i, :4], boxes[i, 4], feats[i], kpts[i])
-                for i in range(len(boxes))
-            ]
-        with self.timing.track("tracker_update"):
-            live, removed = self.tracker.update(dets, frame.frame_idx)
-        with self.timing.track("voter_drop_removed"):
-            for tid in removed:
-                self.voter.drop(tid)
-
         # Sampling the drawer less often than every frame. The confirm streak is
         # counted in till samples, so it is scaled at bootstrap to keep the
         # debounce window the same length in seconds.
@@ -391,10 +440,41 @@ class CounterCashTheftPipeline:
         )
         self.metrics["till_queue_wait_ms_last"] = round(float(till_profile.get("queue_wait_s", 0.0)) * 1000.0, 3)
         self.metrics["till_batch_wait_ms_last"] = round(float(till_profile.get("batch_wait_s", 0.0)) * 1000.0, 3)
+        return self.handle_perceived(frame, boxes, kpts, feats, till_dets)
+
+    def handle_perceived(self, frame: FrameEnvelope, boxes, kpts, feats, till_dets):
+        """Tracking, till debounce, FSM and clip handling for one frame's perception.
+
+        Takes boxes/kpts/feats/till_dets already computed -- by
+        process_frame's own det/emb/till calls in local mode, or by the
+        inference tier's PerceptionResult in the split architecture (where
+        till was folded into the same message rather than a separate
+        crossing, since it has no dependency on people at all) -- so this is
+        the one place the business logic lives regardless of where
+        perception ran. `till_dets is None` means till was not sampled this
+        frame, matching process_frame's own run_till flag exactly.
+        """
+        if not self._business_ready:
+            self._bootstrap_business(frame)
+        with self.timing.track("clip_buffer_push"):
+            self.clip_buffer.push(frame)
+
+        with self.timing.track("tracker_prepare_detections"):
+            dets = [
+                Detection(boxes[i, :4], boxes[i, 4], feats[i], kpts[i])
+                for i in range(len(boxes))
+            ]
+        with self.timing.track("tracker_update"):
+            live, removed = self.tracker.update(dets, frame.frame_idx)
+        with self.timing.track("voter_drop_removed"):
+            for tid in removed:
+                self.voter.drop(tid)
+
         # Only advance the confirm streak on frames that actually observed the
         # drawer. Feeding it a repeated reading would reach `confirm` without any
         # new evidence, which is exactly the false positive the streak guards
         # against. On skipped frames the previous confirmed state stands.
+        run_till = till_dets is not None
         changes: list = []  # no new drawer reading on a skipped frame
         if run_till:
             with self.timing.track("till_state_update"):

@@ -13,8 +13,36 @@ if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
 
 from backend.src.runtime.perf import cap_native_threads
-from backend.src.infra.local_config import camera_specs_from_manifest
-from backend.src.runtime.supervisor import RuntimeSupervisor
+
+
+def _early_native_threads(argv: list[str], default: int = 1) -> int:
+    """Read --native-threads out of argv before argparse exists.
+
+    The cap has to be applied before numpy, cv2 or onnxruntime load, because
+    that is when the BLAS and OpenMP pools size themselves and the only time
+    they read the environment (see perf.py). argparse cannot run that early
+    -- it needs imports of its own and the parser is built in main() -- so
+    this reads the one flag that must be known sooner. Getting the ordering
+    wrong is not a small mistake: it measured 5x on every inference call.
+    """
+    for i, arg in enumerate(argv):
+        if arg == "--native-threads" and i + 1 < len(argv):
+            value = argv[i + 1]
+        elif arg.startswith("--native-threads="):
+            value = arg.split("=", 1)[1]
+        else:
+            continue
+        try:
+            return max(1, int(value))
+        except ValueError:
+            break
+    return default
+
+
+cap_native_threads(_early_native_threads(sys.argv))
+
+from backend.src.infra.local_config import camera_specs_from_manifest  # noqa: E402
+from backend.src.runtime.supervisor import RuntimeSupervisor  # noqa: E402
 
 
 def _parse_camera_float_map(raw: str | None) -> dict[str, float]:

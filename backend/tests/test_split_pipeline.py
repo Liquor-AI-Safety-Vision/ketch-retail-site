@@ -1,20 +1,22 @@
 """The one-way pipeline has to produce the same tracks the current shape does.
 
 This is the property that makes the rewrite safe to keep. If decode -> infer
--> business produces the same boxes, features and, downstream, the same
+-> business, running the real TrackingBaselinePipeline, produces the same
 tracker state as calling det.detect() / emb() / tracker.update() directly in
 one process, then splitting the tiers is purely an optimisation. If it does
 not, alerts drift and nobody notices until the numbers are already wrong.
 
-This drives the real three tiers through run_split_pipeline.run(), using the
-same VirtualVideoStreamSource the manifest-driven runtime uses -- not a
-hand-rolled decode loop. An earlier version of this test decoded frames
-itself and fed them to the queues one at a time before reading any result
-back, and it deadlocked: with more frames than ring slots, the producer
-blocked on a free slot nothing was releasing yet. That was a bug in the test
-imitating a decoder badly, not in the pipeline. Driving the real decoder
-tier avoids it by construction, since decode and business run concurrently
-there exactly as the production shape requires.
+This drives the real four tiers through run_split_pipeline.run() -- decode,
+inference, business (running the actual pipeline classes, not a bare
+tracker), and the face tier when a camera needs it -- using the same
+VirtualVideoStreamSource the manifest-driven runtime uses. An earlier
+version of this test decoded frames itself and fed them to the queues one at
+a time before reading any result back, and it deadlocked: with more frames
+than ring slots, the producer blocked on a free slot nothing was releasing
+yet. That was a bug in the test imitating a decoder badly, not in the
+pipeline. Driving the real decoder tier avoids it by construction, since
+decode and business run concurrently there exactly as the production shape
+requires.
 
 Needs the real models and a GPU, so it skips where they are absent.
 
@@ -61,7 +63,15 @@ def _camera_spec():
 
 
 def _local_tracks(spec):
-    """Pose -> ReID -> Tracker, called directly against the real video stream."""
+    """Pose -> ReID -> Tracker, called directly against the real video stream.
+
+    Deliberately bare -- pose, ReID and tracker.update() only, matching what
+    the split side's tracker actually sees. storage_intrusion's own
+    min_box_h filter, zone monitor and entry windows sit on top of this in
+    both architectures identically (same handle_perceived code either way),
+    so they are not what this test is checking; the split's own zone/entry
+    logic isn't a second implementation to drift against.
+    """
     import stream_track as S
     from uae_tracker import Detection, Tracker
 
@@ -86,45 +96,53 @@ def _local_tracks(spec):
             if tracker is None:
                 h, w = frame.image_bgr.shape[:2]
                 tracker = Tracker(img_h=h, img_w=w, fps=spec.target_fps)
-            result = pose.detect(frame.image_bgr, conf=0.35)
+            conf = float(spec.perception_profile.get("person_detector", {}).get("conf_thres", 0.45))
+            result = pose.detect(frame.image_bgr, conf=conf)
             feats = reid(frame.image_bgr, result.boxes)
             dets = [Detection(result.boxes[i, :4], result.boxes[i, 4], feats[i], result.kpts[i])
                    for i in range(len(result.boxes))]
             live, _removed = tracker.update(dets, frame.frame_idx)
-            per_frame.append((len(result.boxes), len(live)))
+            per_frame.append(len(live))
         return per_frame, int(getattr(tracker, "_next_id", 0))
     finally:
         registry.close()
 
 
-def _split_tracks(spec):
-    """The same camera, through the real decode -> infer -> business tiers."""
+def _split_run(spec, tmp_path):
+    """The same camera, through the real four-tier split pipeline."""
     from backend.src.app.run_split_pipeline import run
 
-    stats, _load_s = run(
+    biz_stats, _all_stats, _load_s = run(
         [spec], decoders=1, inferers=1, infer_threads=1, businesses=1,
         pose_model=str(POSE_MODEL), reid_model=str(REID_MODEL),
-        till_model=None, till_imgsz=640, conf=0.35, till_conf=None,
-        till_every_n=1, slots_per_camera=6)
-    biz_stats = [s for group in stats for s in group if hasattr(s, "tracks_created")]
+        till_model=str(ROOT / "models/till_seg_v4_640.onnx"), till_imgsz=640,
+        face_model=str(ROOT / "models/yolov6s_face.onnx"),
+        arcface_model=str(ROOT / "models/ms1mv3_arcface_r18.onnx"),
+        db_path=str(tmp_path / "test_split.sqlite"),
+        media_root=str(tmp_path / "alerts"),
+        gallery_db_path=str(ROOT / "backend/data/local_dev.sqlite"),
+        slots_per_camera=8)
     assert len(biz_stats) == 1
     return biz_stats[0]
 
 
-def test_split_matches_local_tracking():
+def test_split_matches_local_tracking(tmp_path):
     spec = _camera_spec()
     local_per_frame, local_tracks = _local_tracks(spec)
-    biz = _split_tracks(spec)
+    stats = _split_run(spec, tmp_path)
 
-    assert biz.frames == len(local_per_frame), (
-        f"split processed {biz.frames} frames, local processed "
+    pipeline_id = spec.pipeline_bindings[0].pipeline_id
+    pm = stats.pipeline_metrics[pipeline_id]
+
+    assert stats.frames_processed == len(local_per_frame), (
+        f"split processed {stats.frames_processed} frames, local processed "
         f"{len(local_per_frame)} -- the two runs did not even see the same "
         f"number of frames from the same camera")
-    local_live_total = sum(live for _dets, live in local_per_frame)
-    assert biz.track_frames_total == local_live_total, (
+    local_live_total = sum(local_per_frame)
+    assert pm["track_frames_total"] == local_live_total, (
         "per-frame live-track counts diverged between the split pipeline "
         "and a direct in-process call")
-    assert biz.tracks_created == local_tracks, (
-        f"split created {biz.tracks_created} tracks, local created "
+    assert pm["tracks_created"] == local_tracks, (
+        f"split created {pm['tracks_created']} tracks, local created "
         f"{local_tracks} -- identical detections should never produce "
         "different tracker outcomes")

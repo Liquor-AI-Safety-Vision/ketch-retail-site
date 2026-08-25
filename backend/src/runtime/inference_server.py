@@ -54,6 +54,7 @@ tolerate a decision landing after the fact.
 """
 from __future__ import annotations
 
+import sys
 import threading
 import time
 import traceback
@@ -62,6 +63,7 @@ from typing import Any
 
 import numpy as np
 
+from backend.src.domain.models import FrameMeta
 from backend.src.runtime.frame_ring import FrameRing, RingSpec
 
 # Sentinel put on a queue to end its consumer's loop. Distinguished from a
@@ -87,6 +89,7 @@ class DecodeMessage:
     slot: int
     frame_shape: tuple[int, int, int]     # raw frame shape, for cropping/till
     frame_idx: int
+    frame_meta: FrameMeta
     ratio: float
     dx: int
     dy: int
@@ -111,12 +114,14 @@ class PerceptionResult:
     slot: int
     frame_shape: tuple[int, int, int]
     frame_idx: int
+    frame_meta: FrameMeta
     boxes: np.ndarray             # (N, 5): x1 y1 x2 y2 conf
     kpts: list
     feats: np.ndarray
     till_detections: list | None
     pose_profile: dict
     reid_profile: dict
+    till_profile: dict
 
 
 @dataclass
@@ -143,6 +148,185 @@ class FaceAnswer:
     camera_id: str
     track_id: int
     decision: Any                 # MatchDecision, kept opaque here to avoid an import cycle
+
+
+# How generously to over-crop a face patch before shipping it, as a fraction
+# of the person box's own width/height on each side. SharedFaceIdentifier
+# internally re-crops around the box by its own configured crop_expand
+# (typically ~0.12) to find the face; as long as that lands inside what was
+# already shipped, the answer is bit-identical to running on the full frame.
+# 1.0 (100% padding) comfortably covers any crop_expand a real deployment
+# would use, without needing the face tier's config threaded back to
+# wherever the patch is cut.
+FACE_PATCH_PAD_FRAC = 1.0
+
+
+def crop_face_patch(frame_bgr: np.ndarray, box_xyxy, pad_frac: float = FACE_PATCH_PAD_FRAC):
+    """A person crop generous enough that face detection on it matches the full frame.
+
+    Returns (patch, box_in_patch): the patch to ship, and the same person
+    box translated into the patch's own coordinates, ready to pass straight
+    to SharedFaceIdentifier.identify() unchanged.
+    """
+    x1, y1, x2, y2 = (float(v) for v in box_xyxy)
+    bw, bh = x2 - x1, y2 - y1
+    px, py = bw * pad_frac, bh * pad_frac
+    h, w = frame_bgr.shape[:2]
+    cx1 = max(0, int(x1 - px))
+    cy1 = max(0, int(y1 - py))
+    cx2 = min(w, int(x2 + px) + 1)
+    cy2 = min(h, int(y2 + py) + 1)
+    # .copy(), not ascontiguousarray(): a full-width crop near the frame's
+    # left/right edge can already be C-contiguous, and ascontiguousarray
+    # returns the input unchanged whenever it is -- silently shipping a view
+    # into the ring slot instead of a copy. multiprocessing.Queue.put()
+    # pickles on a background feeder thread, not synchronously, so the
+    # caller releasing the slot right after put() can race a decoder
+    # rewriting it before the patch is actually serialised. A real copy has
+    # no such window.
+    patch = frame_bgr[cy1:cy2, cx1:cx2].copy()
+    box_in_patch = np.array([x1 - cx1, y1 - cy1, x2 - cx1, y2 - cy1], np.float32)
+    return patch, box_in_patch
+
+
+class FaceLane:
+    """One thread: reads FaceRequest patches, answers with FaceAnswer.
+
+    Runs in its own process (see run_face_process), not folded into a pose
+    lane, so its shutdown does not get tangled with the pose lanes' -- they
+    stop as soon as decode finishes, while this has to keep answering until
+    every business worker is done sending requests, which is well after
+    decode ends. Keeping it a separate process makes that a simple "stop
+    last" instead of a lifecycle two lane types would otherwise have to
+    share.
+
+    One SharedFaceIdentifier per camera, matching what the current
+    architecture already does per-camera (each opens its own FaceGallery
+    connection); this lane just means those live in one process instead of
+    one per camera.
+    """
+
+    def __init__(self, face_q, identifiers: dict, business_qs: dict):
+        self.face_q = face_q
+        self.identifiers = identifiers
+        self.business_qs = business_qs
+        self.served = 0
+        self.busy_s = 0.0
+
+    def run(self) -> None:
+        while True:
+            req = self.face_q.get()
+            if req is None:
+                return
+            # Every request gets an answer, including a failed one. The
+            # business worker counts its outstanding requests and will not
+            # finish until that count reaches zero, so a request dropped here
+            # -- an unknown camera, or an exception inside identify() --
+            # leaves that worker blocked on its queue forever, and the parent
+            # blocked collecting its stats. The whole run then hangs with
+            # nothing in the log but a stack trace nobody is waiting on.
+            # decision=None means "no identification happened"; the pipeline
+            # side ignores those exactly as it already ignores a window that
+            # closed before its answer came back.
+            decision = None
+            identifier = self.identifiers.get(req.camera_id)
+            if identifier is not None:
+                started = time.perf_counter()
+                try:
+                    decision = identifier.identify(
+                        req.patch_bgr, req.person_box_xyxy,
+                        store_id=req.store_id, company_id=req.company_id)
+                except BaseException:
+                    traceback.print_exc()
+                finally:
+                    self.busy_s += time.perf_counter() - started
+                    self.served += 1
+            else:
+                print(f"WARNING [face lane] no identifier for camera {req.camera_id}; "
+                      f"answering empty so the business worker can finish",
+                      file=sys.stderr)
+            # Looked up, not indexed. A camera with no identifier is by
+            # definition one this lane does not know, so indexing
+            # business_qs with that same id raises KeyError and kills the
+            # lane -- taking down the very tier every waiting business
+            # worker depends on. Handling the unknown camera above and then
+            # indexing with it here was a contradiction in the same block.
+            business_q = self.business_qs.get(req.camera_id)
+            if business_q is None:
+                print(f"ERROR [face lane] no business queue for camera {req.camera_id}; "
+                      f"its answer cannot be delivered and a worker may be waiting on it",
+                      file=sys.stderr)
+                continue
+            business_q.put(
+                FaceAnswer(camera_id=req.camera_id, track_id=req.track_id, decision=decision))
+
+
+@dataclass
+class FaceCameraConfig:
+    face_conf: float = 0.20
+    crop_expand: float = 0.12
+    iou_thres: float = 0.45
+    match_threshold: float = 0.30
+    match_margin: float = 0.10
+
+
+def run_face_process(face_model: str, arcface_model: str, gallery_db_path: str,
+                     camera_configs: dict[str, FaceCameraConfig], face_q, business_qs: dict,
+                     ready_q, go_evt, stats_q, cpu_only: bool = False) -> None:
+    """Entry point for the face-identity process: its own CUDA context.
+
+    A real, small third context alongside the pose/ReID processes'. Worth
+    it for the shutdown-sequencing simplicity a separate process buys
+    (see FaceLane), and face traffic is light -- entries only, not every
+    frame -- so its marginal cost is far below another full pose-serving
+    context.
+    """
+    from backend.src.runtime.perf import cap_native_threads
+    from backend.src.runtime.shared_inference import SharedFaceIdentifier, SharedInferenceRegistry
+    from backend.src.runtime.tier_status import tier_guard
+
+    with tier_guard("face", ready_q, stats_q):
+        _run_face_process(face_model, arcface_model, gallery_db_path, camera_configs,
+                          face_q, business_qs, ready_q, go_evt, stats_q, cpu_only,
+                          cap_native_threads, SharedFaceIdentifier, SharedInferenceRegistry)
+
+
+def _run_face_process(face_model, arcface_model, gallery_db_path, camera_configs,
+                      face_q, business_qs, ready_q, go_evt, stats_q, cpu_only,
+                      cap_native_threads, SharedFaceIdentifier, SharedInferenceRegistry) -> None:
+    cap_native_threads(1)
+    registry = SharedInferenceRegistry(cpu_only=cpu_only, config={})
+    identifiers = {}
+    for camera_id, cfg in camera_configs.items():
+        identifiers[camera_id] = SharedFaceIdentifier(
+            face_detector=registry.get_face_detector(face_model),
+            arcface=registry.get_arcface(arcface_model),
+            gallery_db_path=gallery_db_path,
+            face_conf=cfg.face_conf, crop_expand=cfg.crop_expand, iou=cfg.iou_thres,
+            match_threshold=cfg.match_threshold, match_margin=cfg.match_margin,
+        )
+        # Same silent-failure class this already caught once: an
+        # identity_gallery_scope mismatch yields an empty gallery with no
+        # error, and every match then reports gallery_empty forever.
+        summary = identifiers[camera_id].gallery.summarize(
+            store_id=None, company_id=None)  # store_id/company_id filtered per-call, not here
+        if summary["embeddings"] == 0:
+            print(f"WARNING [face process] gallery has no embeddings at all "
+                 f"({gallery_db_path}); every identification will report gallery_empty.",
+                 file=sys.stderr)
+
+    try:
+        ready_q.put(("face", 1))
+        go_evt.wait()
+
+        lane = FaceLane(face_q, identifiers, business_qs)
+        lane.run()
+
+        stats_q.put({"served": lane.served, "busy_s": lane.busy_s})
+    finally:
+        for identifier in identifiers.values():
+            identifier.close()
+        registry.close()
 
 
 @dataclass
@@ -183,8 +367,23 @@ class InferenceLane:
         # The decoder wrote blobs assuming a dtype; if the model actually
         # wants a different one, every inference silently reads garbage
         # rather than raising, since the bytes are still a valid array of
-        # the wrong type. Failing at startup beats debugging that.
+        # the wrong type. Checked here, against the ring the decoder writes
+        # into, rather than per frame inside _process(): run()'s own
+        # except-BaseException would catch a per-frame raise and forward an
+        # empty PerceptionResult instead, so the run would complete, report a
+        # frame count, and find nothing at all on any camera. A fp16 pose
+        # model is not hypothetical here -- models_fp16/ exists.
         self._expected_blob_dtype = self.pose.input_dtype
+        for camera_id, ring in self.rings.items():
+            if ring.spec.blob_shape is None:
+                continue
+            got = np.dtype(ring.spec.blob_dtype)
+            if got != self._expected_blob_dtype:
+                raise TypeError(
+                    f"lane {index}: {camera_id}'s decoder writes {got} blobs but "
+                    f"{pose_model} expects {np.dtype(self._expected_blob_dtype)}; every "
+                    f"inference would read the wrong bytes as the wrong type and return "
+                    f"nothing, without ever raising")
 
     @staticmethod
     def _build_reid(reid_model: str, cpu_only: bool):
@@ -209,9 +408,10 @@ class InferenceLane:
                 traceback.print_exc()
                 self.business_qs[msg.camera_id].put(PerceptionResult(
                     camera_id=msg.camera_id, slot=msg.slot, frame_shape=msg.frame_shape,
-                    frame_idx=msg.frame_idx, boxes=np.empty((0, 5), np.float32), kpts=[],
+                    frame_idx=msg.frame_idx, frame_meta=msg.frame_meta,
+                    boxes=np.empty((0, 5), np.float32), kpts=[],
                     feats=np.empty((0, 512), np.float32), till_detections=None,
-                    pose_profile={}, reid_profile={}))
+                    pose_profile={}, reid_profile={}, till_profile={}))
             finally:
                 self.stats.busy_s += time.perf_counter() - started
                 self.stats.frames += 1
@@ -219,12 +419,7 @@ class InferenceLane:
     def _process(self, msg: DecodeMessage) -> None:
         ring = self.rings[msg.camera_id]
         frame = ring.frame_slot(msg.slot, msg.frame_shape)
-        blob = ring.blob_slot(msg.slot)
-        if blob.dtype != self._expected_blob_dtype:
-            raise TypeError(
-                f"decoder wrote {blob.dtype} blobs but {self.pose.model_path} wants "
-                f"{self._expected_blob_dtype}; every inference so far read the wrong "
-                f"bytes as the wrong type")
+        blob = ring.blob_slot(msg.slot)  # dtype already verified in __init__
 
         t0 = time.perf_counter()
         # The box-decode math wants exactly (h, w); msg.frame_shape carries
@@ -240,16 +435,21 @@ class InferenceLane:
         self.stats.reid_s += time.perf_counter() - t0
 
         till_detections = None
+        till_profile: dict = {}
         if self.till is not None and msg.till_conf is not None:
             t0 = time.perf_counter()
-            till_detections = self.till.detect(frame, conf=msg.till_conf).detections
+            till_result = self.till.detect(frame, conf=msg.till_conf)
+            till_detections = till_result.detections
+            till_profile = till_result.profile
             self.stats.till_s += time.perf_counter() - t0
 
         self.business_qs[msg.camera_id].put(PerceptionResult(
             camera_id=msg.camera_id, slot=msg.slot, frame_shape=msg.frame_shape,
-            frame_idx=msg.frame_idx, boxes=pose_result.boxes, kpts=pose_result.kpts,
+            frame_idx=msg.frame_idx, frame_meta=msg.frame_meta,
+            boxes=pose_result.boxes, kpts=pose_result.kpts,
             feats=feats, till_detections=till_detections,
             pose_profile=pose_result.profile, reid_profile=dict(self.reid.last_profile),
+            till_profile=till_profile,
         ))
 
 
@@ -266,44 +466,77 @@ class InferenceConfig:
 
 def run_inference_process(config: InferenceConfig, lane_decode_qs: list,
                           business_qs: dict, ring_specs: dict[str, RingSpec],
-                          ready_q, go_evt, stats_q) -> None:
+                          ready_q, go_evt, stats_q, needs_till: bool = True) -> None:
     """Entry point for one inference process: some number of lanes, one CUDA context.
 
     Loads everything and reports ready before touching a frame, so model
     loading never lands inside a measured window -- the same discipline the
     barrier-based preload already used, now crossing a process boundary
     instead of just threads.
+
+    The whole body runs inside tier_guard: model load, the ring mappings and
+    the lanes' own dtype check all happen before ready_q.put, which is
+    precisely where the parent is blocked. Without the guard, a mismatched
+    model here is not an error, it is a run that never starts and never says
+    why.
     """
     from backend.src.runtime.perf import cap_native_threads
     from backend.src.runtime.shared_inference import SharedInferenceRegistry
+    from backend.src.runtime.tier_status import tier_guard
 
+    with tier_guard("inference", ready_q, stats_q):
+        _run_inference_process(config, lane_decode_qs, business_qs, ring_specs,
+                               ready_q, go_evt, stats_q, needs_till,
+                               cap_native_threads, SharedInferenceRegistry)
+
+
+def _run_inference_process(config, lane_decode_qs, business_qs, ring_specs,
+                           ready_q, go_evt, stats_q, needs_till,
+                           cap_native_threads, SharedInferenceRegistry) -> None:
     cap_native_threads(1)
     registry = SharedInferenceRegistry(
         cpu_only=config.cpu_only,
         config={"pose_num_workers": 1, "pose_max_batch": 1, "pose_batch_wait_s": 0.005,
-                "pose_pad_batch": True, "ort_intra_threads": config.ort_intra_threads,
+                "pose_pad_batch": True,
+                # Till, unlike pose, has no pad_batch: a batch of 2 really is
+                # a different input shape than a batch of 1, and the CUDA EP
+                # re-plans on every shape change. With lanes submitting
+                # concurrently the batch size flaps between 1 and lane count,
+                # so it re-plans constantly -- measured 43.28 calls/s at
+                # max_batch=8 against 70.79 at max_batch=1. Pinning it to one
+                # keeps the shape constant, which is worth more here than
+                # batching would have been.
+                "till_num_workers": 1, "till_max_batch": 1, "till_batch_wait_s": 0.005,
+                "ort_intra_threads": config.ort_intra_threads,
                 "ort_allow_spinning": config.ort_allow_spinning},
     )
     rings = {cam_id: FrameRing(spec) for cam_id, spec in ring_specs.items()}
+    # Only load till if a camera in this run actually samples a drawer.
+    # Loading it regardless costs startup time and a GPU-resident model on
+    # every storage-only run, for a branch no frame will ever take.
     till = (registry.get_till(config.till_model, imgsz=config.till_imgsz)
-            if config.till_model else None)
+            if (config.till_model and needs_till) else None)
 
-    lanes = [
-        InferenceLane(i, decode_q, registry, config.pose_model, config.reid_model,
-                      till=till, business_qs=business_qs, rings=rings, cpu_only=config.cpu_only)
-        for i, decode_q in enumerate(lane_decode_qs)
-    ]
+    try:
+        lanes = [
+            InferenceLane(i, decode_q, registry, config.pose_model, config.reid_model,
+                          till=till, business_qs=business_qs, rings=rings,
+                          cpu_only=config.cpu_only)
+            for i, decode_q in enumerate(lane_decode_qs)
+        ]
 
-    ready_q.put(("inference", len(lanes)))
-    go_evt.wait()
+        ready_q.put(("inference", len(lanes)))
+        go_evt.wait()
 
-    threads = [threading.Thread(target=lane.run, name=f"lane-{i}") for i, lane in enumerate(lanes)]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join()
+        threads = [threading.Thread(target=lane.run, name=f"lane-{i}")
+                   for i, lane in enumerate(lanes)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
 
-    stats_q.put([lane.stats for lane in lanes])
-    for ring in rings.values():
-        ring.close()
-    registry.close()
+        stats_q.put([lane.stats for lane in lanes])
+    finally:
+        for ring in rings.values():
+            ring.close()
+        registry.close()

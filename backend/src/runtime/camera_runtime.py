@@ -152,7 +152,6 @@ class CameraRuntime:
                         f"avg_frame_ms={self.timing.stats['frame_total'].as_dict()['avg_ms']}",
                         flush=True,
                     )
-            return self._collect_metrics(status)
         except KeyboardInterrupt:
             status = "cancelled"
             raise
@@ -163,9 +162,25 @@ class CameraRuntime:
             for handler in self.pipeline_handlers:
                 finalize = getattr(handler, "finalize", None)
                 if callable(finalize):
-                    finalize()
-            self.alert_store.finish_run(self.run_id, status=status, metrics=self._collect_metrics(status))
+                    # Alerts raised while closing out (an entry whose face
+                    # window was still open when the stream ended) come after
+                    # the last process_frame, so they are added here rather
+                    # than being written to the store but missing from the
+                    # run summary. The split business tier does the same.
+                    self.metrics["alerts_emitted"] += int(finalize() or 0)
+            # Collected once, after finalize, and both returned and stored.
+            # This used to be `return self._collect_metrics(status)` inside
+            # the try: a return expression is evaluated before finally runs,
+            # so the caller got the pre-finalize count while the database got
+            # the post-finalize one. Two different totals for one run, and
+            # the wrong one was the one regression.py compares -- which would
+            # have read as the split architecture changing behaviour, since
+            # the split tier finalizes before it builds its stats and was
+            # therefore right.
+            metrics = self._collect_metrics(status)
+            self.alert_store.finish_run(self.run_id, status=status, metrics=metrics)
             self.close()
+        return metrics
 
     def _collect_metrics(self, status: str) -> dict[str, Any]:
         pipeline_metrics = {}

@@ -29,6 +29,24 @@ class SqliteAlertStore:
         db_file.parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(self.db_path, timeout=30.0)
         self.conn.execute("PRAGMA busy_timeout=30000")
+        # Deliberately NOT "PRAGMA foreign_keys=ON". Turning it on was tried
+        # and reverted, because it is wrong on both ends here:
+        #
+        #   it breaks writers   pipeline_runs.camera_id references cameras,
+        #                       and the split runner creates its database
+        #                       from schema alone without seeding cameras or
+        #                       stores. Every start_run() then dies with
+        #                       "FOREIGN KEY constraint failed" -- verified,
+        #                       on a fresh db, before it reached a GPU run.
+        #   it protects nothing the table it was meant to protect, alerts,
+        #                       declares no foreign keys at all: run_id,
+        #                       camera_id and store_id there are plain
+        #                       columns. A bogus alert inserts happily with
+        #                       the pragma on.
+        #
+        # Enabling it means first declaring the FKs alerts actually needs and
+        # giving every runner a way to seed its parent rows. Half of that is
+        # worse than neither: all of the breakage, none of the integrity.
         with _bootstrap_lock(db_file.with_suffix(db_file.suffix + ".bootstrap.lock")):
             # Give the connection a short grace window after taking the lock so
             # concurrent openers that were already blocked on sqlite can drain.
