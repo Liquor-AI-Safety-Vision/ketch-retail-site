@@ -22,6 +22,62 @@ def _bootstrap_lock(lock_path: Path):
             fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
 
 
+def seed_store_topology(db_path: str | Path, specs: list) -> None:
+    """Populate stores and cameras from the run's own CameraStreamSpecs.
+
+    alerts and pipeline_runs both carry foreign keys into these two tables,
+    and nothing else in the split pipeline ever wrote a row into either --
+    the FK was declared, never satisfied, which is why turning the pragma on
+    used to break the first start_run() on any fresh database. Called once
+    from the parent, before any tier process starts writing, using the same
+    specs that were merged (possibly across several stores' manifests -- see
+    camera_specs_from_manifests) to build the rings.
+
+    INSERT OR REPLACE, not INSERT: re-running against an existing database
+    (the common case -- every restart reuses the same db_path) must update a
+    camera's display_name or source_uri if the manifest changed, not fail on
+    a duplicate key or silently keep stale data.
+    """
+    db_file = Path(str(db_path))
+    db_file.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(db_path), timeout=30.0)
+    try:
+        conn.execute("PRAGMA busy_timeout=30000")
+        with _bootstrap_lock(db_file.with_suffix(db_file.suffix + ".bootstrap.lock")):
+            time.sleep(0.01)
+            conn.execute("PRAGMA journal_mode=WAL")
+            root = Path(__file__).resolve().parents[3]
+            schema_path = root / "backend/sql/local_dev_schema.sql"
+            if schema_path.exists():
+                conn.executescript(schema_path.read_text())
+
+            stores_seen: dict[str, str] = {}
+            for spec in specs:
+                stores_seen[spec.store_id] = spec.store_timezone
+            for store_id, timezone in stores_seen.items():
+                conn.execute(
+                    "INSERT INTO stores (store_id, display_name, timezone) "
+                    "VALUES (?, ?, ?) "
+                    "ON CONFLICT (store_id) DO UPDATE SET timezone = excluded.timezone",
+                    (store_id, store_id, timezone),
+                )
+            for spec in specs:
+                conn.execute(
+                    "INSERT INTO cameras "
+                    "(camera_id, store_id, display_name, camera_type, source_type, source_uri) "
+                    "VALUES (?, ?, ?, ?, ?, ?) "
+                    "ON CONFLICT (camera_id) DO UPDATE SET "
+                    "store_id = excluded.store_id, display_name = excluded.display_name, "
+                    "camera_type = excluded.camera_type, source_type = excluded.source_type, "
+                    "source_uri = excluded.source_uri",
+                    (spec.camera_id, spec.store_id, spec.display_name, spec.camera_type,
+                     spec.source_kind, spec.source_uri),
+                )
+            conn.commit()
+    finally:
+        conn.close()
+
+
 class SqliteAlertStore:
     def __init__(self, db_path: str | Path):
         self.db_path = str(db_path)
@@ -29,24 +85,20 @@ class SqliteAlertStore:
         db_file.parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(self.db_path, timeout=30.0)
         self.conn.execute("PRAGMA busy_timeout=30000")
-        # Deliberately NOT "PRAGMA foreign_keys=ON". Turning it on was tried
-        # and reverted, because it is wrong on both ends here:
+        # foreign_keys=ON was tried and reverted once, because it was wrong on
+        # both ends: pipeline_runs.camera_id referenced cameras while nothing
+        # seeded stores/cameras (every start_run() died with "FOREIGN KEY
+        # constraint failed" on a fresh db, verified before it reached a GPU
+        # run), and alerts -- the table that mattered most -- declared no
+        # foreign keys at all, so a bogus alert inserted happily with the
+        # pragma on regardless.
         #
-        #   it breaks writers   pipeline_runs.camera_id references cameras,
-        #                       and the split runner creates its database
-        #                       from schema alone without seeding cameras or
-        #                       stores. Every start_run() then dies with
-        #                       "FOREIGN KEY constraint failed" -- verified,
-        #                       on a fresh db, before it reached a GPU run.
-        #   it protects nothing the table it was meant to protect, alerts,
-        #                       declares no foreign keys at all: run_id,
-        #                       camera_id and store_id there are plain
-        #                       columns. A bogus alert inserts happily with
-        #                       the pragma on.
-        #
-        # Enabling it means first declaring the FKs alerts actually needs and
-        # giving every runner a way to seed its parent rows. Half of that is
-        # worse than neither: all of the breakage, none of the integrity.
+        # Both are fixed now: alerts declares FKs to stores and cameras (see
+        # local_dev_schema.sql), and seed_store_topology() populates stores
+        # and cameras from the run's own CameraStreamSpecs before any tier
+        # starts writing. The pragma is a plain assertion at that point, not
+        # a guess.
+        self.conn.execute("PRAGMA foreign_keys=ON")
         with _bootstrap_lock(db_file.with_suffix(db_file.suffix + ".bootstrap.lock")):
             # Give the connection a short grace window after taking the lock so
             # concurrent openers that were already blocked on sqlite can drain.

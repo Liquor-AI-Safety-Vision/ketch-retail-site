@@ -62,7 +62,9 @@ CREATE TABLE IF NOT EXISTS alerts (
     identity_label TEXT,
     identity_score REAL,
     reason_codes_json TEXT NOT NULL DEFAULT '[]',
-    metadata_json TEXT NOT NULL DEFAULT '{}'
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    FOREIGN KEY (store_id) REFERENCES stores(store_id),
+    FOREIGN KEY (camera_id) REFERENCES cameras(camera_id)
 );
 
 CREATE TABLE IF NOT EXISTS alert_media (

@@ -187,6 +187,17 @@ def run(specs, *, decoders: int, inferers: int, infer_threads: int, businesses: 
             free_qs[spec.camera_id] = free_q
             ring_specs[spec.camera_id] = ring.spec
 
+        # After rings, before any tier process exists -- the earliest point
+        # every spec's fields (store_id, display_name, ...) are guaranteed
+        # available and the latest point that still runs before a business
+        # worker's start_run() could hit an unpopulated stores/cameras
+        # table. A ring allocation failure above never reaches this line, so
+        # it never depends on a spec having more than what ring allocation
+        # itself touches.
+        from backend.src.infra.sqlite_alert_store import seed_store_topology
+
+        seed_store_topology(db_path, specs)
+
         return _run(specs, ctx=ctx, rings=rings, free_qs=free_qs, ring_specs=ring_specs,
                     camera_decode_cfg=camera_decode_cfg, camera_face_cfg=camera_face_cfg,
                     needs_till=needs_till, decoders=decoders, inferers=inferers,
