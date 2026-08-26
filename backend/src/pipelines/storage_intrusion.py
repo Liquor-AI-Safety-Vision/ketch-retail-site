@@ -173,6 +173,12 @@ class StorageIntrusionPipeline:
             "detections_total": 0,
             "alerts_emitted": 0,
             "entries_seen": 0,
+            # Boxes the inference tier embedded with ReID and this filter then
+            # discards. ReID is ~48% of GPU capacity at the current frame rate,
+            # so whether that waste is worth moving the filter upstream is a
+            # ratio, not an opinion -- and nobody had measured the ratio.
+            "boxes_before_min_h": 0,
+            "boxes_dropped_min_h": 0,
             "unknown_alerts": 0,
             "face_identification_failures": 0,
             "staff_outside_schedule_alerts": 0,
@@ -576,6 +582,8 @@ class StorageIntrusionPipeline:
         min_h = self.monitor.cfg.min_box_h_frac * frame.image_bgr.shape[0]
         if len(boxes) and min_h > 0:
             keep = (boxes[:, 3] - boxes[:, 1]) >= min_h
+            self.metrics["boxes_before_min_h"] += int(len(boxes))
+            self.metrics["boxes_dropped_min_h"] += int(len(boxes) - int(keep.sum()))
             boxes = boxes[keep]
             kpts = [k for k, keep_one in zip(kpts, keep) if keep_one]
             feats = feats[keep] if len(feats) else feats
