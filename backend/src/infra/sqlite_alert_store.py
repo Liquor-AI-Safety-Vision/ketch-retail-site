@@ -119,8 +119,8 @@ class SqliteAlertStore:
         self.conn.commit()
 
     def start_run(self, camera_id: str, source_ref: str, status: str = "running",
-                  metrics: dict[str, Any] | None = None) -> str:
-        run_id = str(uuid.uuid4())
+                  metrics: dict[str, Any] | None = None, run_id: str | None = None) -> str:
+        run_id = run_id or str(uuid.uuid4())
         self.conn.execute(
             """
             INSERT INTO pipeline_runs
@@ -171,8 +171,9 @@ class SqliteAlertStore:
         reason_codes: list[str],
         metadata: dict[str, Any] | None = None,
         status: str = "open",
+        alert_id: str | None = None,
     ) -> str:
-        alert_id = str(uuid.uuid4())
+        alert_id = alert_id or str(uuid.uuid4())
         self.conn.execute(
             """
             INSERT INTO alerts
@@ -211,8 +212,9 @@ class SqliteAlertStore:
         started_at: str | None = None,
         ended_at: str | None = None,
         metadata: dict[str, Any] | None = None,
+        media_id: str | None = None,
     ) -> str:
-        media_id = str(uuid.uuid4())
+        media_id = media_id or str(uuid.uuid4())
         self.conn.execute(
             """
             INSERT INTO alert_media

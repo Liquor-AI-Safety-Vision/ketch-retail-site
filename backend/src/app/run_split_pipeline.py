@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import argparse
 import multiprocessing as mp
+import os
 import sys
 import time
 from pathlib import Path
@@ -141,7 +142,7 @@ def run(specs, *, decoders: int, inferers: int, infer_threads: int, businesses: 
        gallery_db_path: str, slots_per_camera: int,
        pose_num_workers: int = 1, pose_max_batch: int = 1,
        pose_blob_dtype: str = POSE_BLOB_DTYPE, reid_shared: bool = False,
-       reid_num_workers: int = 1):
+       reid_num_workers: int = 1, storage_mode: str = "local-db"):
     from backend.src.runtime.business_tier import run_business_process
     from backend.src.runtime.decode_tier import run_decoder_process
     from backend.src.runtime.frame_ring import FrameRing
@@ -196,7 +197,16 @@ def run(specs, *, decoders: int, inferers: int, infer_threads: int, businesses: 
         # itself touches.
         from backend.src.infra.sqlite_alert_store import seed_store_topology
 
+        # gallery_db_path is untouched by storage_mode -- face identity stays
+        # on its local SQLite gallery regardless -- but it still defaults to
+        # db_path itself (see main()), so this seed always runs.
         seed_store_topology(db_path, specs)
+        if storage_mode == "cloud-db":
+            import os
+
+            from backend.src.infra.postgres_alert_store import seed_store_topology_pg
+
+            seed_store_topology_pg(os.environ["DATABASE_URL"], specs)
 
         return _run(specs, ctx=ctx, rings=rings, free_qs=free_qs, ring_specs=ring_specs,
                     camera_decode_cfg=camera_decode_cfg, camera_face_cfg=camera_face_cfg,
@@ -207,7 +217,8 @@ def run(specs, *, decoders: int, inferers: int, infer_threads: int, businesses: 
                     db_path=db_path, media_root=media_root, gallery_db_path=gallery_db_path,
                     slots_per_camera=slots_per_camera, pose_num_workers=pose_num_workers,
                     pose_max_batch=pose_max_batch, pose_blob_dtype=pose_blob_dtype,
-                    reid_shared=reid_shared, reid_num_workers=reid_num_workers)
+                    reid_shared=reid_shared, reid_num_workers=reid_num_workers,
+                    storage_mode=storage_mode)
     finally:
         # The rings are owned here, so this is the only place that can unlink
         # them. Without the finally, any failure between allocation and the
@@ -252,7 +263,7 @@ def _run(specs, *, ctx, rings, free_qs, ring_specs, camera_decode_cfg, camera_fa
          till_model, till_imgsz, face_model, arcface_model, db_path, media_root,
          gallery_db_path, slots_per_camera, pose_num_workers=1, pose_max_batch=1,
          pose_blob_dtype=POSE_BLOB_DTYPE, reid_shared: bool = False,
-         reid_num_workers: int = 1):
+         reid_num_workers: int = 1, storage_mode: str = "local-db"):
     """Start the tiers, run them, shut them down in the order frames flow.
 
     Split out from run() so the rings run() owns are closed in its finally
@@ -323,7 +334,7 @@ def _run(specs, *, ctx, rings, free_qs, ring_specs, camera_decode_cfg, camera_fa
         biz_procs.append(ctx.Process(
             target=run_business_process, name=f"business-{i}",
             args=(shard, my_ring_specs, my_free_qs, my_business_qs, db_path, media_root,
-                 gallery_db_path, face_q, ready_q, go_evt, stats_q)))
+                 gallery_db_path, face_q, ready_q, go_evt, stats_q, storage_mode)))
 
     all_procs = dec_procs + infer_procs + ([face_proc] if face_proc else []) + biz_procs
     for p in all_procs:
@@ -403,6 +414,20 @@ def _run(specs, *, ctx, rings, free_qs, ring_specs, camera_decode_cfg, camera_fa
     return biz_stats, all_stats, load_s
 
 
+def _load_dotenv(path: Path) -> None:
+    """No python-dotenv dependency for one file with no comments/quoting to
+    speak of -- os.environ wins on conflict, so an operator's real shell
+    export still overrides whatever is checked into .env."""
+    if not path.exists():
+        return
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        os.environ.setdefault(key.strip(), value.strip())
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--manifest", nargs="+",
@@ -430,9 +455,24 @@ def main() -> None:
     p.add_argument("--infer-threads", type=int, default=2)
     p.add_argument("--business", type=int, default=2)
     p.add_argument("--slots-per-camera", type=int, default=8)
+    p.add_argument(
+        "--storage-mode", choices=["local-db", "cloud-db"], default="local-db",
+        help="local-db: SQLite (--db-path) + video files under --media-root, today's "
+             "default. cloud-db: NeonDB (Postgres) + Cloudflare R2, read from "
+             "DATABASE_URL/R2_* in .env.")
     args = p.parse_args()
     if args.gallery_db is None:
         args.gallery_db = args.db_path
+
+    if args.storage_mode == "cloud-db":
+        _load_dotenv(ROOT / ".env")
+        missing = [k for k in ("DATABASE_URL", "R2_ENDPOINT", "R2_BUCKET",
+                               "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY")
+                  if not os.environ.get(k)]
+        if missing:
+            raise RuntimeError(
+                f"--storage-mode cloud-db needs {missing} in the environment or in "
+                f"{ROOT / '.env'}; none of these are hardcoded anywhere on purpose")
 
     from backend.src.infra.local_config import camera_specs_from_manifests
 
@@ -450,7 +490,8 @@ def main() -> None:
         till_model=args.till_model, till_imgsz=args.till_imgsz,
         face_model=args.face_model, arcface_model=args.arcface_model,
         db_path=args.db_path, media_root=args.media_root,
-        gallery_db_path=args.gallery_db, slots_per_camera=args.slots_per_camera)
+        gallery_db_path=args.gallery_db, slots_per_camera=args.slots_per_camera,
+        storage_mode=args.storage_mode)
 
     frames = sum(s.frames_processed for s in biz_stats)
     alerts = sum(s.alerts_emitted for s in biz_stats)

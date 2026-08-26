@@ -163,9 +163,37 @@ class _CameraWorker:
             processing_ended_at=ended_at, pipeline_metrics=pipeline_metrics)
 
 
+def _build_sink_factory(storage_mode: str, db_path: str):
+    """The one place that decides what AlertOutbox's writer thread talks to.
+
+    local-db: SqliteAlertStore(db_path), unchanged from before AlertOutbox
+    existed. cloud-db: CloudAlertSink, reading NeonDB/R2 credentials from the
+    environment -- the parent process loads .env into os.environ before
+    spawning tier processes, and spawn inherits the OS environment, so a
+    business process needs nothing passed to it beyond the mode string
+    itself. Failing on a missing env var here, inside the writer thread,
+    surfaces through AlertOutbox.close() re-raising it -- not as a silent
+    business process death.
+    """
+    if storage_mode == "cloud-db":
+        import os
+
+        from backend.src.infra.cloud_alert_sink import CloudAlertSink
+
+        dsn = os.environ["DATABASE_URL"]
+        r2_endpoint = os.environ["R2_ENDPOINT"]
+        r2_bucket = os.environ["R2_BUCKET"]
+        r2_key = os.environ["R2_ACCESS_KEY_ID"]
+        r2_secret = os.environ["R2_SECRET_ACCESS_KEY"]
+        return lambda: CloudAlertSink(dsn, r2_endpoint, r2_bucket, r2_key, r2_secret)
+
+    from backend.src.infra.sqlite_alert_store import SqliteAlertStore
+    return lambda: SqliteAlertStore(db_path)
+
+
 def run_business_process(shard: list, ring_specs: dict, free_qs: dict, business_qs: dict,
                          db_path: str, media_root: str, gallery_db_path: str, face_q,
-                         ready_q, go_evt, stats_q) -> None:
+                         ready_q, go_evt, stats_q, storage_mode: str = "local-db") -> None:
     """Entry point for one business process: several cameras, each on its own thread.
 
     Threaded so one camera's queue.get() blocking while it waits for the
@@ -175,7 +203,7 @@ def run_business_process(shard: list, ring_specs: dict, free_qs: dict, business_
     from concurrent.futures import ThreadPoolExecutor
 
     from backend.src.infra.local_media_store import LocalMediaStore
-    from backend.src.infra.sqlite_alert_store import SqliteAlertStore
+    from backend.src.runtime.alert_outbox import AlertOutbox
     from backend.src.runtime.perf import cap_native_threads
     from backend.src.runtime.tier_status import tier_guard
 
@@ -183,25 +211,28 @@ def run_business_process(shard: list, ring_specs: dict, free_qs: dict, business_
         _run_business_process(shard, ring_specs, free_qs, business_qs, db_path, media_root,
                               gallery_db_path, face_q, ready_q, go_evt, stats_q,
                               cap_native_threads, ThreadPoolExecutor,
-                              LocalMediaStore, SqliteAlertStore)
+                              LocalMediaStore, AlertOutbox, storage_mode)
 
 
 def _run_business_process(shard, ring_specs, free_qs, business_qs, db_path, media_root,
                           gallery_db_path, face_q, ready_q, go_evt, stats_q,
                           cap_native_threads, ThreadPoolExecutor,
-                          LocalMediaStore, SqliteAlertStore) -> None:
+                          LocalMediaStore, AlertOutbox, storage_mode="local-db") -> None:
     cap_native_threads(1)
     rings = {spec.camera_id: FrameRing(ring_specs[spec.camera_id]) for spec in shard}
 
     ready_q.put(("business", 1))
     go_evt.wait()
 
+    # One outbox per process, shared by every camera thread below, not one
+    # sink per camera: the writer thread it starts is where the sink lives
+    # (a sqlite3 connection is thread-affine; a psycopg2/boto3 one has no
+    # reason to multiply either), and it is the single seam storage_mode
+    # switches without touching anything below this line.
+    alert_outbox = AlertOutbox(_build_sink_factory(storage_mode, db_path))
+
     def run_one(spec) -> BusinessStats:
-        # Each camera's own SqliteAlertStore: sqlite3 connections are
-        # thread-affine, and each camera already lives on its own thread
-        # here, matching the barrier-based preload's reason for pinning one
-        # camera to one thread throughout in the current architecture.
-        alert_store = SqliteAlertStore(db_path)
+        alert_store = alert_outbox
         media_store = LocalMediaStore(media_root)
         worker = _CameraWorker(spec, alert_store, media_store, gallery_db_path, face_q)
         ring = rings[spec.camera_id]
@@ -235,15 +266,17 @@ def _run_business_process(shard, ring_specs, free_qs, business_qs, db_path, medi
                 # would then present as the whole camera silently stopping.
                 free_q.put(result.slot)
 
-        try:
-            return worker.finish(started_at)
-        finally:
-            alert_store.close()
+        return worker.finish(started_at)
 
     try:
         with ThreadPoolExecutor(max_workers=len(shard)) as pool:
             stats = list(pool.map(run_one, shard))
         stats_q.put(stats)
     finally:
+        # Closing here (once, after every camera thread is done producing
+        # writes) flushes the queue and re-raises the first write failure --
+        # closing per-camera would either close a store other cameras still
+        # feed, or race the last camera's still-enqueued writes.
+        alert_outbox.close()
         for ring in rings.values():
             ring.close()

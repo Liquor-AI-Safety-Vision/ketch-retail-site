@@ -68,6 +68,15 @@ class VirtualVideoStreamSource:
     """
 
     def __init__(self, spec: CameraStreamSpec):
+        if spec.source_kind == "rtsp":
+            # TODO: real production cameras. Needs its own source class (an
+            # RtspStreamSource opening spec.source_uri with cv2.VideoCapture
+            # or an RTSP client, reconnect-on-drop, no start_s/strategy replay
+            # since there is no file to seek) -- video_file is the only kind
+            # implemented today.
+            raise NotImplementedError(
+                f"camera={spec.camera_id} source_kind=rtsp is reserved for real camera "
+                "streams and is not implemented yet; use source_kind=video_file")
         if spec.source_kind != "video_file":
             raise ValueError(f"unsupported source kind: {spec.source_kind}")
         self.spec = spec
