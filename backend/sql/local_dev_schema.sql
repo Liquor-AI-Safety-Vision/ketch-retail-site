@@ -100,3 +100,29 @@ CREATE INDEX IF NOT EXISTS idx_persons_store
 
 CREATE INDEX IF NOT EXISTS idx_persons_company
     ON persons(company_id);
+
+-- Owner accounts for the web dashboard. One owner can hold several stores
+-- (owner_stores is the join table for that), and the schema stays open to a
+-- store having more than one owner later without a redesign, even though
+-- today's flow only ever creates one owner per store.
+CREATE TABLE IF NOT EXISTS owners (
+    owner_id TEXT PRIMARY KEY,
+    display_name TEXT NOT NULL,
+    email TEXT NOT NULL UNIQUE,
+    phone TEXT,
+    telegram_chat_id TEXT,
+    password_hash TEXT NOT NULL,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS owner_stores (
+    owner_id TEXT NOT NULL REFERENCES owners(owner_id) ON DELETE CASCADE,
+    store_id TEXT NOT NULL REFERENCES stores(store_id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (owner_id, store_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_owner_stores_store
+    ON owner_stores(store_id);
