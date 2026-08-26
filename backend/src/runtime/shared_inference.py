@@ -600,6 +600,71 @@ class SharedArcFaceService:
         return results
 
 
+class SharedReidService:
+    """Route every lane's ReID call through one worker thread, instead of
+    every lane calling sess.run whenever its own frame is ready.
+
+    registry.get_reid_embedder already shares one ONNX session across every
+    lane's Embedder clone (only the per-call scratch buffer is private) --
+    so the variable this class isolates is not "one session vs many", it is
+    "N lanes calling Run() on that shared session concurrently and
+    uncoordinated" vs "N lanes submitting to one worker that calls Run()
+    serially". Pose already measured that adding concurrent callers at
+    batch=1 makes things worse, not better (workers=1 141.72 FPS ->
+    workers=4 119.52 FPS), because the wait was never idle time, it was GPU
+    contention -- more concurrent callers just moved the wait from a queue
+    into the kernel. This tests whether ReID's uncoordinated concurrent
+    Run() calls are paying the same tax, by serialising them through
+    _BatchRunner the same way pose and till already are.
+
+    Deliberately reuses stream_track.Embedder's crop/pack/pad/infer/l2norm
+    logic wholesale rather than reimplementing it -- that logic is measured
+    and correct (see the fixed-batch-vs-dynamic finding in the 2026-08-25
+    benchmark doc), and the only variable this class is meant to change is
+    how many things call it concurrently, not what the call does.
+    """
+
+    def __init__(self, model_path: str, *, cpu_only: bool, num_workers: int = 1):
+        import stream_track as S
+
+        S.REID_MODEL = model_path
+        S.ORT_PROVIDERS = _preferred_providers(cpu_only)
+        self._embedder = S.Embedder()
+        self.provider = self._embedder.provider
+        self.runner = _BatchRunner(
+            name=f"reid-{Path(model_path).stem}",
+            max_batch=1,
+            batch_wait_s=0.0,
+            num_workers=num_workers,
+            infer_batch=self._infer_batch,
+        )
+
+    def __call__(self, frame: np.ndarray, boxes: np.ndarray) -> np.ndarray:
+        return self.runner.submit((frame, boxes))
+
+    @property
+    def last_profile(self) -> dict:
+        # InferenceLane._process reads this right after calling us, expecting
+        # the Embedder interface. submit() only returns once the worker's
+        # call to self._embedder finished, so this is safe to read at
+        # num_workers=1 -- the same thread-safety boundary _infer_batch's
+        # docstring already notes for the buffer itself.
+        return self._embedder.last_profile
+
+    def _infer_batch(self, requests: list) -> list:
+        # max_batch=1: exactly one (frame, boxes) request per call. The
+        # Embedder itself is not thread-safe across concurrent callers (its
+        # _pad_batch buffer is mutated in place), which is fine only because
+        # num_workers=1 is the configuration this exists to test; a
+        # num_workers>1 run here would need a per-thread Embedder, not a
+        # shared one, and does not have one yet.
+        frame, boxes = requests[0]
+        return [self._embedder(frame, boxes)]
+
+    def close(self):
+        self.runner.close()
+
+
 class SharedTillService:
     def __init__(
         self,
@@ -851,6 +916,7 @@ class SharedInferenceRegistry:
         self._arcface: dict[str, SharedArcFaceService] = {}
         self._till: dict[tuple[str, int, tuple[str, ...]], SharedTillService] = {}
         self._reid: dict[str, Any] = {}
+        self._reid_shared: dict[str, SharedReidService] = {}
 
     def _get_or_create(self, store: dict, key: Any, build: Callable[[], Any]) -> Any:
         """Build one service per key without serialising unrelated model loads.
@@ -948,6 +1014,17 @@ class SharedInferenceRegistry:
         clone._pad_batch = np.zeros_like(template._pad_batch)
         return clone
 
+    def get_reid_shared(self, model_path: str) -> SharedReidService:
+        return self._get_or_create(
+            self._reid_shared,
+            model_path,
+            lambda: SharedReidService(
+                model_path,
+                cpu_only=self.cpu_only,
+                num_workers=int(self.config.get("reid_num_workers", 1)),
+            ),
+        )
+
     def get_till(
         self,
         model_path: str,
@@ -972,7 +1049,8 @@ class SharedInferenceRegistry:
         )
 
     def close(self):
-        for services in (self._pose, self._face_det, self._arcface, self._till):
+        for services in (self._pose, self._face_det, self._arcface, self._till,
+                        self._reid_shared):
             for service in services.values():
                 service.close()
             services.clear()

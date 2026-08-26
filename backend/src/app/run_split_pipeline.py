@@ -130,7 +130,8 @@ def run(specs, *, decoders: int, inferers: int, infer_threads: int, businesses: 
        face_model: str, arcface_model: str, db_path: str, media_root: str,
        gallery_db_path: str, slots_per_camera: int,
        pose_num_workers: int = 1, pose_max_batch: int = 1,
-       pose_blob_dtype: str = POSE_BLOB_DTYPE):
+       pose_blob_dtype: str = POSE_BLOB_DTYPE, reid_shared: bool = False,
+       reid_num_workers: int = 1):
     from backend.src.runtime.business_tier import run_business_process
     from backend.src.runtime.decode_tier import run_decoder_process
     from backend.src.runtime.frame_ring import FrameRing
@@ -184,7 +185,8 @@ def run(specs, *, decoders: int, inferers: int, infer_threads: int, businesses: 
                     till_imgsz=till_imgsz, face_model=face_model, arcface_model=arcface_model,
                     db_path=db_path, media_root=media_root, gallery_db_path=gallery_db_path,
                     slots_per_camera=slots_per_camera, pose_num_workers=pose_num_workers,
-                    pose_max_batch=pose_max_batch, pose_blob_dtype=pose_blob_dtype)
+                    pose_max_batch=pose_max_batch, pose_blob_dtype=pose_blob_dtype,
+                    reid_shared=reid_shared, reid_num_workers=reid_num_workers)
     finally:
         # The rings are owned here, so this is the only place that can unlink
         # them. Without the finally, any failure between allocation and the
@@ -228,7 +230,8 @@ def _run(specs, *, ctx, rings, free_qs, ring_specs, camera_decode_cfg, camera_fa
          needs_till, decoders, inferers, infer_threads, businesses, pose_model, reid_model,
          till_model, till_imgsz, face_model, arcface_model, db_path, media_root,
          gallery_db_path, slots_per_camera, pose_num_workers=1, pose_max_batch=1,
-         pose_blob_dtype=POSE_BLOB_DTYPE):
+         pose_blob_dtype=POSE_BLOB_DTYPE, reid_shared: bool = False,
+         reid_num_workers: int = 1):
     """Start the tiers, run them, shut them down in the order frames flow.
 
     Split out from run() so the rings run() owns are closed in its finally
@@ -271,7 +274,8 @@ def _run(specs, *, ctx, rings, free_qs, ring_specs, camera_decode_cfg, camera_fa
     infer_config = InferenceConfig(pose_model=pose_model, reid_model=reid_model,
                                    till_model=till_model, till_imgsz=till_imgsz,
                                    pose_num_workers=pose_num_workers,
-                                   pose_max_batch=pose_max_batch)
+                                   pose_max_batch=pose_max_batch, reid_shared=reid_shared,
+                                   reid_num_workers=reid_num_workers)
     infer_procs = []
     for k in range(inferers):
         my_lanes = lane_shards[k * infer_threads:(k + 1) * infer_threads]

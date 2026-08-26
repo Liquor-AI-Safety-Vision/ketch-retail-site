@@ -15,7 +15,7 @@ datasets/
 demo/
 models/
 models_fp16/
-tools/
+/tools/
 uae-main/
 videos/
 

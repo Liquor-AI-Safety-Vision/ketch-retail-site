@@ -362,7 +362,8 @@ class InferenceLane:
 
     def __init__(self, index: int, decode_q, registry, pose_model: str, reid_model: str,
                  till=None, business_qs: dict | None = None,
-                 rings: dict | None = None, cpu_only: bool = False):
+                 rings: dict | None = None, cpu_only: bool = False,
+                 reid_shared: bool = False):
         self.index = index
         self.decode_q = decode_q
         self.business_qs = business_qs or {}
@@ -371,8 +372,13 @@ class InferenceLane:
         self.stats = LaneStats(index, 0, 0.0, 0.0, 0.0, 0.0)
 
         self.pose = registry.get_pose(pose_model)
-        self.reid = registry.get_reid_embedder(
-            reid_model, build=lambda: self._build_reid(reid_model, cpu_only))
+        # reid_shared routes every lane's call through one worker thread
+        # (SharedReidService) instead of each lane calling sess.run whenever
+        # its own frame is ready -- a measurement, not the default, see
+        # SharedReidService's docstring for what it isolates.
+        self.reid = (registry.get_reid_shared(reid_model) if reid_shared else
+                    registry.get_reid_embedder(
+                        reid_model, build=lambda: self._build_reid(reid_model, cpu_only)))
         # The decoder wrote blobs assuming a dtype; if the model actually
         # wants a different one, every inference silently reads garbage
         # rather than raising, since the bytes are still a valid array of
@@ -480,6 +486,11 @@ class InferenceConfig:
     # till a batch here does not force the CUDA EP to re-plan.
     pose_num_workers: int = 1
     pose_max_batch: int = 1
+    # See SharedReidService's docstring. Default False: unmeasured until this
+    # flag exists to compare against, so it does not become the shape a run
+    # silently gets.
+    reid_shared: bool = False
+    reid_num_workers: int = 1
 
 
 def run_inference_process(config: InferenceConfig, lane_decode_qs: list,
@@ -527,6 +538,7 @@ def _run_inference_process(config, lane_decode_qs, business_qs, ring_specs,
                 # keeps the shape constant, which is worth more here than
                 # batching would have been.
                 "till_num_workers": 1, "till_max_batch": 1, "till_batch_wait_s": 0.005,
+                "reid_num_workers": config.reid_num_workers,
                 "ort_intra_threads": config.ort_intra_threads,
                 "ort_allow_spinning": config.ort_allow_spinning},
     )
@@ -541,7 +553,7 @@ def _run_inference_process(config, lane_decode_qs, business_qs, ring_specs,
         lanes = [
             InferenceLane(i, decode_q, registry, config.pose_model, config.reid_model,
                           till=till, business_qs=business_qs, rings=rings,
-                          cpu_only=config.cpu_only)
+                          cpu_only=config.cpu_only, reid_shared=config.reid_shared)
             for i, decode_q in enumerate(lane_decode_qs)
         ]
 
