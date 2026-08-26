@@ -2,7 +2,7 @@
   "company_id": "liquor_store_demo",
   "store_id": "local_dev_store_16cams",
   "display_name": "Local Development Store 16 Cams",
-  "timezone": "Asia/Ho_Chi_Minh",
+  "timezone": "America/New_York",
   "mode": "local_dev",
   "runtime": {
     "default_target_fps": 5,
