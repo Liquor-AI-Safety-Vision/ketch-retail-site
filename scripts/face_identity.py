@@ -16,6 +16,7 @@ import json
 import os
 import sqlite3
 import sys
+from pathlib import Path
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Iterable, Optional
@@ -192,42 +193,22 @@ class FaceGallery:
         self.conn.close()
 
     def _init_schema(self):
-        cur = self.conn.cursor()
-        cur.executescript("""
-        CREATE TABLE IF NOT EXISTS persons (
-            person_id TEXT PRIMARY KEY,
-            display_name TEXT NOT NULL,
-            is_staff INTEGER NOT NULL DEFAULT 1,
-            company_id TEXT,
-            store_id TEXT,
-            metadata_json TEXT NOT NULL DEFAULT '{}',
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS face_embeddings (
-            embedding_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            person_id TEXT NOT NULL REFERENCES persons(person_id) ON DELETE CASCADE,
-            embedding BLOB NOT NULL,
-            detector_score REAL,
-            image_path TEXT,
-            source TEXT,
-            metadata_json TEXT NOT NULL DEFAULT '{}',
-            created_at TEXT NOT NULL
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_face_embeddings_person
-            ON face_embeddings(person_id);
-        """)
+        # Sourced from the same schema.sql SqliteAlertStore applies, not a
+        # hand-copied second definition -- persons/face_embeddings used to
+        # live in a database of their own (gallery_db_path, separate from
+        # db_path) and this file's own inline CREATE TABLE was the only
+        # definition of them anywhere. Two independent copies of the same
+        # tables is how they drift; one file read from both places is not.
+        root = Path(__file__).resolve().parents[1]
+        schema_path = root / "backend/sql/local_dev_schema.sql"
+        if schema_path.exists():
+            self.conn.executescript(schema_path.read_text())
+        # Defensive only: a database built before store_id/company_id were
+        # columns in schema.sql (an older gallery_db_path file, say) still
+        # opens correctly instead of failing on the first query that
+        # references them.
         self._ensure_column("persons", "company_id", "TEXT")
         self._ensure_column("persons", "store_id", "TEXT")
-        cur.executescript("""
-        CREATE INDEX IF NOT EXISTS idx_persons_store
-            ON persons(store_id);
-
-        CREATE INDEX IF NOT EXISTS idx_persons_company
-            ON persons(company_id);
-        """)
         self.conn.commit()
 
     def _ensure_column(self, table, column, ddl):

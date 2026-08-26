@@ -410,7 +410,13 @@ def main() -> None:
                    help="one manifest per store; every camera_id across all of them "
                         "must be unique, since rings and queues are keyed by it")
     p.add_argument("--db-path", default=str(ROOT / "backend/data/split_run.sqlite"))
-    p.add_argument("--gallery-db", default=str(ROOT / "backend/data/local_dev.sqlite"))
+    # Defaults to db_path itself, not a second file: persons/face_embeddings
+    # now live in the same schema as stores/cameras/alerts (see
+    # local_dev_schema.sql), and persons.store_id is a real foreign key only
+    # when both actually share one file. Pass --gallery-db explicitly to
+    # keep them apart -- e.g. a gallery seeded once and reused across many
+    # disposable benchmark databases -- but that gives up the FK.
+    p.add_argument("--gallery-db", default=None)
     p.add_argument("--media-root", default=str(ROOT / "backend/data/split_alerts"))
     p.add_argument("--pose-model", default=DEFAULT_POSE_MODEL)
     p.add_argument("--reid-model", default=DEFAULT_REID_MODEL)
@@ -425,6 +431,8 @@ def main() -> None:
     p.add_argument("--business", type=int, default=2)
     p.add_argument("--slots-per-camera", type=int, default=8)
     args = p.parse_args()
+    if args.gallery_db is None:
+        args.gallery_db = args.db_path
 
     from backend.src.infra.local_config import camera_specs_from_manifests
 

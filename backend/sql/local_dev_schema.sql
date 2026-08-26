@@ -61,3 +61,42 @@ CREATE TABLE IF NOT EXISTS alert_media (
     metadata_json TEXT NOT NULL DEFAULT '{}',
     FOREIGN KEY (alert_id) REFERENCES alerts(alert_id)
 );
+
+-- Identity tables. Previously lived in a second SQLite file
+-- (gallery_db_path), separate from everything above (db_path), because
+-- face_identity.py was written standalone and never merged in. Each person
+-- belongs to exactly one store -- staff rosters are independent per store,
+-- not shared identities visible at several locations -- so store_id stays a
+-- plain column, and now that persons lives in the same file as stores it
+-- can finally be a real foreign key instead of a string nobody checks.
+CREATE TABLE IF NOT EXISTS persons (
+    person_id TEXT PRIMARY KEY,
+    display_name TEXT NOT NULL,
+    is_staff INTEGER NOT NULL DEFAULT 1,
+    company_id TEXT,
+    store_id TEXT,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (store_id) REFERENCES stores(store_id)
+);
+
+CREATE TABLE IF NOT EXISTS face_embeddings (
+    embedding_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    person_id TEXT NOT NULL REFERENCES persons(person_id) ON DELETE CASCADE,
+    embedding BLOB NOT NULL,
+    detector_score REAL,
+    image_path TEXT,
+    source TEXT,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_face_embeddings_person
+    ON face_embeddings(person_id);
+
+CREATE INDEX IF NOT EXISTS idx_persons_store
+    ON persons(store_id);
+
+CREATE INDEX IF NOT EXISTS idx_persons_company
+    ON persons(company_id);
