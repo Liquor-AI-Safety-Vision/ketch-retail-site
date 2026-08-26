@@ -19,23 +19,6 @@ CREATE TABLE IF NOT EXISTS cameras (
     FOREIGN KEY (store_id) REFERENCES stores(store_id)
 );
 
-CREATE TABLE IF NOT EXISTS pipeline_templates (
-    pipeline_template_id TEXT PRIMARY KEY,
-    pipeline_type TEXT NOT NULL,
-    version TEXT NOT NULL,
-    description TEXT
-);
-
-CREATE TABLE IF NOT EXISTS camera_pipeline_bindings (
-    binding_id TEXT PRIMARY KEY,
-    camera_id TEXT NOT NULL,
-    pipeline_template_id TEXT NOT NULL,
-    is_active INTEGER NOT NULL DEFAULT 1,
-    config_json TEXT NOT NULL DEFAULT '{}',
-    FOREIGN KEY (camera_id) REFERENCES cameras(camera_id),
-    FOREIGN KEY (pipeline_template_id) REFERENCES pipeline_templates(pipeline_template_id)
-);
-
 CREATE TABLE IF NOT EXISTS pipeline_runs (
     run_id TEXT PRIMARY KEY,
     camera_id TEXT NOT NULL,
