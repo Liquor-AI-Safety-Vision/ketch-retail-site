@@ -2,7 +2,14 @@
 
 Phiên bản: `v0.2`
 
-Ngày cập nhật: `2026-08-23`
+Ngày cập nhật: `2026-08-23` (mục 12 và 17 vá lại `2026-08-26` cho khớp thực tế — xem ghi chú
+"Cập nhật" trong từng mục)
+
+**Runtime/process architecture (decode/inference/business/face, số đo thật, process/thread
+map) không còn nằm ở đây nữa — tài liệu sống hiện tại cho phần đó là**
+`outputs/reports/split_architecture_design.html`**, mục 1-12.** Doc này giữ vai trò blueprint
+nghiệp vụ/data-model ban đầu; phần data model đã sửa lại cho khớp schema thật ở mục 12, phần
+storage cloud sửa lại ở mục 17.
 
 ## 1. Mục tiêu tài liệu
 
@@ -498,7 +505,22 @@ PersistedAlert
 
 ## 12. Data model cho DB chính
 
-### 12.1. Config tables
+**Cập nhật 2026-08-26:** mục này viết lúc `pipeline_templates`/`camera_pipeline_bindings`/
+`zone_assets`/`alert_identities` còn là dự định. Cả bốn **không được xây** — quyết định thật
+sự đi theo hướng khác: pipeline binding và zone config ở lại dưới dạng **file** (manifest
+JSON per store, `backend/config/stores/*.json`, đọc qua `camera_specs_from_manifests()`),
+không phải bảng DB; identity của một alert nằm ngay trong 3 cột
+`identity_person_id`/`identity_label`/`identity_score` của chính bảng `alerts`, không tách
+bảng riêng. `pipeline_templates`/`camera_pipeline_bindings` từng được tạo rồi xoá lại
+(commit `dde29d6`) sau khi xác nhận 0 chỗ nào đọc chúng. Danh sách bảng thật hiện tại nằm ở
+`backend/sql/local_dev_schema.sql`; dưới đây sửa lại cho khớp.
+
+### 12.1. Config tables (đọc từ file, không phải bảng DB)
+
+Cấu hình camera/store/pipeline binding/zone **là file JSON**, không phải bảng — xem
+`backend/config/stores/*.json` và `backend/src/infra/local_config.py`. Bảng DB chỉ giữ hai
+thứ được seed lại từ chính các file đó lúc chạy (`seed_store_topology()`), để `alerts` có gì
+để FK trỏ tới:
 
 #### `stores`
 - `store_id` PK
@@ -517,26 +539,6 @@ PersistedAlert
 - `source_uri`
 - `is_active`
 - `metadata_json`
-
-#### `pipeline_templates`
-- `pipeline_template_id` PK
-- `pipeline_type`
-- `version`
-- `description`
-
-#### `camera_pipeline_bindings`
-- `binding_id` PK
-- `camera_id` FK
-- `pipeline_template_id` FK
-- `is_active`
-- `config_json`
-
-#### `zone_assets`
-- `zone_asset_id` PK
-- `camera_id` FK
-- `asset_type`
-- `path`
-- `checksum`
 
 ### 12.2. Runtime/business tables
 
@@ -576,26 +578,22 @@ PersistedAlert
 - `ended_at`
 - `metadata_json`
 
-#### `alert_identities`
-- `id` PK
-- `alert_id` FK
-- `track_id`
-- `person_id`
-- `display_name`
-- `top1_score`
-- `top2_score`
-- `margin_score`
-- `decision_reason`
-- `metadata_json`
+Không có bảng `alert_identities` riêng — `top1`/`top2`/`margin`/`decision_reason` chỉ sống
+trong `metadata_json` của chính alert đó lúc ghi (xem `StorageIntrusionPipeline`), không có
+bảng con nào tách ra để lưu lại.
 
 ### 12.3. Identity tables
+
+Từng nằm ở một file SQLite riêng (`gallery_db_path`) tách khỏi mọi thứ ở trên — vì
+`face_identity.py` được viết độc lập rồi mới ghép vào. Đã gộp về chung một file
+(`local_dev_schema.sql`) để `persons.store_id` là FK thật thay vì chuỗi không ai kiểm tra.
 
 #### `persons`
 - `person_id` PK
 - `display_name`
 - `is_staff`
 - `company_id`
-- `store_id`
+- `store_id` FK → `stores`
 - `metadata_json`
 - `created_at`
 - `updated_at`
@@ -609,6 +607,13 @@ PersistedAlert
 - `source`
 - `metadata_json`
 - `created_at`
+
+### 12.4. Owner accounts — mới, chưa có trong bản v0.2 gốc
+
+Cho web dashboard sau này: `owners` (đăng nhập — email/password_hash, cộng
+phone/telegram_chat_id cho kênh cảnh báo) và `owner_stores` (join nhiều-nhiều owner↔store —
+một chủ nhiều cửa hàng là ca chính hiện nay, giữ dạng nhiều-nhiều để một cửa hàng nhiều chủ
+sau này không cần đổi schema).
 
 ## 13. Điểm quan trọng: cái gì không đưa vào DB chính
 
@@ -716,40 +721,35 @@ Sau này mở rộng:
 
 ## 17. Storage plan: SQLite -> Neon + Cloudflare
 
-### 17.1. Phase local
+**Cập nhật 2026-08-26: 17.1 và 17.2 không còn là "phase" tách biệt theo thời gian nữa —
+cả hai chạy song song hôm nay, chọn bằng một cờ (`--storage-mode {local-db,cloud-db}`), cùng
+một business tier, cùng một schema (chỉ khác cú pháp SQLite/Postgres).** Xem
+`outputs/reports/split_architecture_design.html` mục 9-11 để có số đo thật.
 
-- `SQLite`
-  - config
-  - alerts
-  - identity metadata
+### 17.1. `local-db` — mặc định hôm nay
 
-- `Local filesystem`
-  - clip
-  - snapshot
-  - face chip
+- `SQLite` (`backend/sql/local_dev_schema.sql`) — stores/cameras (seed lại từ manifest),
+  alerts, identity metadata, cùng một file, không tách gallery riêng nữa.
+- `Local filesystem` — clip, snapshot, face chip.
 
-### 17.2. Phase cloud
+### 17.2. `cloud-db` — đã triển khai và verify bằng chạy thật, không còn là dự định
 
-- `Neon Postgres`
-  - config
-  - runtime metadata
-  - alerts
-  - identities
+- `Neon Postgres` (`backend/sql/postgres_schema.sql`, `postgres_alert_store.py`) — cùng bảng,
+  cùng FK với bản SQLite, chỉ đổi `BLOB→BYTEA` và `AUTOINCREMENT→GENERATED ALWAYS AS IDENTITY`.
+- `Cloudflare R2` (`cloud_alert_sink.py`) — alert clip, snapshot; upload sau khi
+  `LocalMediaStore` ghi file cục bộ xong (nhanh, không qua mạng), rồi ghi **R2 key** thay vì
+  path local vào Postgres.
+- Đã chạy thật 4 store / 16 camera trên Neon + R2 sống (không mock): 24 alert, 48/48
+  `alert_media` khớp file trên R2, rule store-scoping đúng cả hai chiều — sau đó xoá sạch vì
+  đó là bằng chứng luồng chạy đúng, không phải dữ liệu cần giữ.
+- `Cloudflare Workers`/Hyperdrive — vẫn là dự định, chưa làm gì. Đây là phần frontend-facing
+  API/auth, khác với phần ghi alert/media ở trên đã xong.
 
-- `Cloudflare R2`
-  - alert clip
-  - snapshot
-  - face chip
+`AlertOutbox` (`backend/src/runtime/alert_outbox.py`) là điểm nối chọn giữa hai nhánh trên —
+business tier gọi `create_alert()`/`add_alert_media()` y hệt nhau bất kể đang ở mode nào; toàn
+bộ khác biệt nằm gọn trong `sink_factory`, không lộ ra ngoài.
 
-- `Cloudflare Workers`
-  - frontend-facing API
-  - auth/session
-  - optional control-plane edge functions
-
-- `Cloudflare Hyperdrive`
-  - chỉ dùng khi Worker cần truy cập Neon/Postgres theo cách tối ưu kết nối
-
-Quyết định kiến trúc:
+Quyết định kiến trúc (vẫn đúng, chưa đổi):
 - CV inference và stateful runtime không chạy trong Worker
 - nó phải chạy trên backend server/app
 

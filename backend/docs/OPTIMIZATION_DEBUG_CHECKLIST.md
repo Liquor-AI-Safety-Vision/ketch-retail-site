@@ -230,17 +230,16 @@ Chạy theo thứ tự này. Không nhảy lên full pipeline khi tầng trướ
 - [ ] Đo insert media.
 - [x] Đo snapshot write và check return. `cv2.imwrite` trả `False` chứ không raise — đã check.
 - [x] Đo clip writer open/write/release và check `isOpened`. VideoWriter mở hỏng vẫn nhận `write()` và `release()` sạch, chỉ là không sinh ra file — đã check.
-- [ ] ~~Bật `PRAGMA foreign_keys=ON`.~~ **ĐÃ THỬ VÀ HOÀN TÁC — đừng bật lại nếu chưa làm hai việc dưới đây.**
-  Bật lên làm mọi `start_run()` chết trên DB trống: `pipeline_runs.camera_id`
-  có FK tới `cameras`, mà split runner tạo DB từ schema và không seed
-  `cameras`/`stores`. Đã tái hiện `IntegrityError: FOREIGN KEY constraint failed`.
-  Đồng thời nó **không bảo vệ được gì**: bảng `alerts` không khai FK nào cả —
-  `run_id`/`camera_id`/`store_id` chỉ là cột thường, alert bịa vẫn insert được.
-  Muốn bật thật thì phải: (1) khai FK cho `alerts` trong schema, (2) cho mọi
-  runner đường seed các hàng cha. Làm một nửa còn tệ hơn không làm: đủ để phá,
-  không đủ để bảo vệ.
+- [x] Bật `PRAGMA foreign_keys=ON`. **Đã bật thật, xong cả hai việc từng chặn nó** (commit
+  `2cab38e`): `alerts` giờ khai FK tới `stores`/`cameras`, và `seed_store_topology()` seed
+  các hàng cha từ `CameraStreamSpec` của lượt chạy, gọi trước khi bất kỳ tier nào ghi. Pragma
+  bật vô điều kiện trong `sqlite_alert_store.py`, không còn là nửa vời.
 - [ ] Kiểm tra WAL/busy timeout khi nhiều camera cùng ghi.
-- [ ] Thử async writer nếu DB/media là bottleneck.
+- [x] Thử async writer nếu DB/media là bottleneck. **Đã làm** — `AlertOutbox`
+  (`backend/src/runtime/alert_outbox.py`): mỗi business process có 1 writer thread riêng rút
+  hàng đợi, camera-thread không còn block trên I/O ghi. Verify bằng benchmark thật (123.42 vs
+  122.22 FPS trước khi tách — không suy giảm) và dùng làm điểm nối cho cloud-db (NeonDB + R2,
+  đã verify chạy thật, xem `outputs/reports/split_architecture_design.html` mục 9 và 11).
 - [ ] Không bật clip trong benchmark layer nếu đang tách I/O, nhưng full benchmark phải bật nếu production cần.
 - [ ] Có retention policy cho media benchmark để không đầy disk.
 
