@@ -23,6 +23,16 @@ earlier would drop the tail of perception.
 
     python backend/src/app/run_split_pipeline.py --cameras 16 \\
         --decoders 4 --inferers 2 --infer-threads 2 --business 2
+
+--manifest takes one or more paths, one per store: the tiers shard a flat
+list of CameraStreamSpec and never look at which store a spec came from, so
+running several stores is just concatenating their manifests --
+
+    python backend/src/app/run_split_pipeline.py \\
+        --manifest config/stores/store_a.json config/stores/store_b.json
+
+camera_specs_from_manifests refuses the merge if any camera_id repeats across
+the given manifests, since rings and queues are keyed by it.
 """
 from __future__ import annotations
 
@@ -384,7 +394,10 @@ def _run(specs, *, ctx, rings, free_qs, ring_specs, camera_decode_cfg, camera_fa
 
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument("--manifest", default=str(ROOT / "backend/config/stores/local_dev_store_16cams.json"))
+    p.add_argument("--manifest", nargs="+",
+                   default=[str(ROOT / "backend/config/stores/local_dev_store_16cams.json")],
+                   help="one manifest per store; every camera_id across all of them "
+                        "must be unique, since rings and queues are keyed by it")
     p.add_argument("--db-path", default=str(ROOT / "backend/data/split_run.sqlite"))
     p.add_argument("--gallery-db", default=str(ROOT / "backend/data/local_dev.sqlite"))
     p.add_argument("--media-root", default=str(ROOT / "backend/data/split_alerts"))
@@ -402,10 +415,11 @@ def main() -> None:
     p.add_argument("--slots-per-camera", type=int, default=8)
     args = p.parse_args()
 
-    from backend.src.infra.local_config import camera_specs_from_manifest
+    from backend.src.infra.local_config import camera_specs_from_manifests
 
-    specs = camera_specs_from_manifest(args.manifest)[:args.cameras]
-    print(f"cameras={len(specs)} decoders={args.decoders} "
+    specs = camera_specs_from_manifests(args.manifest)[:args.cameras]
+    stores = sorted({spec.store_id for spec in specs})
+    print(f"stores={stores} cameras={len(specs)} decoders={args.decoders} "
          f"inferers={args.inferers}x{args.infer_threads} business={args.business}",
          file=sys.stderr)
 

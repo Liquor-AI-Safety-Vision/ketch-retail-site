@@ -99,6 +99,39 @@ def camera_specs_from_manifest(path: str | Path) -> list[CameraStreamSpec]:
     return specs
 
 
+def camera_specs_from_manifests(paths: list[str | Path]) -> list[CameraStreamSpec]:
+    """One manifest per store, merged into the flat list every tier consumes.
+
+    The split pipeline's tiers were never written to know what a "store" is
+    -- decode/inference/business shard a plain list of CameraStreamSpec, and
+    each spec already carries its own store_id (local_config.py copies it per
+    camera, falling back to the manifest's default). So running several
+    stores together needs nothing from the tiers themselves; it only needs
+    their specs concatenated before ring/queue allocation.
+
+    The one thing that would corrupt silently if left unchecked: rings, decode
+    queues and business queues are all keyed by camera_id. A camera_id reused
+    across two manifests -- whether by copy-paste, or by two stores each
+    independently numbering their own cameras "camera_1" -- would have the
+    second spec's ring allocation overwrite the first's dict entry, so one
+    store's frames would silently land in another store's ring. Checked here
+    once, at merge time, rather than trusted to whoever authored the files.
+    """
+    specs: list[CameraStreamSpec] = []
+    seen: dict[str, str] = {}
+    for path in paths:
+        for spec in camera_specs_from_manifest(path):
+            prior_path = seen.get(spec.camera_id)
+            if prior_path is not None:
+                raise ValueError(
+                    f"camera_id {spec.camera_id!r} appears in both {prior_path} and "
+                    f"{path}; every camera_id must be unique across every manifest "
+                    f"merged into one run, since rings and queues are keyed by it")
+            seen[spec.camera_id] = str(path)
+            specs.append(spec)
+    return specs
+
+
 def load_staff_seed_entries(path: str | Path) -> tuple[str, str, list[StaffSeedEntry]]:
     data = json.loads(Path(path).read_text())
     entries = []
