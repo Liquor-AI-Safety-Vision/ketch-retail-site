@@ -377,6 +377,10 @@ def main() -> None:
                    help="override the pose model; pair with --pose-blob-dtype, "
                         "since the decoder must write the dtype the model expects")
     p.add_argument("--pose-blob-dtype", default="float32", choices=["float32", "float16"])
+    p.add_argument("--till-model", default=None,
+                   help="override the till segmentation model; the decoder does not "
+                        "preprocess for till (the lane crops from the ring itself), so "
+                        "unlike --pose-model this needs no matching dtype flag")
     p.add_argument("--reid-shared", action="store_true",
                    help="route ReID through one worker instead of each lane "
                         "calling sess.run independently -- see SharedReidService")
@@ -407,7 +411,7 @@ def main() -> None:
     # in the 16-camera manifest, eight of them do.
     models = {"pose": args.pose_model or str(ROOT / "models/yolo26m-pose.onnx"),
               "reid": str(ROOT / "models/osnet_x0_25_msmt17.onnx"),
-              "till": str(ROOT / "models/till_seg_v4_640.onnx"),
+              "till": args.till_model or str(ROOT / "models/till_seg_v4_640.onnx"),
               "face": str(ROOT / "models/yolov6s_face.onnx"),
               "arcface": str(ROOT / "models/ms1mv3_arcface_r18.onnx")}
     paths = {"db": str(ROOT / "backend/data/diag_split.sqlite"),
