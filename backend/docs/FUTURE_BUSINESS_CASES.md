@@ -15,23 +15,54 @@ không thay thế bước đó.
 
 ### Nghiệp vụ
 
-Khi hệ thống phát hiện một khách hàng có hành vi shoplifting: crop khuôn mặt, embed, lưu
-người đó vào DB như một "khách" (không phải nhân viên). Đếm số lần cùng một người (khớp
-qua face embedding) bị phát hiện — vượt ngưỡng (ví dụ 3 lần) thì đánh dấu vào watchlist.
+Quy trình gồm hai giai đoạn tách biệt, **không** crop/embed face ngay lúc detect:
+
+1. **Phát hiện:** hệ thống phát hiện hành vi shoplifting → bắn alert như mọi pipeline khác
+   (ghi `alerts` + media qua `AlertOutbox`, hiển thị lên web dashboard). Chưa đụng gì tới
+   face ở bước này.
+2. **Xác nhận (con người):** owner vào web xem alert, nếu đánh giá đúng là một vụ shoplifting
+   thật thì **mark confirm**. Chỉ tại thời điểm confirm này, hệ thống mới chạy detect → crop
+   → align → embed khuôn mặt và lưu vào một DB riêng (tạm gọi "DB tội phạm", tách khỏi
+   `persons`/nhân viên).
 
 Mở rộng: thêm một luồng camera ở lối vào (entrance) — detect mặt mọi người bước vào, align,
-embed, so với watchlist ngay lúc họ vào cửa. Khớp với người đã bị đánh dấu thì cảnh báo
+embed, so với DB tội phạm ngay lúc họ vào cửa. Khớp với người có tiền sử trong DB → cảnh báo
 ngay, trước khi họ kịp hành động — khác các pipeline hiện tại vốn chỉ hỏi face khi có sự
 kiện xảy ra (vào zone cấm).
 
+### Vấn đề mở — chưa có câu trả lời, cần chốt trước khi làm
+
+**Chọn ảnh nào để crop face lúc confirm?** Lúc mark confirm, cần một ảnh có mặt rõ, quay
+thẳng hướng camera để embed cho chất lượng — nhưng khung hình lúc xảy ra hành vi shoplifting
+thường không đảm bảo góc mặt tốt (người ta không nhìn thẳng vào cam lúc đang trộm đồ). Hai
+hướng khả dĩ: (a) chọn frame tốt nhất trong chính đoạn video của alert đó (cần tiêu chí đánh
+giá "ảnh rõ mặt" — pose góc mặt, độ nét, độ che khuất), hoặc (b) dùng ảnh từ luồng camera
+entrance tại thời điểm người đó bước vào (thường mặt hướng thẳng cam hơn, nhưng cần khớp
+đúng người/đúng thời điểm giữa hai luồng camera khác nhau). Chưa quyết — đây là câu hỏi
+nghiệp vụ/logic cần trả lời trước khi triển khai thật, không phải vấn đề kỹ thuật thuần túy.
+
+### Không đếm số lần shoplifting trước khi confirm
+
+Đã quyết định bỏ khái niệm "đếm số lần phạm tội rồi mới đánh dấu vượt ngưỡng". Mỗi vụ
+shoplifting coi là độc lập — không cộng dồn trước khi có xác nhận của con người. Ở phía
+entrance: chỉ cần khớp face với một người **đã có** trong DB tội phạm (tức đã từng bị
+confirm ít nhất 1 lần) là alert ngay, không cần chờ đủ ngưỡng số lần.
+
+"Đếm" chỉ còn ý nghĩa ở một chỗ khác: **tại bước confirm** (crop → align → embed → lưu DB),
+trước khi tạo record mới, so ảnh vừa embed với các record đã có trong DB tội phạm — nếu
+similarity vượt một ngưỡng nào đó với một người đã tồn tại, coi là **tái phạm** (tăng
+counter/gắn thêm lần xuất hiện cho người đó) thay vì tạo person mới. Đây thực chất là logic
+match-hoặc-tạo-mới quen thuộc (giống `FaceGallery.match()`/`register()`), chỉ khác chỗ nó
+chạy tại thời điểm confirm (do con người kích hoạt), không chạy tại thời điểm detect.
+
 ### Phạm vi watchlist: chốt ở mức store trước
 
-Đã quyết định: watchlist chỉ scope trong **một store** ở giai đoạn đầu, không phải toàn bộ
-chuỗi. Có thể mở rộng lên mức **owner** sau này (các store chung một chủ) mà không cần đổi
-schema — bảng `owner_stores` (many-to-many owner↔store) đã tồn tại sẵn cho đúng mục đích
-này. Việc mở rộng chỉ là sửa `FaceGallery.match()`/`iter_embeddings()` từ nhận một
-`store_id` sang nhận danh sách `store_id` (join `owner_stores` để lấy các store cùng chủ),
-business/face tier không cần biết gì về thay đổi này.
+Đã quyết định: watchlist (DB tội phạm) chỉ scope trong **một store** ở giai đoạn đầu, không
+phải toàn bộ chuỗi. Có thể mở rộng lên mức **owner** sau này (các store chung một chủ) mà
+không cần đổi schema — bảng `owner_stores` (many-to-many owner↔store) đã tồn tại sẵn cho
+đúng mục đích này. Việc mở rộng chỉ là sửa `FaceGallery.match()`/`iter_embeddings()` từ nhận
+một `store_id` sang nhận danh sách `store_id` (join `owner_stores` để lấy các store cùng
+chủ), business/face tier không cần biết gì về thay đổi này.
 
 ### Đã có sẵn, dùng lại được
 
@@ -52,12 +83,21 @@ business/face tier không cần biết gì về thay đổi này.
    *hành vi*, khác hẳn intrusion (chỉ cần vị trí). Repo có sẵn dataset
    (`datasets/DCSASS_Shoplifting`, `datasets/RetailS`) nhưng **chưa có pipeline production
    nào** dùng chúng.
-2. **Luồng match-hoặc-tạo-mới + đếm số lần** — chưa tồn tại. Cần: khi phát hiện shoplifting,
-   thử match face với watchlist hiện có; khớp thì +1 lượt, không khớp thì tạo person mới với
-   lượt=1. Cần thêm cột/bảng đếm lượt (chưa có) và luật đánh dấu khi vượt ngưỡng.
-3. **Pipeline mới cho camera entrance** — khác `StorageIntrusion` (chỉ hỏi face khi có người
-   vào zone cụ thể), camera entrance cần kiểm tra watchlist cho *mọi* người bước vào.
-4. **Cân nhắc pháp lý/riêng tư** khi lưu embedding khuôn mặt của khách hàng (không phải nhân
+2. **Cơ chế confirm trên web** — owner xem alert shoplifting, bấm "confirm" mới trigger
+   pipeline crop/align/embed/lưu DB tội phạm. Cần một trạng thái mới trên `alerts` (hoặc
+   bảng riêng) để phân biệt "alert chưa xử lý" / "đã confirm là vụ thật" / "đã bỏ qua", và
+   một action phía backend/API để owner gọi khi bấm confirm — chưa tồn tại (phụ thuộc vào
+   web dashboard, cũng chưa có).
+3. **Luồng chọn ảnh mặt tốt để embed lúc confirm** — chưa có logic chọn frame/ảnh (xem mục
+   "Vấn đề mở" ở trên); cần chốt nghiệp vụ trước khi viết code.
+4. **Luồng match-hoặc-tạo-mới tại thời điểm confirm** — chưa tồn tại. Khi confirm, embed ảnh
+   đã chọn, so với DB tội phạm hiện có; khớp trên ngưỡng similarity thì gắn thêm lần xuất
+   hiện cho person đã có (tái phạm), không khớp thì tạo person mới với lần đầu=1. Cần thêm
+   cột/bảng đếm lần xuất hiện (chưa có).
+5. **Pipeline mới cho camera entrance** — khác `StorageIntrusion` (chỉ hỏi face khi có người
+   vào zone cụ thể), camera entrance cần kiểm tra DB tội phạm cho *mọi* người bước vào, khớp
+   là alert ngay (không cần ngưỡng số lần).
+6. **Cân nhắc pháp lý/riêng tư** khi lưu embedding khuôn mặt của khách hàng (không phải nhân
    viên đã có hợp đồng lao động) — tuỳ khu vực pháp lý, cần rà trước khi triển khai thật,
    không chỉ là vấn đề kỹ thuật.
 
