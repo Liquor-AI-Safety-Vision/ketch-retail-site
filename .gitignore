@@ -46,3 +46,7 @@ bench/*.jpg
 bench/*.jpeg
 bench/*.png
 bench/*.npy
+
+# mediamtx tu sinh cert cho MoQ/QUIC khi chay rtsp_sim
+auto.crt
+auto.key
