@@ -874,6 +874,14 @@ không di chuyển giữa chừng, và `TillRegistry` chỉ ghi nhận toạ đ�
    viên là "Close". `Till.__init__` / `TillRegistry.__init__` nhận thêm 1 tham số,
    không đụng phần còn lại của hệ thống.
 
+   **Quyết định 28/08/2026: hoãn có chủ đích, không phải bỏ sót.** Toàn bộ số đo till
+   từ trước tới nay — kể cả bảng so nano vs v4 medium trong
+   `benchmarks/2026-08-27-till-nano-rejected.md` — đều đo ở ngưỡng đối xứng. Đổi mặc
+   định làm mất mốc so sánh của mọi kết quả đã có, trong khi lợi ích chưa được đo trên
+   footage thật của cửa hàng. Khi sửa, cách an toàn là để `confirm_close` mặc định
+   **bằng** `confirm_open` (hành vi không đổi) và chỉ nâng nó lên qua manifest ở camera
+   nào đo được là có "đóng giả" do occlusion.
+
 3. ~~**Ngưỡng FSM lưu ở module-level global, dùng chung khi nhiều camera share 1
    process.**~~ **ĐÃ SỬA 28/08/2026.**
 
