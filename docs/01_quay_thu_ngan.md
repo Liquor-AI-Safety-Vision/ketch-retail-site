@@ -1,10 +1,12 @@
-# Bài toán 1 & 2 — Phát hiện thất thoát tiền tại quầy thu ngân
+# Bài toán 2 — Phát hiện thất thoát tiền tại quầy thu ngân
 
 Tài liệu mô tả bài toán, kiến trúc và hai hướng pipeline phát hiện.
 
-**Phiên bản 1.2 — 08/2026.** Bản này thay thế PDF v1.0
+**Phiên bản 1.3 — 08/2026.** Bài toán 1 (`SUSPICIOUS_DRAWER_OPEN`) đã **bỏ hoàn
+toàn** khỏi phạm vi — xem [Phụ lục B](#phụ-lục-b-thay-đổi-so-với-v10). Tài liệu
+này giờ chỉ đặc tả Bài toán 2 và tầng perception dùng chung mà nó cần.
+Bản trước là v1.2, thay thế PDF v1.0
 (`He_thong_phat_hien_nhan_vien_lay_trom_tien_tai_quay-20260804143525.pdf`).
-Các thay đổi được liệt kê ở [Phụ lục B](#phụ-lục-b-thay-đổi-so-với-v10).
 
 Tài liệu này cũng là nơi đặc tả **tầng perception dùng chung** cho toàn hệ thống — frame
 sampling, person detection, tracking, temporal state cache và event engine. Bài toán 3
@@ -38,37 +40,29 @@ flowchart TD
     A[Luồng camera riêng cho từng camera] --> B[Đọc frame / downsample 5–10 FPS]
     B --> C[Perception dùng chung<br/>Person + Pose + Tracking<br/>Cash drawer + Zone calibration]
     C --> D[Event engine]
-    D --> E[Bài toán 1<br/>Mở ngăn kéo khi không có khách]
     D --> F[Bài toán 2<br/>Lấy tiền rồi đưa vào vùng cất giấu]
-    E --> G[Cảnh báo + clip bằng chứng<br/>+ metadata sự kiện]
-    F --> G
+    F --> G[Cảnh báo + clip bằng chứng<br/>+ metadata sự kiện]
 ```
 
-## 2. Định nghĩa hai bài toán nghiệp vụ
-
-Hai bài toán có mức độ nghiêm trọng và độ khó khác nhau. Bài toán 1 chỉ phát hiện bối
-cảnh bất thường. Bài toán 2 tìm chuỗi hành động có dấu hiệu lấy tiền và cất giấu.
+## 2. Định nghĩa bài toán nghiệp vụ
 
 | Bài toán | Mô tả nghiệp vụ | Đầu ra đề xuất | Mức độ |
 |---|---|---|---|
-| Bài 1 | Nhân viên mở ngăn kéo tiền trong khi phía khách hàng không có người đang giao dịch. | `SUSPICIOUS_DRAWER_OPEN` | Nghi ngờ / cần kiểm tra |
 | Bài 2 | Nhân viên đưa tay vào ngăn kéo, rút tay ra và đưa về túi quần, túi áo, túi xách hoặc vùng cất giấu. | `SUSPECTED_CASH_CONCEALMENT` | Cảnh báo rủi ro cao |
 
 Phạm vi ban đầu tập trung vào camera cố định tại quầy thu ngân. Các hành vi như sửa
 tiền, kiểm kê, đổi ca hoặc lấy tiền lẻ có thể tạo cảnh báo nhầm; do đó hệ thống phải
 lưu đủ clip trước, trong và sau sự kiện để người vận hành đánh giá.
 
-**Tình trạng khả thi.** Hai bài toán không cùng mức sẵn sàng, và khác biệt nằm ở đúng
-một chỗ: chúng cần gì từ tầng perception.
-
-| | Cần gì | Trạng thái |
-|---|---|---|
-| Bài 1 | Chỉ cần person bounding box — có nhân viên trong vùng quầy hay không | Khả thi với model công khai |
-| Bài 2 | Cần vị trí cổ tay chính xác theo thời gian | **Bị chặn** ở góc camera hiện tại |
-
-Đo đạc trên footage thật cho thấy không model pose công khai nào cho keypoint đủ chính
-xác ở góc top-view này; chi tiết ở [11.2](#112-hạn-chế-chính). Bài 2 vì thế phải chờ
-model fine-tune hoặc đổi góc camera, còn Bài 1 triển khai được ngay.
+**Tình trạng khả thi.** Bài 2 cần vị trí cổ tay chính xác theo thời gian. Đo đạc trên
+footage thật cho thấy không model pose công khai nào cho keypoint đủ chính xác ở góc
+top-view này; chi tiết ở [11.2](#112-hạn-chế-chính). Điều này **không còn chặn việc
+triển khai**: Pipeline A (rule-based FSM, [mục 6](#6-bài-toán-2--pipeline-a-rule-based-temporal-reasoning))
+đã được code và chạy trong `backend/src/pipelines/counter_cash_theft.py`, bất kể Phase 2
+(chốt model perception) chưa xong — xem ghi chú rủi ro ở
+[11.2](#112-hạn-chế-chính) và [Phụ lục D](#phụ-lục-d-trạng-thái-triển-khai). Nghĩa là
+độ chính xác vị trí cổ tay của cảnh báo hiện tại chưa được đảm bảo bởi tầng perception,
+dù logic state machine phía trên đúng đặc tả.
 
 ## 3. Kiến trúc tổng thể theo từng camera
 
@@ -264,34 +258,11 @@ trạng thái bằng K frame liên tiếp hoặc thời lượng T giây. Khi c�
 thái cũ. Khi miss kéo dài quá timeout, chuyển sang unknown hoặc đóng trạng thái theo
 quy tắc an toàn.
 
-## 5. Bài toán 1: Mở ngăn kéo bất thường
+## 5. (Đã bỏ) Bài toán 1: Mở ngăn kéo bất thường
 
-Mục tiêu là phát hiện việc ngăn kéo tiền được mở trong khi không có khách ở khu vực
-giao dịch. Đây là dấu hiệu bất thường nhưng chưa đủ để kết luận lấy trộm.
-
-```mermaid
-flowchart LR
-    A[Drawer OPEN<br/>đã được xác nhận] --> D[Duy trì đủ thời gian]
-    B[Có employee<br/>ở phía trong quầy] --> D
-    C[Không có customer<br/>ở checkout zone] --> D
-    D --> E[Suspicious drawer-opening event]
-```
-
-```
-IF  drawer_open_confirmed
-AND employee_present_in_employee_zone
-AND no_customer_in_checkout_zone
-AND condition_duration >= MIN_DURATION
-THEN create_or_update_event("SUSPICIOUS_DRAWER_OPEN")
-```
-
-Event chỉ gửi cảnh báo một lần. Nếu drawer vẫn mở 2–3 phút, hệ thống tiếp tục cập nhật
-cùng `event_id`. Chỉ khi drawer đóng ổn định đủ lâu mới kết thúc event. Các frame miss
-ngắn không làm tạo event mới.
-
-Sự hiện diện của employee được phép xác nhận bằng track `predicted` — nhân viên bị che
-một hai frame không có nghĩa là quầy trống. Ngược lại, kết luận "không có customer"
-phải dựa trên trạng thái quan sát được, không suy ra từ việc track khách vừa biến mất.
+Bài toán 1 (`SUSPICIOUS_DRAWER_OPEN` — mở ngăn kéo khi không có khách) đã bị loại khỏi
+phạm vi dự án, xem [Phụ lục B](#phụ-lục-b-thay-đổi-so-với-v10). Đặc tả cũ không còn giữ
+ở đây; nếu cần tham khảo, xem lịch sử git của file này trước commit đổi sang v1.3.
 
 ## 6. Bài toán 2 — Pipeline A: Rule-based temporal reasoning
 
@@ -739,15 +710,20 @@ tầng pose chưa cho được cổ tay đúng ([11.2](#112-hạn-chế-chính))
 
 | Giai đoạn | Phạm vi | Mục tiêu | Trạng thái |
 |---|---|---|---|
-| Phase 1 | Module dùng chung + Bài 1 | Ổn định stream, zone, drawer state, event deduplication | Đang làm — xem [Phụ lục D](#phụ-lục-d-trạng-thái-triển-khai) |
-| **Phase 2** | **Chốt model perception** | **Quyết định góc camera; nếu giữ top-down thì fine-tune pose model trên footage thật. Điều kiện tiên quyết của Bài 2.** | **Chưa bắt đầu** |
-| Phase 3 | Pipeline A cho Bài 2 | Xây FSM, `active_hand`, trajectory và evidence clip | Chưa bắt đầu |
+| Phase 1 | Module dùng chung | Ổn định stream, zone, drawer state, event deduplication | Phần lớn xong, event dedup còn thiếu — xem [Phụ lục D](#phụ-lục-d-trạng-thái-triển-khai) |
+| Phase 2 | Chốt model perception | Quyết định góc camera; nếu giữ top-down thì fine-tune pose model trên footage thật. Điều kiện tiên quyết lý tưởng của Bài 2. | Chưa bắt đầu — **nhưng Phase 3 đã triển khai trước, xem ghi chú rủi ro dưới đây** |
+| Phase 3 | Pipeline A cho Bài 2 | Xây FSM, `active_hand`, trajectory và evidence clip | **Đã code** (`backend/src/pipelines/counter_cash_theft.py`, `scripts/problem2_fsm.py`) — độ tin cậy vị trí cổ tay chưa được Phase 2 xác nhận; còn thiếu 3 điểm đặc tả, xem [Phụ lục D](#phụ-lục-d-trạng-thái-triển-khai) |
 | Phase 4 | Thu thập/label sequence hành vi | Tạo taxonomy normal/suspicious và bộ dữ liệu đa camera | Chưa bắt đầu |
 | Phase 5 | Pipeline B baseline | So sánh ST-GCN với CNN+BiLSTM | Chưa bắt đầu |
 | Phase 6 | Fusion + deployment | Kết hợp rule score và DL probability; tối ưu latency | Chưa bắt đầu |
 | Phase 7 | Human-in-the-loop | Feedback reviewer để điều chỉnh threshold và tái huấn luyện | Chưa bắt đầu |
 
-Phase 1 không phụ thuộc Phase 2 và chạy song song được: Bài 1 chỉ cần bounding box.
+**Rủi ro đã chấp nhận (không phải sai sót thầm lặng):** Phase 3 được triển khai trước
+Phase 2 hoàn tất. Nghĩa là Pipeline A đang chạy trên một tầng pose mà chính tài liệu
+này đo và kết luận là chưa đạt ở góc top-down ([11.2](#112-hạn-chế-chính)). Logic state
+machine đúng đặc tả không bù được keypoint sai vị trí nhưng confidence cao
+("confidently wrong"). Quyết định này cần được ghi nhận tường minh, không để ai đọc
+Phase 3 = "Đã code" rồi hiểu nhầm là đã qua Phase 2.
 
 ### 11.4. Khuyến nghị kiến trúc sản phẩm
 
@@ -786,6 +762,15 @@ Các giá trị trên chỉ là cấu hình khởi điểm. Cần tune trên vid
 FPS và yêu cầu ưu tiên recall hay precision.
 
 ## Phụ lục B. Thay đổi so với v1.0
+
+**v1.3** — Bài toán 1 bị bỏ hoàn toàn khỏi phạm vi; tài liệu đối chiếu lại với code hiện tại:
+
+| Mục | Thay đổi |
+|---|---|
+| Toàn văn | Xoá Bài toán 1 (`SUSPICIOUS_DRAWER_OPEN`) khỏi tiêu đề, diagram tổng quan, bảng mục 2, mục 5 (đặc tả cũ giữ trong lịch sử git) |
+| 11.3 | Cập nhật trạng thái: Phase 3 (Pipeline A cho Bài 2) **đã code**, chạy trước khi Phase 2 (chốt pose model) hoàn tất — thêm ghi chú rủi ro tường minh thay vì để ngầm định |
+| Phụ lục D | Cập nhật bảng trạng thái theo code thực tế 28/08/2026; thêm mục liệt kê lỗ hổng so với đặc tả: thiếu gate theo `bbox_source: predicted` (gap #1), confirm open/close đối xứng thay vì lệch nhau (gap #2), ngưỡng FSM module-level global đụng nhau khi nhiều camera share 1 process (gap #3). Hai nghi vấn ban đầu — thiếu `event_cooldown`, `last_till_box` không có grace timeout — đã rà soát lại và loại khỏi danh sách vì không phải gap thật (xem lý do trong Phụ lục D) |
+| Phụ lục D | **Gap #3 đã sửa cùng ngày**: mỗi pipeline nạp một bản `problem2_fsm` riêng (`load_private_fsm`), ngưỡng thành per-camera; runtime guard cũ bỏ đi vì nó biến cấu hình per-camera thành cấu hình không hỗ trợ. Gap #1 và #2 vẫn còn |
 
 **v1.2** — sau khi đo model perception trên footage thật:
 
@@ -841,20 +826,92 @@ sang stream có tốc độ khác không thể âm thầm làm lệch tham số 
 
 ## Phụ lục D. Trạng thái triển khai
 
-Tính đến 05/08/2026.
+Tính đến 28/08/2026.
 
 | Mô-đun | File | Trạng thái |
 |---|---|---|
 | `FrameSampler` | `stream_track.py` | Xong. Thiếu adaptive FPS ([4.1](#41-video-ingestion-và-frame-sampling)) |
 | `PersonPoseDetector` | `stream_track.py` | Xong. YOLO26n-pose ONNX, CoreML EP |
-| `MultiObjectTracker` | `uae_tracker.py` | Xong. DeepSORT 4 pass + OSNet-x0.25 re-id feature |
-| `ZoneCalibration / RoleAssignment` | — | Chưa có |
-| `CashDrawerStateDetector` | — | Chưa có |
-| `TemporalStateCache` | — | Chưa có |
-| `Problem1EventEngine` | — | Chưa có |
-| `Problem2PipelineA` | — | Chưa có |
+| `MultiObjectTracker` | `uae_tracker.py` | Xong. DeepSORT 4 pass + OSNet-x0.25 re-id feature. `bbox_source: predicted/detected` được tracker trả về đúng, nhưng **pipeline tiêu thụ nó không dùng tag này** — xem gap #1 dưới đây |
+| `ZoneCalibration / RoleAssignment` | `zones.py` | Xong (đọc polygon từ file cấu hình, MVP theo [4.3](#43-module-c--phân-chia-phía-nhân-viên-và-phía-khách-hàng)) |
+| `CashDrawerStateDetector` | `run_counter.py::Till`, `TillRegistry`, `TillState` | Xong về debounce N-frame. Thiếu confirm bất đối xứng open/close — gap #2 |
+| `TemporalStateCache` | `till_schedule.py` | Xong (lịch sample/confirm quy đổi theo giây, một nguồn công thức duy nhất) |
+| `Problem2PipelineA` | `backend/src/pipelines/counter_cash_theft.py`, `scripts/problem2_fsm.py` | **Đã code**, đủ 7 state theo [6.1](#61-các-trạng-thái-chính). Chạy trước khi Phase 2 (chốt pose model) xong — xem cảnh báo rủi ro ở [11.3](#113-lộ-trình-triển-khai-đề-xuất). Thiếu gate theo `predicted` — gap #1. Ngưỡng FSM per-camera đã sửa 28/08 (`load_private_fsm`) — gap #3 |
 | `Problem2PipelineB` | — | Chưa có |
-| `EvidenceRecorder + AlertPublisher` | — | Chưa có (chưa có ring buffer) |
+| `EvidenceRecorder + AlertPublisher` | `alert_clip_buffer.py`, `sqlite_alert_store.py`, `local_media_store.py` | Xong (ring buffer pre/post-event, snapshot + clip, SQLite alert store) |
+
+### Lỗ hổng / thiếu so với đặc tả (đo trên code hiện tại, 28/08/2026)
+
+Hai điểm ban đầu đưa vào danh sách này — thiếu `event_cooldown` cấp camera, và
+`last_till_box` không có hạn dùng — đã được rà soát lại và **bỏ khỏi danh sách**:
+tracker đã giữ ID qua occlusion bằng embedding matching trong suốt `max_age`
+([Phụ lục C](#phụ-lục-c-mô-hình-định-danh-của-tracker)); bắn 2 alert khi vượt quá
+`max_age` là đánh đổi được tài liệu này chấp nhận từ đầu ([10](#10-xử-lý-miss-detection-và-các-trường-hợp-biên),
+dòng "Person đổi ID"), thêm cooldown chỉ làm phức tạp logic không cần thiết. Còn
+`last_till_box` giữ mãi là đúng bản chất bài toán — quầy và ngăn kéo là vật cố định,
+không di chuyển giữa chừng, và `TillRegistry` chỉ ghi nhận toạ độ sau khi trạng thái
+đã qua debounce N-frame nên một lần nhận nhầm ngẫu nhiên khó lọt qua được.
+
+1. **`bbox_source: predicted` không được dùng để gate state transition.**
+   [4.2.3](#423-track-đang-coasting-vẫn-phải-được-báo-lên) và bảng ở
+   [10](#10-xử-lý-miss-detection-và-các-trường-hợp-biên) yêu cầu: track chỉ có box từ
+   Kalman (không có detection thật frame đó) được phép *giữ event sống*, không được
+   *xác nhận state mới*. `CounterCashTheftPipeline.handle_perceived`
+   (`backend/src/pipelines/counter_cash_theft.py`) nhận `_source` từ tracker rồi bỏ
+   luôn (`for track, _source in live`), và vòng lặp FSM chạy `F.step(...)` bằng
+   `track.kpts` bất kể track đang `detected` hay `predicted`. Vì `Track.kpts` chỉ được
+   cập nhật khi có detection thật (`uae_tracker.py`, `_record_pose`), một track predicted
+   vẫn mang keypoints cũ và có thể đẩy state qua `HAND_IN_DRAWER` / `CONCEALED` từ dữ
+   liệu không phải của frame hiện tại.
+
+2. **Confirm đối xứng open/close, đặc tả yêu cầu bất đối xứng.**
+   Phụ lục A tách riêng `open_confirmation` (0.3–0.5s) và `close_confirmation`
+   (0.8–1.5s, dài hơn cố ý để tránh closed giả do occlusion). `TillState.update`
+   (`run_counter.py`) dùng chung một số `confirm` cho cả hai chiều chuyển trạng thái.
+   **Cách sửa đề xuất:** tách `confirm` thành `confirm_open` (giữ ~5 frame) và
+   `confirm_close` (dài hơn, ví dụ ~10 frame ở cùng FPS); `TillState.update` so
+   streak với `confirm_open` khi ứng viên là "Open", với `confirm_close` khi ứng
+   viên là "Close". `Till.__init__` / `TillRegistry.__init__` nhận thêm 1 tham số,
+   không đụng phần còn lại của hệ thống.
+
+3. ~~**Ngưỡng FSM lưu ở module-level global, dùng chung khi nhiều camera share 1
+   process.**~~ **ĐÃ SỬA 28/08/2026.**
+
+   *Vấn đề đã có:* mỗi camera có `CameraStreamSpec` riêng thật, nhưng khi áp dụng vào
+   FSM thì giá trị được ghi bằng `setattr(F, name, value)` lên **cùng một bản module
+   Python đã nạp**, dùng chung cho mọi luồng trong cùng process. Cả hai kiến trúc đều
+   chạy nhiều camera thành nhiều luồng trong một process:
+
+   | | chia camera | trong 1 nhóm |
+   |---|---|---|
+   | Đường monolithic (`supervisor.py`) | `shards[i % num_workers]`, [supervisor.py:222-226](../backend/src/runtime/supervisor.py#L222-L226) | `ThreadPoolExecutor`, [supervisor.py:91](../backend/src/runtime/supervisor.py#L91) |
+   | Đường split (`run_split_pipeline.py`) | `_shard(specs, businesses)` = `items[i::n]` | `ThreadPoolExecutor`, [business_tier.py](../backend/src/runtime/business_tier.py) |
+
+   (Lưu ý `hybrid_workers` chỉ tồn tại ở đường monolithic; đường split dùng
+   `--decoders/--inferers/--infer-threads/--business`. Hai đường chia camera theo cùng
+   một hình dạng vòng tròn nhưng bằng cơ chế khác nhau.)
+
+   Camera bootstrap sau ghi đè ngưỡng của camera bootstrap trước trong cùng process, và
+   từ đó alert của camera này bị phán xử bằng ngưỡng của camera kia, không có log nào
+   báo. Chưa ai gặp vì mọi camera counter trong manifest hiện tại **tình cờ** cùng tham
+   số — lỗi sẽ nổ lần đầu tiên một cửa hàng chạy hai quầy khác FPS, tức là một thay đổi
+   **cấu hình**, không phải thay đổi code.
+
+   *Đã sửa:* mỗi pipeline nạp **một bản `problem2_fsm` riêng** (`load_private_fsm()`
+   trong `counter_cash_theft.py`), nên các global đó thành per-camera — đúng ý nghĩa
+   ban đầu của chúng. Runtime guard cũ (raise khi hai giá trị tranh nhau ghi) đã bỏ:
+   nó chặn được hỏng âm thầm nhưng biến cấu hình per-camera thành cấu hình *không hỗ
+   trợ*, trong khi đó chính là thứ hệ thống phải cho phép.
+
+   Chọn cách này thay vì luồn tuning qua tham số vì đó là 21 hằng số rải khắp 703 dòng
+   của chính đoạn quyết định có báo trộm hay không; cách hiện tại đạt cùng mức cách ly
+   mà không sửa một dòng nào trong FSM. Chi phí đo được: **1.11 ms và 47 KiB mỗi
+   camera**. Các bản copy không đăng ký vào `sys.modules`, nên `import problem2_fsm`
+   vẫn là một module dùng chung duy nhất cho các script standalone.
+
+   Kiểm chứng: `backend/tests/test_fsm_globals_guard.py` — hai camera khác FPS mỗi cái
+   giữ tuning riêng, cấu hình camera thứ hai không làm dịch camera thứ nhất, và module
+   dùng chung không bị ghi vào bao giờ.
 
 Số đo tracking trên `cctv_test.mp4` (846×480, 1100 frame @ 10 FPS, Apple Silicon CoreML EP):
 
