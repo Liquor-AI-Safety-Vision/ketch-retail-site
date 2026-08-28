@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import importlib.util
+import itertools
 import sys
 import threading
 from pathlib import Path
@@ -16,7 +18,9 @@ if str(ROOT) not in sys.path:
 if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
 
-import problem2_fsm as F  # noqa: E402
+# problem2_fsm is deliberately NOT imported here. Every use goes through
+# self.F, the per-camera copy from load_private_fsm(); a shared module-level
+# alias is exactly what one camera would retune out from under another.
 import stream_track as S  # noqa: E402
 import zones  # noqa: E402
 from run_counter import Till, TillRegistry  # noqa: E402
@@ -33,25 +37,41 @@ from backend.src.runtime.shared_inference import SharedInferenceRegistry
 
 BOOTSTRAP_LOCK = threading.Lock()
 
-# What the concealment FSM was last configured with, and by which camera.
-#
-# problem2_fsm keeps its tuning in module-level globals -- FPS, the confirm
-# counts, ANY_HAND, WRIST_CONF_TH -- and _configure_fsm_globals writes into
-# them. That is fine for one camera per process, which is how the FSM was
-# originally driven. It is not fine here: the split business tier runs
-# several cameras as threads in one process, so the second camera to
-# bootstrap silently retunes the first one's FSM and every alert after that
-# is judged against another camera's thresholds.
-#
-# Today every counter in the manifest shares identical parameters, so all of
-# them write the same values and the race is harmless. That is luck, not
-# design, and it is the kind of luck that runs out during a deployment rather
-# than during a test. Until the FSM takes its tuning as an argument instead
-# of reading globals -- 21 constants across 703 lines, threaded through the
-# code that decides whether to raise a theft alert, so not a change to make
-# casually -- this at least refuses to be silently wrong.
-_FSM_GLOBALS_OWNER: dict[str, object] = {}
-_FSM_GLOBALS_LOCK = threading.Lock()
+_FSM_INSTANCE_COUNTER = itertools.count()
+
+
+def load_private_fsm():
+    """A problem2_fsm module object private to one pipeline instance.
+
+    The FSM keeps its tuning in module-level globals -- FPS, the confirm
+    counts, ANY_HAND, WRIST_CONF_TH -- and reads them from inside step(),
+    which decides whether a concealment becomes a theft alert. One camera per
+    process, that is fine; it is how the FSM was originally driven. The split
+    business tier runs several cameras as threads in one process, so a shared
+    module means the second camera to bootstrap retunes the first one's
+    thresholds and every alert after that is judged against another camera's
+    settings, with nothing in the log to say so.
+
+    Giving each pipeline its own module object makes those globals
+    per-camera, which is what they always meant to be.
+
+    Chosen over threading a tuning object through the FSM: that is 21
+    constants across 703 lines of the code that raises theft alerts, and this
+    reaches the same isolation without editing any of it. If the FSM ever
+    does take its tuning per call, this can go away.
+
+    The copies are deliberately NOT registered in sys.modules. The canonical
+    `import problem2_fsm` stays a single shared module for every other caller,
+    and nothing here can be reached by name from outside.
+    """
+    source = ROOT / "scripts" / "problem2_fsm.py"
+    name = f"problem2_fsm__private{next(_FSM_INSTANCE_COUNTER)}"
+    spec = importlib.util.spec_from_file_location(name, source)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"could not load a private copy of {source}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 class CounterCashTheftPipeline:
@@ -73,6 +93,8 @@ class CounterCashTheftPipeline:
         self.cpu_only = cpu_only
         self.shared_inference = shared_inference
         self.params = binding.params
+        # Private FSM module: its tuning globals belong to this camera alone.
+        self.F = load_private_fsm()
 
         alert_clip_cfg = dict(self.params.get("alert_clip", {}))
         self.clip_buffer = AlertClipBuffer(
@@ -143,29 +165,12 @@ class CounterCashTheftPipeline:
         if "wrist_conf_th" in self.params:
             values["WRIST_CONF_TH"] = float(self.params["wrist_conf_th"])
 
-        # Refuse to be the second camera that retunes a shared FSM to
-        # something else. Two counters with the same settings are fine and
-        # common -- they write identical values, which is why this has never
-        # bitten. Two with different settings would corrupt each other's
-        # alert decisions with nothing in the log to show for it.
-        with _FSM_GLOBALS_LOCK:
-            previous = _FSM_GLOBALS_OWNER.get("values")
-            owner = _FSM_GLOBALS_OWNER.get("camera_id")
-            if previous is not None and previous != values and owner != self.spec.camera_id:
-                differing = {k: (previous.get(k), v) for k, v in values.items()
-                             if previous.get(k) != v}
-                raise RuntimeError(
-                    f"{self.spec.camera_id} needs different concealment-FSM tuning than "
-                    f"{owner}, which already configured it in this process: {differing}. "
-                    f"problem2_fsm holds its tuning in module globals, so both cameras "
-                    f"would share whichever was written last and one of them would be "
-                    f"judged against the other's thresholds. Run them in separate "
-                    f"processes, or give them matching parameters, until the FSM takes "
-                    f"its tuning per instance.")
-            _FSM_GLOBALS_OWNER["values"] = values
-            _FSM_GLOBALS_OWNER["camera_id"] = self.spec.camera_id
-            for name, value in values.items():
-                setattr(F, name, value)
+        # Writes into this camera's own module copy, so no lock and no owner
+        # check: there is nobody else to collide with. Cameras that need
+        # different tuning now simply get it, instead of the second one being
+        # refused (or, before that guard existed, silently retuning the first).
+        for name, value in values.items():
+            setattr(self.F, name, value)
 
     def _bootstrap_business(self, frame: FrameEnvelope):
         """Everything process_frame needs that is not a model session.
@@ -197,7 +202,7 @@ class CounterCashTheftPipeline:
         with self.timing.track("bootstrap::zones"):
             divider, _name = zones.load_divider(zones_path, size=(w, h))
             self.voter = zones.RoleVoter(divider)
-            self.checkout = F.load_checkout_zones(zones_path, (w, h))
+            self.checkout = self.F.load_checkout_zones(zones_path, (w, h))
             self._configure_fsm_globals()
         self._business_ready = True
 
@@ -300,7 +305,7 @@ class CounterCashTheftPipeline:
         self._persist_ready_clips(self.clip_buffer.flush_all())
 
     def _customer_served_recently(self, till_c: tuple[float, float] | None, frame_idx: int):
-        zone_name = F.zone_for_till(till_c, self.checkout)
+        zone_name = self.F.zone_for_till(till_c, self.checkout)
         served = (
             zone_name is not None
             and zone_name in self.last_customer_seen
@@ -510,7 +515,7 @@ class CounterCashTheftPipeline:
                     if role != zones.CUSTOMER:
                         continue
                     pt, _src = zones.anchor(track.ltrb, np.array(track.kpts) if track.kpts is not None else None)
-                    if F.point_in_poly(pt, poly):
+                    if self.F.point_in_poly(pt, poly):
                         self.last_customer_seen[zone_name] = frame.frame_idx
                         break
 
@@ -529,20 +534,20 @@ class CounterCashTheftPipeline:
                     continue
                 fsm_tracks_considered += 1
                 k = np.array(track.kpts)
-                torso = F.torso_len(k)
-                hands = self.hands_by_track.setdefault(track.track_id, F.HandHistory())
-                for side_name, wrist_idx in (("L", F.WRI_L), ("R", F.WRI_R)):
-                    hands.push(side_name, F.Sample(frame.frame_idx, k[wrist_idx, 0], k[wrist_idx, 1], k[wrist_idx, 2]))
+                torso = self.F.torso_len(k)
+                hands = self.hands_by_track.setdefault(track.track_id, self.F.HandHistory())
+                for side_name, wrist_idx in (("L", self.F.WRI_L), ("R", self.F.WRI_R)):
+                    hands.push(side_name, self.F.Sample(frame.frame_idx, k[wrist_idx, 0], k[wrist_idx, 1], k[wrist_idx, 2]))
 
                 event = self.events_by_track.get(track.track_id)
-                if event is None or event.state == F.ENDED:
-                    event = F.ConcealmentEvent(track.track_id, frame.frame_idx)
+                if event is None or event.state == self.F.ENDED:
+                    event = self.F.ConcealmentEvent(track.track_id, frame.frame_idx)
                     self.events_by_track[track.track_id] = event
                 before = event.state
-                F.step(event, frame.frame_idx, k, torso, self.last_till_box, self.last_till_open, hands, [])
+                self.F.step(event, frame.frame_idx, k, torso, self.last_till_box, self.last_till_open, hands, [])
                 if before != event.state:
                     self.metrics["state_transitions"] += 1
-                if event.state == F.CONCEALED and not event.alerted:
+                if event.state == self.F.CONCEALED and not event.alerted:
                     served, zone_name = self._customer_served_recently(till_c, frame.frame_idx)
                     if self.suppress_if_customer_recent and served:
                         event.alerted = True
