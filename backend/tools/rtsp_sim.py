@@ -39,12 +39,25 @@ and ignores the query, so a faithful Dahua URL cannot select between 16
 streams. The client code still has to handle credentials and query strings,
 which is what actually needs testing; the URL cosmetics do not.
 
-Usage:
+Usage -- one command, so the server and the manifest cannot disagree about
+which cameras exist:
 
-    python backend/tools/rtsp_sim.py --write        # generate the config
-    python backend/tools/rtsp_sim.py --start        # generate, then serve
-    python backend/tools/rtsp_sim.py --check        # probe every stream
-    python backend/tools/rtsp_sim.py --print-urls   # URLs for the manifest
+    # terminal 1: publish 16 cameras and write the matching manifest
+    python backend/tools/rtsp_sim.py --start --cameras 16 \
+        --write-manifest outputs/rtsp_sim/store_rtsp_16cam.json
+
+    # terminal 2: confirm every stream is up before spending a benchmark on it
+    python backend/tools/rtsp_sim.py --check --cameras 16
+
+    # terminal 2: the benchmark takes the RTSP manifest like any other
+    python backend/tools/diag_split_tiers.py --layer all \
+        --manifest outputs/rtsp_sim/store_rtsp_16cam.json \
+        --cameras 16 --duration 180 \
+        --decoders 8 --inferers 2 --infer-threads 8 --business 4
+
+There is no --rtsp flag on the benchmark tool, on purpose: the source kind
+belongs to the manifest, so the same command measures files and cameras and
+nothing in the measurement path knows which one it is looking at.
 """
 from __future__ import annotations
 
@@ -245,13 +258,6 @@ def main() -> None:
                              user=args.user, password=args.password))
         return
 
-    if args.write_manifest:
-        dest = Path(args.write_manifest)
-        write_rtsp_manifest(Path(args.manifest), dest, cameras, host=args.host,
-                            port=args.port, user=args.user, password=args.password)
-        print(f"wrote {dest} ({len(cameras)} cameras)", file=sys.stderr)
-        return
-
     if args.check:
         print(f"probing {len(cameras)} streams on {args.host}:{args.port}")
         bad = check_streams(cameras, host=args.host, port=args.port, user=args.user,
@@ -259,15 +265,27 @@ def main() -> None:
         print(f"\n{len(cameras) - bad}/{len(cameras)} streams OK")
         sys.exit(1 if bad else 0)
 
-    if not (args.write or args.start):
-        p.error("pass one of --write, --start, --check or --print-urls")
+    if not (args.write or args.start or args.write_manifest):
+        p.error("pass one of --write, --start, --write-manifest, --check or --print-urls")
 
-    _require("ffmpeg")
-    config = Path(args.config)
-    config.parent.mkdir(parents=True, exist_ok=True)
-    config.write_text(build_config(cameras, port=args.port,
-                                   user=args.user, password=args.password))
-    print(f"wrote {config} ({len(cameras)} cameras)", file=sys.stderr)
+    # Deliberately composable with --write/--start rather than an early return:
+    # generating the server config and the manifest in separate invocations
+    # lets --cameras differ between them, and then the benchmark points at 16
+    # cameras while only 4 are being published. Twelve StreamOpenErrors is a
+    # confusing way to discover a typo. One command cannot disagree with itself.
+    if args.write_manifest:
+        dest = Path(args.write_manifest)
+        write_rtsp_manifest(Path(args.manifest), dest, cameras, host=args.host,
+                            port=args.port, user=args.user, password=args.password)
+        print(f"wrote {dest} ({len(cameras)} cameras)", file=sys.stderr)
+
+    if args.write or args.start:
+        _require("ffmpeg")
+        config = Path(args.config)
+        config.parent.mkdir(parents=True, exist_ok=True)
+        config.write_text(build_config(cameras, port=args.port,
+                                       user=args.user, password=args.password))
+        print(f"wrote {config} ({len(cameras)} cameras)", file=sys.stderr)
 
     if args.start:
         mediamtx = _require("mediamtx")
