@@ -3,10 +3,15 @@ import type { ColorMode } from '../theme/ColorModeProvider';
 
 export function createDashboardTheme(mode: ColorMode) {
   const dark = mode === 'dark';
-  const canvas = dark ? '#090B0C' : '#F5F2EB';
-  const paper = dark ? '#111516' : '#FFFCF7';
-  const divider = dark ? '#252A29' : '#D5D0C6';
+  const canvas = dark ? '#0C0E0F' : '#F5F2EB';
+  const paper = dark ? '#14191A' : '#FFFCF7';
+  const divider = dark ? '#282E2D' : '#D5D0C6';
   const primary = dark ? '#D8A35D' : '#9A6128';
+  /* Dark surfaces need a soft drop shadow on top of hairline borders,
+     otherwise panels at different elevations read as one flat plane. */
+  const elevation = dark
+    ? '0 1px 2px rgba(0, 0, 0, 0.40), 0 12px 32px -16px rgba(0, 0, 0, 0.60)'
+    : 'none';
 
   return createTheme({
     palette: {
@@ -50,7 +55,7 @@ export function createDashboardTheme(mode: ColorMode) {
             backgroundImage: dark
               ? 'radial-gradient(circle at 82% -10%, rgba(216, 163, 93, 0.09), transparent 32%)'
               : 'radial-gradient(circle at 82% -10%, rgba(154, 97, 40, 0.08), transparent 31%)',
-            scrollbarColor: dark ? '#343A38 #090B0C' : '#B9B3A8 #F5F2EB',
+            scrollbarColor: dark ? '#3A413F #0C0E0F' : '#B9B3A8 #F5F2EB',
           },
           '::selection': { backgroundColor: primary, color: dark ? '#130F0A' : '#FFFFFF' },
         },
@@ -58,6 +63,7 @@ export function createDashboardTheme(mode: ColorMode) {
       MuiPaper: {
         styleOverrides: {
           root: { backgroundImage: 'none', backgroundColor: paper, borderColor: divider },
+          outlined: { boxShadow: elevation },
         },
       },
       MuiCard: {
@@ -67,6 +73,7 @@ export function createDashboardTheme(mode: ColorMode) {
             backgroundColor: paper,
             border: `1px solid ${divider}`,
             borderRadius: 6,
+            boxShadow: elevation,
             transition: 'transform 260ms ease, border-color 260ms ease, box-shadow 260ms ease',
           },
         },

@@ -1,32 +1,25 @@
-interface StatItem {
-  value: string
-  label: string
-  note?: string
-}
-
-const STATS: StatItem[] = [
-  { value: '24/7',       label: 'Always watching',   note: 'every camera, never blinks' },
-  { value: 'Seconds',    label: 'Shelf to alert',    note: 'flagged straight to your phone' },
-  { value: 'Every frame',label: 'Nothing sampled',   note: 'reviewed, not spot-checked' },
-  { value: '0 cloud',    label: 'Stays on-site',     note: 'footage never leaves the store' },
+const SYSTEM_PROFILE = [
+  { label: 'Camera input', value: 'Existing CCTV' },
+  { label: 'Processing', value: 'On-prem' },
+  { label: 'Evidence', value: 'Video-backed' },
+  { label: 'Decision', value: 'Owner verified' },
 ]
 
 export default function StatStrip() {
   return (
-    <div className="bg-teal-900 border-y border-teal-600/20">
-      <div className="mx-auto max-w-[1200px] px-6 py-10">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-8 md:gap-0 md:divide-x md:divide-teal-600/25">
-          {STATS.map((s) => (
-            <div key={s.label} className="md:px-8 first:pl-0 last:pr-0">
-              <p className="text-3xl font-semibold tracking-tight text-cream">{s.value}</p>
-              <p className="mt-1 text-sm font-medium text-teal-300">{s.label}</p>
-              {s.note && (
-                <p className="mt-0.5 text-xs text-teal-300/60 italic">{s.note}</p>
-              )}
-            </div>
-          ))}
-        </div>
+    <section className="bg-band text-band-text" aria-label="System profile">
+      <div data-reveal-group className="mx-auto grid max-w-[1280px] grid-cols-2 px-5 sm:px-8 md:grid-cols-4">
+        {SYSTEM_PROFILE.map((item, index) => (
+          <div
+            data-reveal-item
+            key={item.label}
+            className={`px-4 py-7 md:px-7 md:py-8 ${index % 2 === 1 ? 'border-l border-band-border' : ''} ${index > 1 ? 'border-t border-band-border' : ''} ${index > 0 ? 'md:border-l md:border-band-border' : ''} md:border-t-0`}
+          >
+            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-band-faint">{item.label}</p>
+            <p className="mt-2 text-base font-medium tracking-[-0.01em] text-band-text md:text-lg">{item.value}</p>
+          </div>
+        ))}
       </div>
-    </div>
+    </section>
   )
 }

@@ -1,42 +1,30 @@
-import {
-  Camera,
-  Person,
-  Path,
-  BellRinging,
-} from '@phosphor-icons/react'
+import { BellRinging, Camera, Path, Person } from '@phosphor-icons/react'
 import { SectionShell } from '../../../components/ui'
 
-interface Step {
-  number: string
-  icon: React.ReactNode
-  title: string
-  body: string
-}
-
-const STEPS: Step[] = [
+const STEPS = [
   {
     number: '01',
-    icon: <Camera size={24} weight="duotone" />,
-    title: 'Your existing cameras',
-    body: 'Connects to your current CCTV feed. No new hardware required for the pilot — we tune the model to your store\'s camera angles and lighting.',
+    Icon: Camera,
+    title: 'Connect the cameras already in place',
+    body: 'The pilot connects to the current CCTV feed and maps each useful viewpoint. No camera replacement is required to begin.',
   },
   {
     number: '02',
-    icon: <Person size={24} weight="duotone" />,
-    title: 'Person + zone tracking',
-    body: 'Every person is tracked frame-by-frame. Defined zones — high-value shelf, checkout lane, exit door — are mapped to your floor plan.',
+    Icon: Person,
+    title: 'Define people, zones, and operating rules',
+    body: 'Staff, customers, checkout areas, stockrooms, and high-value shelves are represented as explicit rules for that store.',
   },
   {
     number: '03',
-    icon: <Path size={24} weight="duotone" />,
-    title: 'Dwell and exit triage',
-    body: 'When someone lingers in a high-value zone past a threshold, an Early Warning fires. If they then move toward the exit without going through checkout, a Priority Alert follows. Both are geometric facts — not accusations.',
+    Icon: Path,
+    title: 'Surface the relevant sequence',
+    body: 'The system follows the event across the available view and prepares the surrounding footage instead of asking the owner to search manually.',
   },
   {
     number: '04',
-    icon: <BellRinging size={24} weight="duotone" />,
-    title: 'Human confirms (the oracle)',
-    body: 'Your staff receives an alert with a clip thumbnail. They review the footage and confirm or dismiss it. That decision feeds back into the system to reduce false positives over time.',
+    Icon: BellRinging,
+    title: 'Send evidence for a human decision',
+    body: 'The owner receives a video-backed alert and decides what happened. The system highlights; it does not accuse or contact emergency services.',
   },
 ]
 
@@ -44,30 +32,23 @@ export default function HowItWorks() {
   return (
     <SectionShell
       id="how-it-works"
-      eyebrow="How it works"
-      title="Four steps from camera to alert"
-      intro="The system handles the watching. Your staff handles the judgment. Every final decision stays with a human."
+      title="From camera feed to a decision-ready clip."
+      intro="The product is built around a simple division of labor: software keeps watch, while the owner keeps judgment and control."
     >
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        {STEPS.map((step) => (
-          <div key={step.number} className="relative">
-            {/* Step connector line (desktop) */}
-            <div className="hidden lg:block absolute top-8 left-full w-full h-px bg-ink/10 -translate-x-1/2 z-0" />
-
-            <div className="relative z-10 bg-cream-200 rounded-xl p-6 border border-ink/8 h-full flex flex-col">
-              {/* Number + icon */}
-              <div className="flex items-start gap-3 mb-4">
-                <span className="text-xs font-bold tracking-[0.18em] text-teal-600 pt-0.5 min-w-[1.75rem]">
-                  {step.number}
-                </span>
-                <span className="text-teal-900">{step.icon}</span>
-              </div>
-              <h3 className="text-base font-semibold tracking-tight text-ink mb-2">{step.title}</h3>
-              <p className="text-sm leading-relaxed text-ink-600 flex-1">{step.body}</p>
-            </div>
-          </div>
+      <ol data-reveal-group className="border-y border-ink/12">
+        {STEPS.map(({ number, Icon, title, body }) => (
+          <li
+            data-reveal-item
+            key={number}
+            className="grid gap-4 border-b border-ink/10 py-7 last:border-b-0 md:grid-cols-[64px_52px_minmax(220px,0.7fr)_minmax(0,1fr)] md:items-start md:gap-7 md:py-8"
+          >
+            <span className="text-xs font-semibold tracking-[0.18em] text-teal-600">{number}</span>
+            <Icon size={25} weight="duotone" className="text-teal-900" aria-hidden="true" />
+            <h3 className="max-w-[24ch] text-lg font-semibold leading-snug tracking-[-0.025em] text-ink md:text-xl">{title}</h3>
+            <p className="max-w-[62ch] text-sm leading-relaxed text-ink-600 md:text-base">{body}</p>
+          </li>
         ))}
-      </div>
+      </ol>
     </SectionShell>
   )
 }

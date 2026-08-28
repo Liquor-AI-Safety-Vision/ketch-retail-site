@@ -1,26 +1,20 @@
-import { SectionShell, TierBadge } from '../../../components/ui'
+import { SectionShell } from '../../../components/ui'
 
-interface ResultCard {
-  tier: 1 | 2 | 3
-  stat: string
-  description: string
-}
-
-const RESULTS: ResultCard[] = [
+const MEASURES = [
   {
-    tier: 2,
-    stat: '~40 events / week',
-    description: 'Early Warning flags in a mid-volume store — dwell patterns that merit a staff glance.',
+    label: 'Review volume',
+    measure: 'Events surfaced per shift',
+    purpose: 'Shows whether the system creates a manageable queue instead of alert noise.',
   },
   {
-    tier: 1,
-    stat: '~6 events / week',
-    description: 'Priority Alerts (lingered + moved to exit) escalated to the manager\'s phone.',
+    label: 'Owner validation',
+    measure: 'Confirmed vs. dismissed',
+    purpose: 'Creates the store-specific acceptance signal and identifies false-positive patterns.',
   },
   {
-    tier: 3,
-    stat: '<1 false alert / shift',
-    description: 'Zone Breach noise after two weeks of staff confirm/dismiss tuning.',
+    label: 'Operational value',
+    measure: 'Incidents found and time saved',
+    purpose: 'Connects camera monitoring to outcomes the owner can actually verify during the pilot.',
   },
 ]
 
@@ -28,18 +22,20 @@ export default function ResultsSection() {
   return (
     <SectionShell
       id="results"
-      eyebrow="What to expect"
-      title="What a typical week looks like"
-      intro="A sense of the signal volume your team would triage — early warnings worth a glance, priority alerts worth a call, and how fast the noise drops once staff start confirming."
+      title="Success is measured in the store, not in a demo deck."
+      intro="The pilot establishes a baseline, records every owner decision, and evaluates whether the signal is accurate and useful enough for daily operations."
     >
-      <p className="mb-6 text-xs text-ink-600/60 italic">Illustrative figures, shown to set expectations — your pilot produces the real ones.</p>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-        {RESULTS.map((r) => (
-          <div key={r.stat} className="rounded-xl border border-ink/10 bg-cream p-6 flex flex-col gap-3">
-            <TierBadge tier={r.tier} variant="soft" />
-            <p className="text-2xl font-semibold tracking-tight text-ink">{r.stat}</p>
-            <p className="text-sm leading-relaxed text-ink-600">{r.description}</p>
+      <div data-reveal-group className="border-y border-ink/12">
+        {MEASURES.map((item, index) => (
+          <div
+            data-reveal-item
+            key={item.label}
+            className="grid gap-3 border-b border-ink/10 py-7 last:border-b-0 md:grid-cols-[56px_0.38fr_0.62fr_1fr] md:items-start md:gap-7"
+          >
+            <span className="text-xs font-semibold tracking-[0.18em] text-teal-600">0{index + 1}</span>
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-ink-600">{item.label}</p>
+            <h3 className="text-lg font-semibold tracking-[-0.025em] text-ink">{item.measure}</h3>
+            <p className="max-w-[58ch] text-sm leading-relaxed text-ink-600">{item.purpose}</p>
           </div>
         ))}
       </div>

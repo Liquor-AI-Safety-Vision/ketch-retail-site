@@ -1,27 +1,24 @@
+import { Lock, SignOut, Wine } from '@phosphor-icons/react'
 import { SectionShell } from '../../../components/ui'
-import { Wine, SignOut, Lock } from '@phosphor-icons/react'
 
-interface Capability {
-  icon: React.ReactNode
-  title: string
-  body: string
-}
-
-const CAPABILITIES: Capability[] = [
+const CAPABILITIES = [
   {
-    icon: <Wine size={28} weight="duotone" />,
+    Icon: Wine,
+    index: '01',
     title: 'High-value zones',
-    body: 'Spirits shelves, electronics, any aisle where shrink concentrates. A dwell timer flags lingering that\'s worth a staff glance.',
+    body: 'Map shelves and aisles where shrink matters most, then surface dwell patterns that deserve a quick look.',
   },
   {
-    icon: <SignOut size={28} weight="duotone" />,
-    title: 'Checkout & exits',
-    body: 'The system maps the path from shelf to door, and flags when someone reaches the exit without passing a register.',
+    Icon: SignOut,
+    index: '02',
+    title: 'Checkout and exits',
+    body: 'Keep the route from floor to register to door visible in one event sequence for faster review.',
   },
   {
-    icon: <Lock size={28} weight="duotone" />,
+    Icon: Lock,
+    index: '03',
     title: 'Restricted areas',
-    body: 'Staff-only counters, stockrooms, tool storage. The moment someone crosses into a zone they shouldn\'t be in, it surfaces for review.',
+    body: 'Apply store-specific access rules to stockrooms, counters, kitchens, or any staff-only area.',
   },
 ]
 
@@ -30,20 +27,29 @@ export default function CoverageBand() {
     <SectionShell
       id="coverage"
       tone="teal"
-      eyebrow="Where it runs"
-      title="One engine. Anywhere you have fixed cameras."
-      intro="Define the zones that matter — high-value shelves, checkout lanes, exits, staff-only areas — and the same detection engine watches them. The pilot tunes every boundary to your floor plan."
+      title={(
+        <>
+          <span className="block lg:whitespace-nowrap">Rules shaped around the store,</span>
+          <span className="block lg:whitespace-nowrap">not a generic camera model.</span>
+        </>
+      )}
+      titleClassName="max-w-none text-[clamp(2rem,3.25vw,2.75rem)]"
+      intro="Each deployment starts with the floor plan, the camera viewpoints, and the owner's definition of what deserves attention."
     >
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {CAPABILITIES.map((c) => (
-          <div
-            key={c.title}
-            className="rounded-xl p-6 border flex flex-col gap-3 bg-teal-600/20 border-teal-300/20"
+      <div data-reveal-group className="grid border-y border-band-border md:grid-cols-3">
+        {CAPABILITIES.map(({ Icon, index, title, body }, position) => (
+          <article
+            data-reveal-item
+            key={title}
+            className={`py-7 md:min-h-[250px] md:px-8 md:py-9 ${position > 0 ? 'border-t border-band-border md:border-l md:border-t-0' : ''}`}
           >
-            <span className="text-teal-300">{c.icon}</span>
-            <h3 className="text-lg font-semibold tracking-tight text-cream">{c.title}</h3>
-            <p className="text-sm leading-relaxed text-cream/70">{c.body}</p>
-          </div>
+            <div className="flex items-center justify-between">
+              <Icon size={26} weight="duotone" className="text-band-accent" aria-hidden="true" />
+              <span className="text-[10px] font-semibold tracking-[0.2em] text-band-faint">{index}</span>
+            </div>
+            <h3 className="mt-12 text-xl font-semibold tracking-[-0.025em] text-band-text">{title}</h3>
+            <p className="mt-3 max-w-[36ch] text-sm leading-relaxed text-band-muted">{body}</p>
+          </article>
         ))}
       </div>
     </SectionShell>

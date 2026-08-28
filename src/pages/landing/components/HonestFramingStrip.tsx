@@ -1,43 +1,38 @@
-import { ShieldCheck, Lock } from '@phosphor-icons/react'
+import { Lock, ShieldCheck } from '@phosphor-icons/react'
 
-interface Pillar {
-  icon: React.ReactNode
-  headline: string
-  body: string
-}
-
-const PILLARS: Pillar[] = [
+const PRINCIPLES = [
   {
-    icon: <ShieldCheck size={22} weight="duotone" />,
-    headline: 'Triage, not guesswork',
-    body: 'The camera tells you who lingered and where they went — the moments worth a staff glance. It surfaces attention, not accusations.',
+    Icon: ShieldCheck,
+    label: 'Decision model',
+    title: 'Triage, not accusation.',
+    body: 'Ketch shows the owner the moment worth reviewing. The owner decides whether the event is real, harmless, or needs action.',
   },
   {
-    icon: <Lock size={22} weight="duotone" />,
-    headline: 'Runs on your hardware',
-    body: 'Video never leaves your building. No cloud subscription, no third-party server, no monthly data fees. The footage — and the savings — stay yours.',
+    Icon: Lock,
+    label: 'Privacy model',
+    title: 'Footage stays under store control.',
+    body: 'The production architecture is designed for on-prem processing, with alert evidence exposed only through controlled review flows.',
   },
 ]
 
 export default function HonestFramingStrip() {
   return (
-    <section className="bg-cream-200 border-y border-ink/8 px-6 py-16 md:py-20">
-      <div className="mx-auto max-w-[1200px]">
-        <div className="mb-10 max-w-2xl">
-          <p className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-teal-600">How the system thinks</p>
-          <h2 className="text-2xl md:text-3xl font-semibold tracking-tight leading-tight text-ink">
-            It shows you where to look. You decide what happened.
-          </h2>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {PILLARS.map((p) => (
-            <div key={p.headline} className="bg-cream rounded-xl border border-ink/8 p-6 flex flex-col gap-3">
-              <span className="text-teal-600">{p.icon}</span>
-              <h3 className="text-base font-semibold tracking-tight text-ink">{p.headline}</h3>
-              <p className="text-sm leading-relaxed text-ink-600">{p.body}</p>
+    <section className="border-t border-ink/10 bg-cream-200 px-5 py-20 sm:px-8 md:py-24">
+      <div data-reveal-group className="mx-auto grid max-w-[1280px] border-y border-ink/12 md:grid-cols-2">
+        {PRINCIPLES.map(({ Icon, label, title, body }, index) => (
+          <article
+            data-reveal-item
+            key={label}
+            className={`py-8 md:px-10 md:py-12 ${index > 0 ? 'border-t border-ink/12 md:border-l md:border-t-0' : ''}`}
+          >
+            <div className="flex items-center gap-3 text-teal-600">
+              <Icon size={21} weight="duotone" aria-hidden="true" />
+              <span className="text-[10px] font-semibold uppercase tracking-[0.2em]">{label}</span>
             </div>
-          ))}
-        </div>
+            <h2 className="mt-8 max-w-[18ch] text-2xl font-semibold leading-tight tracking-[-0.035em] text-ink md:text-3xl">{title}</h2>
+            <p className="mt-4 max-w-[52ch] text-sm leading-relaxed text-ink-600 md:text-base">{body}</p>
+          </article>
+        ))}
       </div>
     </section>
   )

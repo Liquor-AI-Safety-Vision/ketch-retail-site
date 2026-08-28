@@ -27,8 +27,8 @@ export default function Button({
 }: ButtonProps) {
   return (
     <button
-      className={`inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg
-        font-semibold tracking-tight transition-colors duration-150
+      className={`inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md
+        font-semibold tracking-[-0.01em] transition-[background-color,border-color,color,transform] duration-200
         active:translate-y-px focus-visible:outline-none focus-visible:ring-2
         focus-visible:ring-teal-600 focus-visible:ring-offset-2 focus-visible:ring-offset-cream
         disabled:opacity-50 disabled:pointer-events-none

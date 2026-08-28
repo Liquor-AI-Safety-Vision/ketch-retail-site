@@ -1,154 +1,113 @@
+import { ArrowsClockwise, CheckCircle, Package, Pulse } from '@phosphor-icons/react'
 import { SectionShell } from '../../../components/ui'
-import {
-  Package,
-  Pulse,
-  ArrowsClockwise,
-  CheckCircle,
-} from '@phosphor-icons/react'
 
-/* ── Phase panels ── */
-function PhasePanel({
-  phase,
-  label,
-  tag,
-  tagStyle,
-  src,
-  cameraLabel,
-}: {
-  phase: string
-  label: string
-  tag: string
-  tagStyle: string
-  src: string
-  cameraLabel: string
-}) {
+const ADDONS = [
+  {
+    Icon: Package,
+    label: 'Object context',
+    title: 'SKU and object detection',
+    description: 'Adds inventory-specific visual context around a tracked event using reference images supplied by the store.',
+    boundary: 'Shows proximity and handling context, not proof of possession.',
+  },
+  {
+    Icon: Pulse,
+    label: 'Movement context',
+    title: 'Behavior classification',
+    description: 'Compares motion sequences with confirmed clips from the same environment to surface similar events for review.',
+    boundary: 'Classifies movement patterns, not a person’s intent.',
+  },
+]
+
+const FLYWHEEL_STEPS = [
+  {
+    title: 'Camera captures the footage',
+    detail: 'Every monitored area, throughout the day.',
+  },
+  {
+    title: 'An alert surfaces',
+    detail: 'The relevant event and surrounding video are prepared for review.',
+  },
+  {
+    title: 'The owner confirms or dismisses',
+    detail: 'A human decision becomes the ground-truth label.',
+  },
+  {
+    title: 'Labels improve review quality',
+    detail: 'Confirmed evidence guides what the system should surface next.',
+  },
+]
+
+function FlywheelDiagram() {
+  const nodes = [
+    { angle: -45 },
+    { angle: 45 },
+    { angle: 135 },
+    { angle: 225 },
+  ]
+
   return (
-    <div className="flex flex-col h-full">
-      <div className="mb-3 flex items-center gap-2">
-        <span className={`text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md ${tagStyle}`}>{tag}</span>
-        <span className="text-xs text-ink-600">{phase}</span>
+    <div className="relative h-72 w-72" aria-label="Evidence feedback flywheel">
+      <div className="absolute inset-0 flex items-center justify-center">
+        <div className="flex h-24 w-24 flex-col items-center justify-center rounded-full border-4 border-teal-600/30 bg-teal-900 shadow-lg">
+          <ArrowsClockwise size={20} className="mb-1 text-teal-300 motion-safe:animate-[spin_22s_linear_infinite]" aria-hidden="true" />
+          <span className="px-1 text-center text-[10px] font-bold leading-tight text-cream">
+            Smarter<br />over time
+          </span>
+        </div>
       </div>
-      <div className="rounded-xl border border-ink/10 bg-cream-200 overflow-hidden flex-1">
-        {/* Current dashboard camera frame */}
-        <div className="relative aspect-video overflow-hidden">
-          <img src={src} alt="" className="absolute inset-0 h-full w-full object-cover" />
-          <div className="absolute top-2 left-2 z-10 flex items-center gap-1.5 bg-ink/60 rounded-md px-2 py-0.5 text-cream text-[10px] font-semibold tracking-wide">
-            <span className="h-1.5 w-1.5 rounded-full bg-red motion-safe:animate-pulse" />
-            {cameraLabel}
+
+      <div className="absolute inset-6 rounded-full border-2 border-dashed border-teal-600/30 motion-safe:animate-[spin_22s_linear_infinite]" />
+
+      {nodes.map((node, index) => {
+        const radians = (node.angle * Math.PI) / 180
+        const x = 50 + 42 * Math.cos(radians)
+        const y = 50 + 42 * Math.sin(radians)
+
+        return (
+          <div
+            key={node.angle}
+            className="absolute flex flex-col items-center"
+            style={{
+              left: `${x}%`,
+              top: `${y}%`,
+              transform: 'translate(-50%, -50%)',
+            }}
+          >
+            <div
+              className="flex h-8 w-8 items-center justify-center rounded-full bg-teal-600 shadow-md motion-safe:animate-[nodePulse_2.4s_ease-in-out_infinite]"
+              style={{ animationDelay: `${index * 0.6}s` }}
+            >
+              <span className="text-xs font-bold text-cream">{index + 1}</span>
+            </div>
           </div>
-        </div>
-        {/* Caption */}
-        <div className="p-3">
-          <p className="text-xs font-semibold text-ink mb-0.5">{label}</p>
-        </div>
-      </div>
+        )
+      })}
     </div>
   )
 }
 
-/* ── Add-on cards ── */
-interface Addon {
-  icon: React.ReactNode
-  number: string
+function EvidenceFrame({
+  label,
+  title,
+  src,
+  camera,
+}: {
+  label: string
   title: string
-  whatItKnows: string
-  example: string
-  honesty: string
-}
-
-const ADDONS: Addon[] = [
-  {
-    icon: <Package size={20} weight="duotone" />,
-    number: '1',
-    title: 'SKU / object detection',
-    whatItKnows: 'What',
-    example: '"$$$ high-value item" near subject — trained on your inventory photos.',
-    honesty: 'Shows item proximity, not possession. No specific dollar figure until your SKU data is loaded.',
-  },
-  {
-    icon: <Pulse size={20} weight="duotone" />,
-    number: '2',
-    title: 'Behavior classification',
-    whatItKnows: 'Action',
-    example: '"concealment motion · movement toward exit" — video embedding over the person\'s path.',
-    honesty: 'Classifies movement, not intent. Accuracy improves with your 30-day archive of confirmed clips.',
-  },
-]
-
-/* ── Flywheel diagram ── */
-function FlywheelDiagram() {
-  const nodes = [
-    { angle: -60, label: 'Camera captures your footage', sub: 'every aisle, 24/7' },
-    { angle: 60, label: 'Alert fires', sub: 'dwell + exit pattern' },
-    { angle: 180, label: 'Staff confirms or dismisses', sub: 'the oracle' },
-  ]
-
+  src: string
+  camera: string
+}) {
   return (
-    <div className="relative flex flex-col items-center">
-      <div className="relative w-72 h-72">
-        {/* Center hub */}
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div className="h-24 w-24 rounded-full bg-teal-900 flex flex-col items-center justify-center border-4 border-teal-600/30 shadow-lg">
-            <ArrowsClockwise size={20} className="text-teal-300 mb-1 motion-safe:animate-[spin_22s_linear_infinite]" />
-            <span className="text-[10px] font-bold text-cream text-center leading-tight px-1">
-              Smarter<br/>over time
-            </span>
-          </div>
-        </div>
-
-        {/* Orbit ring */}
-        <div className="absolute inset-6 rounded-full border-2 border-dashed border-teal-600/30 motion-safe:animate-[spin_22s_linear_infinite]" />
-
-        {/* Nodes */}
-        {nodes.map((n, i) => {
-          const rad = (n.angle * Math.PI) / 180
-          const cx = 50 + 42 * Math.cos(rad)
-          const cy = 50 + 42 * Math.sin(rad)
-          return (
-            <div
-              key={i}
-              className="absolute flex flex-col items-center"
-              style={{
-                left: `${cx}%`,
-                top: `${cy}%`,
-                transform: 'translate(-50%, -50%)',
-              }}
-            >
-              <div
-                className="h-8 w-8 rounded-full bg-teal-600 flex items-center justify-center shadow-md motion-safe:animate-[nodePulse_2.4s_ease-in-out_infinite]"
-                style={{ animationDelay: `${i * 0.8}s` }}
-              >
-                <span className="text-cream text-xs font-bold">{i + 1}</span>
-              </div>
-            </div>
-          )
-        })}
+    <figure className="overflow-hidden rounded-lg border border-ink/12 bg-cream-200">
+      <div className="flex items-center justify-between border-b border-ink/10 px-4 py-3">
+        <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-teal-600">{label}</span>
+        <span className="text-[10px] text-ink-600">{camera}</span>
       </div>
-
-      {/* Labels below */}
-      <div className="mt-4 flex flex-col gap-1.5 w-full max-w-xs">
-        {nodes.map((n, i) => (
-          <div key={i} className="flex items-start gap-2.5 text-sm">
-            <span className="h-5 w-5 min-w-[1.25rem] rounded-full bg-teal-600 flex items-center justify-center text-cream text-[10px] font-bold mt-0.5">
-              {i + 1}
-            </span>
-            <div>
-              <span className="font-medium text-cream">{n.label}</span>
-              <span className="text-cream/70"> — {n.sub}</span>
-            </div>
-          </div>
-        ))}
-        <div className="flex items-start gap-2.5 text-sm mt-1">
-          <span className="h-5 w-5 min-w-[1.25rem] rounded-full bg-teal-900 flex items-center justify-center text-teal-300 text-[10px] font-bold mt-0.5">
-            4
-          </span>
-          <div>
-            <span className="font-medium text-cream">Labels feed training</span>
-            <span className="text-cream/70"> — your 30-day archive, uncertainty sampling</span>
-          </div>
-        </div>
+      <div className="relative aspect-video overflow-hidden bg-ink">
+        <img src={src} alt={title} loading="lazy" decoding="async" className="absolute inset-0 h-full w-full object-cover" />
       </div>
-    </div>
+      <figcaption className="min-h-[76px] px-4 py-4 text-sm leading-relaxed text-ink-600">{title}</figcaption>
+    </figure>
   )
 }
 
@@ -156,110 +115,108 @@ export default function HowItGrows() {
   return (
     <SectionShell
       id="how-it-grows"
-      eyebrow="Modular upgrades"
-      title="After we train on your store."
-      intro="Start with continuous camera triage. Add visual modules as your confidence grows — each one sharpening what the previous phase can surface for review."
+      eyebrow="System roadmap"
+      title={(
+        <>
+          <span className="block lg:whitespace-nowrap">Start with monitoring.</span>
+          <span className="block lg:whitespace-nowrap">Add intelligence only where</span>
+          <span className="block lg:whitespace-nowrap">it earns its place.</span>
+        </>
+      )}
+      titleClassName="max-w-none text-[clamp(2rem,3.25vw,2.75rem)]"
+      intro="The base deployment establishes a reliable review workflow first. Additional models are introduced against real store footage and evaluated with owner-confirmed evidence."
     >
-      {/* Before / After panels */}
-      <div className="mb-12">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <PhasePanel
-            phase="Phase 1 · Base pilot"
-            label="Continuous whole-store monitoring using the camera feed already in the dashboard."
-            tag="Live camera · current feed"
-            tagStyle="bg-teal-900 text-teal-300"
+      <div data-reveal-group className="grid gap-5 md:grid-cols-2">
+        <div data-reveal-item>
+          <EvidenceFrame
+            label="Base deployment"
+            title="Continuous whole-store monitoring using the camera feeds already represented in the dashboard."
             src="/live-cameras/record-whole-store-153158.jpg"
-            cameraLabel="CAM 09 · Whole store"
+            camera="Whole store / Camera 09"
           />
-          <div className="flex flex-col h-full">
-            <div className="mb-3 flex items-center gap-2">
-              <span className="text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-cream-200 text-ink-600 border border-ink/12">
-                Behavior review · trained clips
-              </span>
-              <span className="text-xs text-ink-600">Phase 2 · trained on your store</span>
-            </div>
-            <div className="rounded-xl border border-dashed border-ink/20 bg-cream-200/50 overflow-hidden flex-1">
-              <div className="relative aspect-video overflow-hidden">
-                <img
-                  src="/demo-source/alerts/shoplifting/shoplifting-review.jpg"
-                  alt="Dashboard alert frame showing a tracked customer"
-                  className="absolute inset-0 h-full w-full object-cover"
-                />
-
-                {/* CAM badge */}
-                <div className="absolute top-2 left-2 z-20 flex items-center gap-1.5 bg-ink/60 rounded-md px-2 py-0.5 text-cream text-[10px] font-semibold tracking-wide">
-                  <span className="h-1.5 w-1.5 rounded-full bg-red motion-safe:animate-pulse" />
-                  ALERT · CAM 09 · Whole store
-                </div>
-              </div>
-              <div className="p-3">
-                <p className="text-xs font-semibold text-ink mb-0.5">Confirmed clips train the model to surface similar movement patterns for review — never to make the owner&apos;s decision.</p>
-              </div>
-            </div>
-          </div>
+        </div>
+        <div data-reveal-item>
+          <EvidenceFrame
+            label="Trained review"
+            title="Confirmed footage becomes reference material for surfacing similar movement patterns while the owner keeps the final decision."
+            src="/demo-source/alerts/shoplifting/shoplifting-review.jpg"
+            camera="Video-backed alert"
+          />
         </div>
       </div>
 
-      {/* Add-on cards */}
-      <div className="mb-16">
-        <p className="text-xs font-bold uppercase tracking-[0.18em] text-teal-600 mb-6">Two visual add-ons</p>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          {ADDONS.map((a) => (
-            <div key={a.number} className="rounded-xl border border-ink/10 bg-cream p-5 flex flex-col gap-3">
-              <div className="flex items-start gap-3">
-                <span className="text-teal-600 mt-0.5">{a.icon}</span>
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-teal-600">Add-on {a.number}</span>
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-ink-600/60">· Knows the {a.whatItKnows}</span>
-                  </div>
-                  <h3 className="text-sm font-semibold tracking-tight text-ink">{a.title}</h3>
-                </div>
+      <div className="mt-16 grid gap-10 lg:grid-cols-[0.72fr_1.28fr] lg:gap-20">
+        <div data-reveal>
+          <p className="text-sm font-semibold text-teal-600">Optional model layers</p>
+          <h3 className="mt-5 max-w-[14ch] text-2xl font-semibold leading-tight tracking-[-0.035em] text-ink md:text-3xl">
+            Clear capability. Clear boundary.
+          </h3>
+          <p className="mt-4 max-w-[42ch] text-sm leading-relaxed text-ink-600">
+            Each module states what it observes and what it cannot conclude. That boundary is part of the product, not a footnote.
+          </p>
+        </div>
+
+        <div data-reveal-group className="border-y border-ink/12">
+          {ADDONS.map(({ Icon, label, title, description, boundary }, index) => (
+            <article data-reveal-item key={title} className="grid gap-4 border-b border-ink/10 py-7 last:border-b-0 md:grid-cols-[44px_0.75fr_1.25fr] md:gap-7">
+              <Icon size={23} weight="duotone" className="text-teal-600" aria-hidden="true" />
+              <div>
+                <p className="text-xs font-semibold text-ink-600/70">0{index + 1} / {label}</p>
+                <h4 className="mt-2 text-lg font-semibold tracking-[-0.025em] text-ink">{title}</h4>
               </div>
-              <p className="text-sm leading-relaxed text-ink-600">{a.example}</p>
-              {/* Honesty note */}
-              <div className="mt-auto pt-2 border-t border-ink/8 flex items-start gap-1.5">
-                <CheckCircle size={13} className="text-teal-600 mt-0.5 shrink-0" weight="fill" />
-                <p className="text-xs text-ink-600/70 leading-snug">{a.honesty}</p>
+              <div>
+                <p className="text-sm leading-relaxed text-ink-600">{description}</p>
+                <p className="mt-3 flex items-start gap-2 text-xs leading-relaxed text-ink-600/75">
+                  <CheckCircle size={14} weight="fill" className="mt-0.5 shrink-0 text-teal-600" />
+                  {boundary}
+                </p>
               </div>
-            </div>
+            </article>
           ))}
         </div>
       </div>
 
-      {/* Flywheel */}
-      <div className="rounded-2xl bg-teal-900 border border-teal-600/20 p-8 md:p-10">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-10 items-center">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-teal-300 mb-3">The data flywheel</p>
-            <h3 className="text-xl md:text-2xl font-semibold tracking-tight text-cream leading-snug mb-4">
-              Every confirm or dismiss makes the next alert more precise.
-            </h3>
-            <p className="text-sm leading-relaxed text-cream/70 max-w-[48ch]">
-              Your staff acts as the oracle. When they review a flagged event and mark it confirmed or
-              dismissed, that label feeds back into training. The system surfaces its least-certain
-              alerts first — so human effort goes exactly where it matters.
-            </p>
-            <div className="mt-6 flex flex-col gap-2.5">
-              <div className="flex items-center gap-2.5 text-sm text-cream/80">
-                <CheckCircle size={16} className="text-teal-300 shrink-0" weight="fill" />
-                <span>30-day archive from your own cameras</span>
-              </div>
-              <div className="flex items-center gap-2.5 text-sm text-cream/80">
-                <CheckCircle size={16} className="text-teal-300 shrink-0" weight="fill" />
-                <span>Human confirm/dismiss = ground truth labels</span>
-              </div>
-              <div className="flex items-center gap-2.5 text-sm text-cream/80">
-                <CheckCircle size={16} className="text-teal-300 shrink-0" weight="fill" />
-                <span>Gets sharper every week it runs.</span>
-              </div>
+      <section className="relative left-1/2 mt-16 w-[100dvw] -translate-x-1/2 overflow-hidden border-y border-band-border bg-band px-5 py-20 text-band-text sm:px-8 md:py-28">
+        <div className="mx-auto max-w-[1280px]">
+          <div data-reveal className="grid max-w-5xl gap-5 md:grid-cols-[minmax(0,0.42fr)_minmax(0,0.58fr)] md:gap-12">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-band-accent">The data flywheel</p>
+            <div>
+              <h3 className="max-w-none text-[clamp(2rem,3.25vw,2.75rem)] font-semibold leading-[1.08] tracking-[-0.035em]">
+                <span className="block lg:whitespace-nowrap">Every confirm or dismiss</span>
+                <span className="block lg:whitespace-nowrap">makes the next alert</span>
+                <span className="block lg:whitespace-nowrap">more precise.</span>
+              </h3>
+              <p className="mt-5 max-w-[58ch] text-base leading-relaxed text-band-muted md:text-lg">
+                The owner remains the final decision-maker. Each reviewed event becomes evidence the system can use to prioritize similar footage and reduce unnecessary review over time.
+              </p>
             </div>
           </div>
-          <div className="flex justify-center">
-            <FlywheelDiagram />
+
+          <div className="mt-12 grid border-y border-band-border md:mt-16 lg:grid-cols-[0.9fr_1.1fr]">
+            <div data-reveal className="flex min-h-[360px] items-center justify-center border-b border-band-border py-9 lg:border-b-0 lg:border-r">
+              <FlywheelDiagram />
+            </div>
+
+            <ol data-reveal-group className="grid sm:grid-cols-2">
+              {FLYWHEEL_STEPS.map(({ title, detail }, index) => (
+                <li
+                  data-reveal-item
+                  key={title}
+                  className={`grid min-h-[180px] grid-cols-[28px_1fr] content-center gap-3 border-band-border px-1 py-7 sm:px-8 ${index > 0 ? 'border-t' : ''} ${index === 1 ? 'sm:border-l sm:border-t-0' : ''} ${index === 3 ? 'sm:border-l' : ''}`}
+                >
+                  <span className="grid h-6 w-6 place-items-center rounded-full bg-band-accent text-[10px] font-bold text-band" aria-hidden="true">
+                    {index + 1}
+                  </span>
+                  <p className="text-sm leading-6">
+                    <strong className="font-semibold text-band-text">{title}</strong>
+                    <span className="text-band-muted">: {detail}</span>
+                  </p>
+                </li>
+              ))}
+            </ol>
           </div>
         </div>
-      </div>
+      </section>
     </SectionShell>
   )
 }

@@ -39,9 +39,9 @@ export function AppShell() {
   const dark = theme.palette.mode === 'dark';
   const { mode, toggleMode } = useColorMode();
   const shellColors = {
-    sidebar: dark ? '#0B0E0F' : '#ECE8DF',
-    active: dark ? '#171A18' : '#DDD7CB',
-    hover: dark ? '#111514' : '#E5E0D6',
+    sidebar: dark ? '#101415' : '#ECE8DF',
+    active: dark ? '#1B211F' : '#DDD7CB',
+    hover: dark ? '#161B19' : '#E5E0D6',
     activeText: theme.palette.text.primary,
     muted: theme.palette.text.secondary,
     faint: dark ? '#606663' : '#827B70',
@@ -353,7 +353,7 @@ export function AppShell() {
       </Box>
       <Box component="main" sx={{ flexGrow: 1, minWidth: 0, minHeight: '100vh', bgcolor: 'transparent', display: 'flex', flexDirection: 'column' }}>
         {!isDesktop && (
-          <AppBar position="sticky" color="transparent" elevation={0} sx={{ backdropFilter: 'blur(18px)', borderBottom: '1px solid', borderColor: 'divider', bgcolor: dark ? 'rgba(9, 11, 12, 0.88)' : 'rgba(245, 242, 235, 0.9)' }}>
+          <AppBar position="sticky" color="transparent" elevation={0} sx={{ backdropFilter: 'blur(18px)', borderBottom: '1px solid', borderColor: 'divider', bgcolor: dark ? 'rgba(12, 14, 15, 0.88)' : 'rgba(245, 242, 235, 0.9)' }}>
             <Toolbar sx={{ minHeight: 58, px: 2 }}>
               <IconButton onClick={() => setIsMobileOpen(true)} edge="start" sx={{ color: 'text.primary', mr: 1 }}>
                 <MenuIcon />
