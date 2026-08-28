@@ -108,20 +108,71 @@ Hệ quả về chi phí: phải giải mã đủ 15 fps dù chỉ dùng 5, vì 
 (nó chỉ bỏ qua bước chuyển màu và copy Mat). Với file cũng vậy, nên đây không phải
 chi phí phát sinh thêm khi chuyển sang RTSP.
 
-## Bước 2 — `RtspStreamSource` cần gì
+## Bước 2 — `RtspStreamSource`: xong
 
-TODO sẵn trong mã đã phác đúng hướng. Bổ sung từ những gì đo được:
+[`backend/src/runtime/rtsp_stream.py`](../src/runtime/rtsp_stream.py), cùng surface
+với `VirtualVideoStreamSource`. Chọn lớp qua `open_stream_source(spec)`, đã gắn vào
+`decode_tier.py` và `camera_runtime.py`.
 
-1. **`grab()` mọi frame, `retrieve()` theo `target_fps`** — không được `read()` theo
-   nhịp target. Đây là yêu cầu bắt buộc, không phải tối ưu.
-2. **Ép TCP**: đặt `OPENCV_FFMPEG_CAPTURE_OPTIONS="rtsp_transport;tcp"` hoặc tương
-   đương, đừng để mặc định UDP.
-3. **Kết nối lại khi rớt** — camera thật rớt vì mất điện, reboot, mạng chập chờn.
-   Không có `start_s`/`strategy` replay vì không có file để seek.
-4. **Credential trong URI** — đã kiểm hoạt động, kể cả đường thất bại 401.
-5. **Metric riêng cho luồng trực tiếp**: số lần reconnect, khoảng trống thời gian
-   giữa các frame, số lần grab thất bại. Bộ metric hiện có của
-   `VirtualVideoStreamSource` (`reopen_count`, `grab_failures`) đã gần đủ.
+Khác biệt so với nguồn file, và lý do phải là lớp riêng chứ không phải nhánh `if`:
+
+- **Không có gì để seek.** `start_s` và `loop_to_duration` mô tả việc phát lại bản
+  ghi. Cả hai bị **từ chối thẳng**, không phải bỏ qua im lặng — manifest bảo camera
+  bắt đầu từ giây 30 là manifest có hiểu nhầm, phải lộ ra lúc khởi động.
+- **Luồng chỉ kết thúc bằng lỗi.** EOF của file là bình thường; `grab()` thất bại ở
+  camera nghĩa là đứt kết nối, và câu trả lời là **kết nối lại**, không phải kết thúc.
+- **Nguồn quyết định nhịp.** Nên `pace_realtime` được nhận nhưng **cố tình bỏ qua**:
+  ngủ thêm sẽ giữ nguồn vĩnh viễn tụt sau live, đúng cái lỗi lớp này sinh ra để tránh.
+
+Một chi tiết đáng nói: `native_fps` lấy từ `CAP_PROP_FPS`, và khi camera không báo thì
+dùng hằng số, **không đo**. Vì đo lúc khởi động là đo buffer đang xả chứ không phải
+camera: đã đo được 21 fps trong giây đầu trên nguồn thật sự 15 fps.
+
+### Hai lỗi im lặng phải sửa kèm
+
+**URI camera bị phá trước khi ai kịp mở nó.** `resolve_repo_path` coi mọi thứ là
+đường dẫn file, nên `rtsp://host/path` thành `<repo>/rtsp:/host/path` — `Path()` gộp
+hai dấu gạch, kết quả không tuyệt đối nên bị ghép thêm repo root. Không có exception
+nào, chỉ là camera cấu hình đúng mà không mở được. Sửa bằng
+[`stream_uri.resolve_source_uri`](../src/common/stream_uri.py).
+
+**Sửa xong lỗi trên thì sinh ra lỗi bảo mật.** URI camera chạy được có mật khẩu nằm
+trong đó, và `seed_store_topology` ghi `source_uri` vào bảng `cameras` trên cả SQLite
+lẫn Postgres. Mật khẩu camera sẽ nằm trong DB, trong mọi bản backup, và trong mọi log
+in ra một dòng camera. Sửa bằng `redact_stream_credentials`, gọi ở cả hai alert store.
+
+Manifest cũng không cần chứa mật khẩu: URI hỗ trợ biến môi trường —
+`rtsp://admin:${CAM_PASS}@192.168.11.51:554/cam/realmonitor`.
+
+### Đã kiểm
+
+`backend/tests/test_rtsp_source.py` — 11 test, chạy không cần camera lẫn giả lập.
+Toàn bộ suite CPU: **46/46 pass**.
+
+Kiểm thủ công với giả lập:
+
+| kiểm | kết quả |
+|---|---|
+| Đọc live, 12s, target 5 fps | 60 frame, `max_frame_gap_s=0.072` ≈ 1/15s → **không tồn đọng** |
+| Giết publisher giữa chừng | `grab_failures=1`, backoff 5 lần, `reopen_count=1`, khoảng trống 9.04s, **vẫn giao đủ 125 frame** |
+| Sai mật khẩu | `401 Unauthorized` |
+| Tầng decode, 4 camera, 20s | **400/400 frame**, ring không nghẽn (0% chờ slot) |
+
+## Cảnh báo cho bước 3: `grab_s` đổi ý nghĩa khi sang RTSP
+
+Trong lượt decode 4 camera qua RTSP: `decode work = 76.5s` trong đó `grab = 74.0s`,
+trên tổng 88.4 camera-giây. Tức **84% thời gian nằm trong `grab()`**.
+
+Với file, `grab()` là công việc CPU thật (nó vẫn giải mã, chỉ bỏ bước chuyển màu).
+Với luồng trực tiếp, `grab()` **chặn để chờ frame kế tiếp** — phần lớn con số đó là
+đợi, không phải tính toán.
+
+**Nên đừng so `decode work` giữa lượt file và lượt RTSP.** Cùng một tên metric,
+hai ý nghĩa khác nhau. Muốn so chi phí CPU thật thì phải đo bằng cgroup `cpu.stat`
+như đã làm ở `benchmarks/2026-08-27-16cam-4070-multistore.md`.
+
+Thêm một điểm: mỗi camera tốn **~1.5-2s thiết lập kết nối**. Ở `--duration 20` đó là
+~10% thời gian chạy; ở `--duration 180` chỉ còn ~1%. Bench RTSP phải chạy đủ dài.
 
 ## Bước 3-5 — chưa làm
 

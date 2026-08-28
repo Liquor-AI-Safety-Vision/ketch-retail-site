@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from backend.src.common.paths import resolve_repo_path
+from backend.src.common.stream_uri import resolve_source_uri
 from backend.src.domain.models import (
     CameraPipelineBindingSpec,
     CameraStreamSpec,
@@ -16,9 +17,15 @@ def load_store_manifest(path: str | Path) -> dict:
 
 
 def _resolve_optional_path(value: str | None) -> str | None:
+    """Resolve a camera source, which may be a file path or an rtsp:// URI.
+
+    Goes through resolve_source_uri rather than resolve_repo_path: the latter
+    treats everything as a filesystem path and turns "rtsp://host/path" into
+    "<repo>/rtsp:/host/path", which fails to open with no hint as to why.
+    """
     if not value:
         return value
-    return resolve_repo_path(value)
+    return resolve_source_uri(value)
 
 
 def _parse_pipeline_bindings(camera: dict) -> list[CameraPipelineBindingSpec]:

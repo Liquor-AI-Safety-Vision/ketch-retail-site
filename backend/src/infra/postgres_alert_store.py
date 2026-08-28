@@ -11,6 +11,8 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from backend.src.common.stream_uri import redact_stream_credentials
+
 
 def seed_store_topology_pg(dsn: str, specs: list) -> None:
     """Postgres counterpart of sqlite_alert_store.seed_store_topology --
@@ -44,8 +46,10 @@ def seed_store_topology_pg(dsn: str, specs: list) -> None:
                     "store_id = excluded.store_id, display_name = excluded.display_name, "
                     "camera_type = excluded.camera_type, source_type = excluded.source_type, "
                     "source_uri = excluded.source_uri",
+                    # Redacted for the same reason as the SQLite path: the
+                    # camera password must not be written to the cloud DB.
                     (spec.camera_id, spec.store_id, spec.display_name, spec.camera_type,
-                     spec.source_kind, spec.source_uri),
+                     spec.source_kind, redact_stream_credentials(spec.source_uri)),
                 )
         conn.commit()
     finally:

@@ -145,6 +145,47 @@ def stream_url(camera_id: str, *, host: str, port: int, user: str, password: str
     return f"rtsp://{user}:{password}@{host}:{port}/{camera_id}"
 
 
+def write_rtsp_manifest(src_manifest: Path, dest: Path, cameras, *,
+                        host: str, port: int, user: str, password: str) -> None:
+    """Clone a manifest with every camera repointed at the simulator.
+
+    A copy rather than an edit, so the same run can be measured against files
+    and against RTSP with nothing else differing -- same cameras, same
+    target_fps, same pipelines, same zones. Anything else and a difference in
+    the numbers could not be attributed to the transport.
+
+    Per-camera `simulation` blocks are dropped: they describe seeking and
+    looping a recording, which RtspStreamSource rejects outright rather than
+    silently ignoring. target_duration_s is kept, since it is what bounds a
+    benchmark run.
+    """
+    data = json.loads(src_manifest.read_text())
+    wanted = {camera_id for camera_id, _ in cameras}
+    kept = []
+    for camera in data["cameras"]:
+        if camera["camera_id"] not in wanted:
+            continue
+        camera = json.loads(json.dumps(camera))  # deep copy
+        stream = camera.setdefault("stream", {})
+        simulation = dict(stream.get("simulation", {}))
+        stream["input_mode"] = "rtsp"
+        stream["uri"] = stream_url(camera["camera_id"], host=host, port=port,
+                                   user=user, password=password)
+        stream.pop("simulation", None)
+        stream.pop("path", None)
+        stream.pop("kind", None)
+        stream["rtsp"] = {"transport": "tcp"}
+        if "target_duration_s" in simulation:
+            camera.setdefault("runtime", {})
+            data.setdefault("runtime", {})["target_duration_s"] = \
+                simulation["target_duration_s"]
+        kept.append(camera)
+    data["cameras"] = kept
+    data["store_id"] = data.get("store_id", "rtsp_sim")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(json.dumps(data, indent=2) + "\n")
+
+
 def check_streams(cameras, *, host, port, user, password, timeout: float) -> int:
     """Probe each stream and report resolution/codec/fps actually received."""
     _require("ffprobe")
@@ -188,6 +229,9 @@ def main() -> None:
     p.add_argument("--start", action="store_true", help="generate the config, then serve")
     p.add_argument("--check", action="store_true", help="probe every stream of a running server")
     p.add_argument("--print-urls", action="store_true", help="print stream URLs")
+    p.add_argument("--write-manifest", default=None,
+                   help="write a copy of the manifest repointed at the simulator, "
+                        "so a file run and an RTSP run differ only in transport")
     p.add_argument("--probe-timeout", type=float, default=20.0)
     args = p.parse_args()
 
@@ -199,6 +243,13 @@ def main() -> None:
         for camera_id, _ in cameras:
             print(stream_url(camera_id, host=args.host, port=args.port,
                              user=args.user, password=args.password))
+        return
+
+    if args.write_manifest:
+        dest = Path(args.write_manifest)
+        write_rtsp_manifest(Path(args.manifest), dest, cameras, host=args.host,
+                            port=args.port, user=args.user, password=args.password)
+        print(f"wrote {dest} ({len(cameras)} cameras)", file=sys.stderr)
         return
 
     if args.check:

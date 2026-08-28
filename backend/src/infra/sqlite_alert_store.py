@@ -10,6 +10,8 @@ from typing import Any
 
 import fcntl
 
+from backend.src.common.stream_uri import redact_stream_credentials
+
 
 @contextmanager
 def _bootstrap_lock(lock_path: Path):
@@ -70,8 +72,11 @@ def seed_store_topology(db_path: str | Path, specs: list) -> None:
                     "store_id = excluded.store_id, display_name = excluded.display_name, "
                     "camera_type = excluded.camera_type, source_type = excluded.source_type, "
                     "source_uri = excluded.source_uri",
+                    # Redacted: an rtsp:// source carries the camera password
+                    # inline, and this row is read back by dashboards and
+                    # copied into every backup of the database.
                     (spec.camera_id, spec.store_id, spec.display_name, spec.camera_type,
-                     spec.source_kind, spec.source_uri),
+                     spec.source_kind, redact_stream_credentials(spec.source_uri)),
                 )
             conn.commit()
     finally:

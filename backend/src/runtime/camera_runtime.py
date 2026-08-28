@@ -11,7 +11,7 @@ from backend.src.pipelines.counter_cash_theft import CounterCashTheftPipeline
 from backend.src.pipelines.storage_intrusion import StorageIntrusionPipeline
 from backend.src.pipelines.tracking_baseline import TrackingBaselinePipeline
 from backend.src.runtime.shared_inference import SharedInferenceRegistry
-from backend.src.runtime.virtual_video_stream import VirtualVideoStreamSource
+from backend.src.runtime.rtsp_stream import open_stream_source
 
 
 class CameraRuntime:
@@ -35,7 +35,7 @@ class CameraRuntime:
         self.skip_pipelines = skip_pipelines
         self.alert_store = SqliteAlertStore(db_path)
         self.media_store = LocalMediaStore(media_root)
-        self.source = VirtualVideoStreamSource(spec)
+        self.source = open_stream_source(spec)
         self.run_id: str | None = None
         self.pipeline_handlers = []
         self._prepared = False

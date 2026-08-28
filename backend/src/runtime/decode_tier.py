@@ -72,11 +72,13 @@ def _run_camera(spec, cfg: CameraDecodeConfig, ring: FrameRing, free_q, decode_q
                 pose_imgsz: int, pose_dtype) -> DecoderStats:
     """Pull one camera's frames to completion. Runs on a thread inside the decoder process."""
     from backend.src.runtime.shared_inference import _letterbox
-    from backend.src.runtime.virtual_video_stream import VirtualVideoStreamSource
+    from backend.src.runtime.rtsp_stream import open_stream_source
 
     import cv2
 
-    source = VirtualVideoStreamSource(spec)
+    # By kind, not hardcoded: this is the tier that has to keep working when a
+    # manifest switches from recorded files to real cameras.
+    source = open_stream_source(spec)
     frames = 0
     started = time.time()
     acc = {"free_wait_s": 0.0, "grab_s": 0.0, "retrieve_s": 0.0, "frame_copy_s": 0.0,
