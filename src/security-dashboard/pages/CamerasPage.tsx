@@ -5,8 +5,6 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import SearchIcon from '@mui/icons-material/Search';
 import { Box, Button, Card, CardActionArea, Chip, Dialog, FormControl, IconButton, InputAdornment, InputLabel, MenuItem, Paper, Select, Stack, TextField, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
-import { useGSAP } from '@gsap/react';
-import gsap from 'gsap';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
@@ -66,6 +64,12 @@ const originalTrackingFeeds: Record<string, { videoUrl: string; imageUrl: string
     displayName: 'Whole store (Stream 2)',
     displayLocation: 'Store-wide customer tracking',
   },
+  'record-entrance-top-view-153712': {
+    videoUrl: '/demo-source/cameras/entrance/regular-shoplifter-tracking.mp4',
+    imageUrl: '/demo-source/cameras/entrance/regular-shoplifter-tracking.jpg',
+    displayName: 'Entrance top view',
+    displayLocation: 'Customer recognition and entrance tracking',
+  },
 };
 
 function restorePreferences(): CameraPreferences {
@@ -104,7 +108,6 @@ function recordAsset(camera: Camera, extension: 'jpg' | 'mp4') {
 }
 
 export function CamerasPage() {
-  const pageRef = useRef<HTMLDivElement>(null);
   const restoredScrollRef = useRef(false);
   const { store } = useAuth();
   const [searchParams] = useSearchParams();
@@ -190,14 +193,10 @@ export function CamerasPage() {
     return () => window.removeEventListener('scroll', saveScrollPosition);
   }, []);
 
-  useGSAP(() => {
-    gsap.from('.live-feed', { y: 14, scale: 0.985, opacity: 0, duration: 0.45, stagger: 0.035, ease: 'power2.out' });
-  }, { scope: pageRef, dependencies: [isLoading, preferences.search, preferences.status, selectedArea], revertOnUpdate: true });
-
   if (!store || isLoading) return <ScreenLoader label="Loading cameras…" />;
 
   return (
-    <Stack ref={pageRef} spacing={3} sx={{ overflowX: 'hidden' }}>
+    <Stack spacing={3} sx={{ overflowX: 'hidden' }}>
       <Box sx={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'end', gap: 2 }}>
         <Box sx={{ maxWidth: 760 }}>
           <Typography component="h1" variant="h4">Live camera</Typography>

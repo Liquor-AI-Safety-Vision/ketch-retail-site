@@ -99,7 +99,7 @@ class ApiClient {
   }
 
   async getAlert(storeId: string, alertId: string) {
-    return this.request<AlertDetail>(`/stores/${storeId}/alerts/${alertId}`);
+    return this.request<AlertDetail>(`/stores/${encodeURIComponent(storeId)}/alerts/${encodeURIComponent(alertId)}`);
   }
 
   async actionAlert(storeId: string, alertId: string, action: 'acknowledge' | 'dismiss' | 'resolve', note?: string) {

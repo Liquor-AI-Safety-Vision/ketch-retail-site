@@ -1,31 +1,12 @@
-import { useGSAP } from '@gsap/react';
 import { Box, Divider, Typography } from '@mui/material';
-import gsap from 'gsap';
-import { useRef } from 'react';
 
 export function DashboardFooter() {
-  const footerRef = useRef<HTMLElement | null>(null);
-
-  useGSAP(
-    () => {
-      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-
-      gsap.fromTo(
-        footerRef.current,
-        { autoAlpha: 0, y: 8 },
-        { autoAlpha: 1, y: 0, duration: 0.45, ease: 'power2.out' },
-      );
-    },
-    { scope: footerRef },
-  );
-
   return (
     <Box
-      ref={footerRef}
       component="footer"
       sx={{
         flexShrink: 0,
-        px: { xs: 2, sm: 3.5, lg: 5 },
+        px: { xs: 2, sm: 2.5 },
         pb: { xs: 2.25, sm: 3 },
       }}
     >
@@ -43,21 +24,7 @@ export function DashboardFooter() {
           gap: 1.5,
         }}
       >
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.15, minWidth: 0 }}>
-          <Box
-            aria-hidden="true"
-            sx={{
-              width: 24,
-              height: 24,
-              borderRadius: 1,
-              bgcolor: 'primary.main',
-              display: 'grid',
-              placeItems: 'center',
-              boxShadow: (theme) => `0 0 0 4px ${theme.palette.action.hover}`,
-            }}
-          >
-            <Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: 'background.paper' }} />
-          </Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
           <Box minWidth={0}>
             <Typography sx={{ color: 'text.primary', fontSize: 12.5, fontWeight: 650, lineHeight: 1.25 }}>
               Ketch Enterprise <Box component="span" sx={{ color: 'primary.main' }}>AI</Box>

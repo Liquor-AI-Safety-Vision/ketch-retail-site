@@ -32,13 +32,16 @@ interface PresentationAlertDefinition {
   id: string;
   sourceEventId: string;
   correlationId: string;
-  type: 'WEAPON_DETECTED' | 'SUSPICIOUS_PRODUCT_CONCEALMENT';
+  type: 'WEAPON_DETECTED' | 'SUSPICIOUS_PRODUCT_CONCEALMENT' | 'REGULAR_SHOPLIFTER';
   severity: Alert['severity'];
   defaultStatus: 'NEW' | 'RESOLVED';
   detectedAt: string;
   videoUrl: string;
   thumbnailUrl: string;
   decisionKey?: string;
+  cameraId?: string;
+  cameraName?: string;
+  personLabel?: string;
 }
 
 const presentationAlertDefinitions: PresentationAlertDefinition[] = [
@@ -87,6 +90,21 @@ const presentationAlertDefinitions: PresentationAlertDefinition[] = [
     videoUrl: '/demo-source/alerts/shoplifting/shoplifting-confirmed.mp4',
     thumbnailUrl: '/demo-source/alerts/shoplifting/shoplifting-confirmed.jpg',
   },
+  {
+    id: 'presentation-regular-shoplifter-review-001',
+    sourceEventId: 'entrance-regular-shoplifter-001',
+    correlationId: 'entrance-regular-shoplifter-track-001',
+    type: 'REGULAR_SHOPLIFTER',
+    severity: 'HIGH',
+    defaultStatus: 'NEW',
+    detectedAt: '2026-08-26T11:03:35.000Z',
+    videoUrl: '/demo-source/alerts/regular-shoplifter/regular-shoplifter-alert.mp4',
+    thumbnailUrl: '/demo-source/alerts/regular-shoplifter/regular-shoplifter-alert.jpg',
+    decisionKey: 'ketch:presentation-alert:regular-shoplifter-review-v1',
+    cameraId: 'presentation-entrance-top-view-camera',
+    cameraName: 'Entrance top view',
+    personLabel: 'Customer',
+  },
 ];
 
 const replacedPresentationTypes = new Set(presentationAlertDefinitions.map((definition) => definition.type));
@@ -115,6 +133,8 @@ function presentationAlertStatus(definition: PresentationAlertDefinition): Alert
 
 function presentationAlert(definition: PresentationAlertDefinition): Alert {
   const status = presentationAlertStatus(definition);
+  const cameraName = definition.cameraName ?? 'Whole store';
+  const personLabel = definition.personLabel ?? 'Customer';
   return {
     id: definition.id,
     sourceEventId: definition.sourceEventId,
@@ -135,11 +155,11 @@ function presentationAlert(definition: PresentationAlertDefinition): Alert {
       presentationThumbnailUrl: definition.thumbnailUrl,
       videoUrl: definition.videoUrl,
       thumbnailUrl: definition.thumbnailUrl,
-      presentationPersonLabel: 'Customer',
-      trackedAcrossCamera: 'Whole store',
+      presentationPersonLabel: personLabel,
+      trackedAcrossCamera: cameraName,
     },
-    cameraId: 'presentation-whole-store-camera',
-    cameraName: 'Whole store',
+    cameraId: definition.cameraId ?? 'presentation-whole-store-camera',
+    cameraName,
     zoneId: null,
     zoneName: null,
   };

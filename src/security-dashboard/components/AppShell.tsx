@@ -1,4 +1,4 @@
-import CameraAltOutlinedIcon from '@mui/icons-material/CameraAltOutlined';
+import VideocamOutlinedIcon from '@mui/icons-material/VideocamOutlined';
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import GridViewOutlinedIcon from '@mui/icons-material/GridViewOutlined';
@@ -27,7 +27,7 @@ const drawerWidth = 232;
 const navigation = [
   { label: 'Overview', to: '/dashboard', icon: <GridViewOutlinedIcon fontSize="small" /> },
   { label: 'Alert', to: '/alerts', icon: <NotificationsActiveOutlinedIcon fontSize="small" /> },
-  { label: 'Camera', to: '/cameras', icon: <CameraAltOutlinedIcon fontSize="small" /> },
+  { label: 'Camera', to: '/cameras', icon: <VideocamOutlinedIcon fontSize="small" /> },
 ];
 
 function hasVideoEvidence(alert: Alert) {
@@ -39,12 +39,12 @@ export function AppShell() {
   const dark = theme.palette.mode === 'dark';
   const { mode, toggleMode } = useColorMode();
   const shellColors = {
-    sidebar: dark ? '#101415' : '#ECE8DF',
-    active: dark ? '#1B211F' : '#DDD7CB',
-    hover: dark ? '#161B19' : '#E5E0D6',
+    sidebar: dark ? '#0E1512' : '#ECEFEB',
+    active: dark ? '#19241F' : '#DDE4DE',
+    hover: dark ? '#151F1B' : '#E5E9E5',
     activeText: theme.palette.text.primary,
     muted: theme.palette.text.secondary,
-    faint: dark ? '#606663' : '#827B70',
+    faint: dark ? '#647169' : '#78827B',
   };
   const isDesktop = useMediaQuery(theme.breakpoints.up('md'));
   const [isMobileOpen, setIsMobileOpen] = useState(false);
@@ -52,7 +52,7 @@ export function AppShell() {
   const { user, store } = useAuth();
   const location = useLocation();
   const isAlertPage = location.pathname.startsWith('/alerts');
-  const alertSection = new URLSearchParams(location.search).get('section');
+  const alertSection = new URLSearchParams(location.search).get('section') === 'confirmed' ? 'confirmed' : 'attention';
 
   const { data: alertNavCounts = { attention: 0, confirmed: 0 }, refetch: refetchAlertNavCounts } = useQuery({
     queryKey: ['alert-navigation-counts-v2', store?.id],
@@ -282,7 +282,7 @@ export function AppShell() {
         >
           <Avatar
             variant="rounded"
-            sx={{ width: 32, height: 32, borderRadius: 1.25, bgcolor: dark ? '#252018' : '#E1D5C1', color: 'primary.main', fontSize: 13, fontWeight: 750 }}
+            sx={{ width: 32, height: 32, borderRadius: 1.25, bgcolor: dark ? '#1B2922' : '#D8E2DB', color: 'primary.main', fontSize: 13, fontWeight: 750 }}
           >
             {user?.displayName.slice(0, 1).toUpperCase() ?? 'S'}
           </Avatar>
@@ -304,7 +304,7 @@ export function AppShell() {
           slotProps={{
             paper: {
               variant: 'outlined',
-              sx: { minWidth: 210, mb: 0.75, borderRadius: 1.5, boxShadow: dark ? '0 14px 38px rgba(0,0,0,.42)' : '0 14px 38px rgba(61,48,31,.16)' },
+              sx: { minWidth: 210, mb: 0.75, borderRadius: 1.5, boxShadow: dark ? '0 14px 38px rgba(0,0,0,.42)' : '0 14px 38px rgba(27,48,37,.14)' },
             },
           }}
         >
@@ -353,7 +353,7 @@ export function AppShell() {
       </Box>
       <Box component="main" sx={{ flexGrow: 1, minWidth: 0, minHeight: '100vh', bgcolor: 'transparent', display: 'flex', flexDirection: 'column' }}>
         {!isDesktop && (
-          <AppBar position="sticky" color="transparent" elevation={0} sx={{ backdropFilter: 'blur(18px)', borderBottom: '1px solid', borderColor: 'divider', bgcolor: dark ? 'rgba(12, 14, 15, 0.88)' : 'rgba(245, 242, 235, 0.9)' }}>
+          <AppBar position="sticky" color="transparent" elevation={0} sx={{ backdropFilter: 'blur(18px)', borderBottom: '1px solid', borderColor: 'divider', bgcolor: dark ? 'rgba(11, 16, 14, 0.9)' : 'rgba(243, 245, 242, 0.92)' }}>
             <Toolbar sx={{ minHeight: 58, px: 2 }}>
               <IconButton onClick={() => setIsMobileOpen(true)} edge="start" sx={{ color: 'text.primary', mr: 1 }}>
                 <MenuIcon />
@@ -374,7 +374,7 @@ export function AppShell() {
             </Toolbar>
           </AppBar>
         )}
-        <Box sx={{ flex: 1, width: '100%', p: { xs: 2, sm: 3.5, lg: 5 }, maxWidth: 1720, mx: 'auto' }}>
+        <Box sx={{ flex: 1, width: '100%', p: { xs: 2, sm: 2.5 }, maxWidth: 1720, mx: 'auto' }}>
           <Outlet />
         </Box>
         <DashboardFooter />

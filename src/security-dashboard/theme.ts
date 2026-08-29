@@ -1,16 +1,14 @@
-import { createTheme } from '@mui/material/styles';
+import { alpha, createTheme } from '@mui/material/styles';
 import type { ColorMode } from '../theme/ColorModeProvider';
 
 export function createDashboardTheme(mode: ColorMode) {
   const dark = mode === 'dark';
-  const canvas = dark ? '#0C0E0F' : '#F5F2EB';
-  const paper = dark ? '#14191A' : '#FFFCF7';
-  const divider = dark ? '#282E2D' : '#D5D0C6';
-  const primary = dark ? '#D8A35D' : '#9A6128';
-  /* Dark surfaces need a soft drop shadow on top of hairline borders,
-     otherwise panels at different elevations read as one flat plane. */
+  const canvas = dark ? '#0B100E' : '#F3F5F2';
+  const paper = dark ? '#111815' : '#FCFDFB';
+  const divider = dark ? '#29332E' : '#D8DED9';
+  const primary = dark ? '#62B68B' : '#246A50';
   const elevation = dark
-    ? '0 1px 2px rgba(0, 0, 0, 0.40), 0 12px 32px -16px rgba(0, 0, 0, 0.60)'
+    ? '0 1px 2px rgba(0, 0, 0, 0.34), 0 16px 40px -26px rgba(0, 0, 0, 0.72)'
     : 'none';
 
   return createTheme({
@@ -18,32 +16,36 @@ export function createDashboardTheme(mode: ColorMode) {
       mode,
       primary: {
         main: primary,
-        light: dark ? '#F0C987' : '#BF8242',
-        dark: dark ? '#A86F2F' : '#754617',
-        contrastText: dark ? '#130F0A' : '#FFFFFF',
+        light: dark ? '#8DCDAA' : '#4C8A70',
+        dark: dark ? '#3F8E68' : '#164C38',
+        contrastText: '#FFFFFF',
       },
       secondary: {
-        main: dark ? '#91B3A2' : '#4E7D69',
-        light: dark ? '#B8D1C4' : '#719B88',
-        dark: dark ? '#5F8975' : '#365D4C',
+        main: dark ? '#A8B5AE' : '#5F6E66',
+        light: dark ? '#CBD4CF' : '#839087',
+        dark: dark ? '#77867E' : '#435149',
       },
       background: { default: canvas, paper },
       text: {
-        primary: dark ? '#F4EFE6' : '#202421',
-        secondary: dark ? '#989C99' : '#676D69',
+        primary: dark ? '#F0F4F1' : '#18201C',
+        secondary: dark ? '#9AA69F' : '#657069',
       },
       divider,
-      success: { main: dark ? '#78B990' : '#397B52' },
-      warning: { main: primary },
-      error: { main: dark ? '#E06B65' : '#B6433E' },
-      info: { main: dark ? '#72A7B5' : '#3F788A' },
+      success: { main: dark ? '#74C495' : '#327A51' },
+      warning: { main: dark ? '#D5A85F' : '#99601F' },
+      error: { main: dark ? '#E87972' : '#B63E3A' },
+      info: { main: dark ? '#76AABD' : '#39768A' },
+      action: {
+        hover: alpha(primary, dark ? 0.09 : 0.055),
+        selected: alpha(primary, dark ? 0.14 : 0.1),
+      },
     },
     shape: { borderRadius: 6 },
     typography: {
-      fontFamily: '"Outfit Variable", Outfit, "Aptos", "Segoe UI", sans-serif',
-      h4: { fontWeight: 520, letterSpacing: '-0.045em' },
-      h5: { fontWeight: 560, letterSpacing: '-0.035em' },
-      h6: { fontWeight: 600, letterSpacing: '-0.02em' },
+      fontFamily: '"Aptos", "Segoe UI Variable", "Segoe UI", sans-serif',
+      h4: { fontWeight: 650, letterSpacing: '-0.04em' },
+      h5: { fontWeight: 650, letterSpacing: '-0.035em' },
+      h6: { fontWeight: 650, letterSpacing: '-0.02em' },
       button: { letterSpacing: '-0.01em' },
     },
     components: {
@@ -51,13 +53,10 @@ export function createDashboardTheme(mode: ColorMode) {
         styleOverrides: {
           body: {
             backgroundColor: canvas,
-            color: dark ? '#F4EFE6' : '#202421',
-            backgroundImage: dark
-              ? 'radial-gradient(circle at 82% -10%, rgba(216, 163, 93, 0.09), transparent 32%)'
-              : 'radial-gradient(circle at 82% -10%, rgba(154, 97, 40, 0.08), transparent 31%)',
-            scrollbarColor: dark ? '#3A413F #0C0E0F' : '#B9B3A8 #F5F2EB',
+            color: dark ? '#F0F4F1' : '#18201C',
+            scrollbarColor: dark ? '#35433B #0B100E' : '#B9C1BB #F3F5F2',
           },
-          '::selection': { backgroundColor: primary, color: dark ? '#130F0A' : '#FFFFFF' },
+          '::selection': { backgroundColor: primary, color: '#FFFFFF' },
         },
       },
       MuiPaper: {
@@ -88,7 +87,7 @@ export function createDashboardTheme(mode: ColorMode) {
       },
       MuiDialog: {
         styleOverrides: {
-          paper: { backgroundColor: paper, color: dark ? '#F4EFE6' : '#202421' },
+          paper: { backgroundColor: paper, color: dark ? '#F0F4F1' : '#18201C' },
         },
       },
     },
