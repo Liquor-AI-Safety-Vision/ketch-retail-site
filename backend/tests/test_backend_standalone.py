@@ -189,6 +189,35 @@ def test_config_and_models_resolve_inside_backend():
         assert resolved.parent == BACKEND / "models", f"{name} resolves outside backend"
 
 
+def test_no_store_id_is_named_after_another_manifest():
+    """counter_generated_test carried store_id "local_dev_store_16cams".
+
+    Nothing broke -- that id collided with no other store, because the 16-camera
+    manifest's own store_id is "local_dev_store". But it read as though the two
+    shared a store row, which is the kind of thing someone acts on: a store_id
+    decides which rows a run writes and which gallery a face is matched
+    against, so a misleading one invites a wrong conclusion about live data.
+
+    Sharing an id between manifests is fine and deliberate --
+    local_dev_store_16cams.json and local_dev_store.json are the 16- and
+    4-camera views of one dev store, and both say store_id "local_dev_store".
+    What is banned is narrower: an id that names a manifest which does not
+    itself claim that id. That is the shape of a copy-paste, and the only
+    shape that misleads.
+    """
+    by_stem = {}
+    for m in sorted((BACKEND / "config" / "stores").glob("*.json")):
+        by_stem[m.stem] = (m.name, json.loads(m.read_text())["store_id"])
+
+    bad = []
+    for name, sid in by_stem.values():
+        if sid in by_stem and by_stem[sid][1] != sid:
+            bad.append(f"{name}: store_id {sid!r} names {by_stem[sid][0]}, "
+                       f"whose own store_id is {by_stem[sid][1]!r}")
+    assert not bad, "a store_id points at a manifest that disowns it:\n  " + \
+        "\n  ".join(bad)
+
+
 def test_manifests_use_placeholders_not_repo_layout():
     """Config may not assume the folder above backend is a checkout."""
     sys.path.insert(0, str(REPO))

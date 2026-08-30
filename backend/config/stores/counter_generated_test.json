@@ -1,7 +1,7 @@
 {
   "company_id": "liquor_store_demo",
-  "store_id": "local_dev_store_16cams",
-  "display_name": "Local Development Store 16 Cams",
+  "store_id": "counter_generated_test",
+  "display_name": "Counter Generated Test Clips",
   "timezone": "America/New_York",
   "mode": "local_dev",
   "runtime": {
