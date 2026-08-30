@@ -42,6 +42,7 @@ cap_native_threads(_early_native_threads(sys.argv))
 from backend.src.infra.local_config import camera_specs_from_manifest  # noqa: E402
 from backend.src.runtime.supervisor import RuntimeSupervisor  # noqa: E402
 from backend.src.common.paths import backend_root
+from backend.src.pipelines.registry import COUNTER_CASH_THEFT
 
 
 def _parse_camera_float_map(raw: str | None) -> dict[str, float]:
@@ -219,7 +220,7 @@ def main():
     if a.till_fps is not None:
         for spec in specs:
             for binding in spec.pipeline_bindings:
-                if binding.pipeline_id == "counter_cash_theft_v1":
+                if binding.pipeline_id == COUNTER_CASH_THEFT:
                     binding.params["till_fps"] = a.till_fps
     selected = None
     if a.camera_ids:

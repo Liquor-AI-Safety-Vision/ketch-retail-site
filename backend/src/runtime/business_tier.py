@@ -30,26 +30,18 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from backend.src.pipelines.registry import COUNTER_CASH_THEFT, INTRUSION_IDS, build_pipeline
 from backend.src.runtime.frame_ring import FrameRing
 from backend.src.runtime.inference_server import FaceAnswer, FaceRequest, PerceptionResult, crop_face_patch
 
 
 def _build_pipeline(spec, binding, alert_store, media_store, run_id, gallery_db_path):
-    """Same mapping camera_runtime.py uses, so a camera behaves identically
+    """One mapping, shared with camera_runtime, so a camera behaves identically
     regardless of which architecture is running it."""
-    from backend.src.pipelines.counter_cash_theft import CounterCashTheftPipeline
-    from backend.src.pipelines.storage_intrusion import StorageIntrusionPipeline
-    from backend.src.pipelines.tracking_baseline import TrackingBaselinePipeline
-
-    if binding.pipeline_id == "counter_cash_theft_v1":
-        return CounterCashTheftPipeline(
-            spec, binding, alert_store, media_store, run_id,
-            cpu_only=False, shared_inference=None)
-    if binding.pipeline_id in {"storage_intrusion_v1", "cold_storage_intrusion_v1"}:
-        return StorageIntrusionPipeline(
-            spec, binding, alert_store, media_store, run_id, gallery_db_path,
-            cpu_only=False, shared_inference=None)
-    return TrackingBaselinePipeline(spec, binding, cpu_only=False, shared_inference=None)
+    return build_pipeline(
+        spec, binding, alert_store=alert_store, media_store=media_store,
+        run_id=run_id, gallery_db_path=gallery_db_path,
+        cpu_only=False, shared_inference=None)
 
 
 @dataclass
@@ -91,10 +83,14 @@ class _CameraWorker:
     def handle_perception(self, result: PerceptionResult, frame_bgr) -> None:
         frame = result.frame_meta.to_envelope(frame_bgr)
         for handler in self.handlers:
-            if handler.binding.pipeline_id == "counter_cash_theft_v1":
+            # Dispatching on the id here picks a call signature, not a class --
+            # counter takes till detections, storage returns face targets. The
+            # ids come from registry so this cannot drift from _build_pipeline,
+            # and an unregistered one has already failed at bootstrap.
+            if handler.binding.pipeline_id == COUNTER_CASH_THEFT:
                 out = handler.handle_perceived(frame, result.boxes, result.kpts, result.feats,
                                                result.till_detections)
-            elif handler.binding.pipeline_id in {"storage_intrusion_v1", "cold_storage_intrusion_v1"}:
+            elif handler.binding.pipeline_id in INTRUSION_IDS:
                 out, face_targets = handler.handle_perceived(frame, result.boxes, result.kpts, result.feats)
                 for track_id, ltrb, store_id, company_id in face_targets:
                     self._send_face_request(handler, track_id, ltrb, frame_bgr, store_id, company_id)

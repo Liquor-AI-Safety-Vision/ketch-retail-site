@@ -7,9 +7,7 @@ from backend.src.common.timing import TimingCollector
 from backend.src.domain.models import CameraPipelineBindingSpec, CameraStreamSpec
 from backend.src.infra.local_media_store import LocalMediaStore
 from backend.src.infra.sqlite_alert_store import SqliteAlertStore
-from backend.src.pipelines.counter_cash_theft import CounterCashTheftPipeline
-from backend.src.pipelines.storage_intrusion import StorageIntrusionPipeline
-from backend.src.pipelines.tracking_baseline import TrackingBaselinePipeline
+from backend.src.pipelines.registry import build_pipeline
 from backend.src.runtime.shared_inference import SharedInferenceRegistry
 from backend.src.runtime.rtsp_stream import open_stream_source
 
@@ -61,30 +59,13 @@ class CameraRuntime:
         self.alert_store.close()
 
     def _new_pipeline_handler(self, binding: CameraPipelineBindingSpec):
-        if binding.pipeline_id == "counter_cash_theft_v1":
-            return CounterCashTheftPipeline(
-                self.spec,
-                binding,
-                self.alert_store,
-                self.media_store,
-                self.run_id,
-                cpu_only=self.cpu_only,
-                shared_inference=self.shared_inference,
-            )
-        if binding.pipeline_id in {"storage_intrusion_v1", "cold_storage_intrusion_v1"}:
-            return StorageIntrusionPipeline(
-                self.spec,
-                binding,
-                self.alert_store,
-                self.media_store,
-                self.run_id,
-                self.gallery_db_path,
-                cpu_only=self.cpu_only,
-                shared_inference=self.shared_inference,
-            )
-        return TrackingBaselinePipeline(
+        return build_pipeline(
             self.spec,
             binding,
+            alert_store=self.alert_store,
+            media_store=self.media_store,
+            run_id=self.run_id,
+            gallery_db_path=self.gallery_db_path,
             cpu_only=self.cpu_only,
             shared_inference=self.shared_inference,
         )

@@ -54,6 +54,7 @@ if str(ROOT) not in sys.path:
 # cost 5x on every inference call.
 from backend.src.runtime.perf import cap_native_threads  # noqa: E402
 from backend.src.common.paths import backend_root, model_path
+from backend.src.pipelines.registry import COUNTER_CASH_THEFT, INTRUSION_IDS
 
 cap_native_threads(1)
 
@@ -93,7 +94,7 @@ def _default_conf_for(spec) -> float:
     decoder decides conf before any pipeline object exists, so it has to
     know the same defaults rather than picking one arbitrarily."""
     for binding in spec.pipeline_bindings:
-        if binding.pipeline_id in {"storage_intrusion_v1", "cold_storage_intrusion_v1"}:
+        if binding.pipeline_id in INTRUSION_IDS:
             return 0.45
     return 0.35
 
@@ -104,7 +105,7 @@ def _camera_decode_config(spec):
     conf = float(spec.perception_profile.get("person_detector", {}).get(
         "conf_thres", _default_conf_for(spec)))
     for binding in spec.pipeline_bindings:
-        if binding.pipeline_id != "counter_cash_theft_v1" or not binding.enabled:
+        if binding.pipeline_id != COUNTER_CASH_THEFT or not binding.enabled:
             continue
         from backend.src.pipelines.till_schedule import compute_till_schedule
 
@@ -120,7 +121,7 @@ def _camera_face_config(spec):
     from backend.src.runtime.inference_server import FaceCameraConfig
 
     for binding in spec.pipeline_bindings:
-        if binding.pipeline_id not in {"storage_intrusion_v1", "cold_storage_intrusion_v1"}:
+        if binding.pipeline_id not in INTRUSION_IDS:
             continue
         face_cfg = spec.perception_profile.get("face_identity", {})
         if not face_cfg.get("enabled", False):
