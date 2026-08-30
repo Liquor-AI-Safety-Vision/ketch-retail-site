@@ -162,6 +162,7 @@ function presentationAlert(definition: PresentationAlertDefinition): Alert {
     cameraName,
     zoneId: null,
     zoneName: null,
+    hasVideoEvidence: true,
   };
 }
 

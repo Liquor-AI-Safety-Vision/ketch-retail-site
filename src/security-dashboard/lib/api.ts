@@ -102,6 +102,12 @@ class ApiClient {
     return this.request<AlertDetail>(`/stores/${encodeURIComponent(storeId)}/alerts/${encodeURIComponent(alertId)}`);
   }
 
+  async getEvidencePlaybackUrl(storeId: string, alertId: string, evidenceId: string) {
+    return this.request<{ url: string; expiresInSeconds: number }>(
+      `/stores/${encodeURIComponent(storeId)}/alerts/${encodeURIComponent(alertId)}/evidence/${encodeURIComponent(evidenceId)}/playback-url`,
+    );
+  }
+
   async actionAlert(storeId: string, alertId: string, action: 'acknowledge' | 'dismiss' | 'resolve', note?: string) {
     return this.request<Alert>(`/stores/${storeId}/alerts/${alertId}/${action}`, {
       method: 'POST',

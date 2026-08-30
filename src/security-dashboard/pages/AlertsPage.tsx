@@ -323,7 +323,7 @@ function TrackedAlertVideo({ alert, videoUrl, thumbnail }: { alert: Alert; video
 }
 
 function hasVideo(alert: Alert) {
-  return Boolean(metadataUrl(alert, 'videoUrl'));
+  return Boolean(metadataUrl(alert, 'videoUrl')) || alert.hasVideoEvidence;
 }
 
 function isEmergency(alert: Alert) {
@@ -395,6 +395,17 @@ export function AlertsPage() {
   const requestedSection = searchParams.get('section');
   const activeSection: 'attention' | 'confirmed' = requestedSection === 'confirmed' ? 'confirmed' : 'attention';
   const requestedAlertId = (searchParams.get('alertId') ?? '').trim();
+
+  const attachPlaybackUrl = useCallback(async (alert: AlertDetail) => {
+    if (!store || metadataUrl(alert, 'videoUrl')) return alert;
+    const videoEvidence = alert.evidence.find((evidence) => evidence.mimeType.startsWith('video/'));
+    if (!videoEvidence) return alert;
+    const playback = await api.getEvidencePlaybackUrl(store.id, alert.id, videoEvidence.id);
+    return {
+      ...alert,
+      metadata: { ...(alert.metadata ?? {}), videoUrl: playback.url },
+    };
+  }, [store]);
 
   const loadAlerts = useCallback(async () => {
     if (!store) return;
@@ -510,19 +521,20 @@ export function AlertsPage() {
     }
     try {
       const apiDetail = await api.getAlert(store.id, presentationBaseAlertId(alert));
-      setDetail({
+      const mergedDetail: AlertDetail = {
         ...apiDetail,
         ...alert,
         acknowledgedById: apiDetail.acknowledgedById,
         acknowledgedByName: apiDetail.acknowledgedByName,
         evidence: apiDetail.evidence,
-      });
+      };
+      setDetail(await attachPlaybackUrl(mergedDetail));
     } catch (cause) {
       setError(getErrorMessage(cause));
     } finally {
       setDetailLoading(false);
     }
-  }, [store]);
+  }, [attachPlaybackUrl, store]);
 
   useEffect(() => {
     if (!requestedAlertId) {
@@ -543,10 +555,11 @@ export function AlertsPage() {
     setDetailLoading(true);
     setDetail(null);
     void api.getAlert(store.id, requestedAlertId)
+      .then(attachPlaybackUrl)
       .then((alert) => setDetail(alert))
       .catch((cause) => setError(getErrorMessage(cause)))
       .finally(() => setDetailLoading(false));
-  }, [alerts, confirmedAlerts, loading, openContext, requestedAlertId, store]);
+  }, [alerts, attachPlaybackUrl, confirmedAlerts, loading, openContext, requestedAlertId, store]);
 
   const closeDetail = () => {
     setDetail(null);
