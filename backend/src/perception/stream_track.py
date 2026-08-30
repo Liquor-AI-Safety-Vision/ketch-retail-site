@@ -365,7 +365,7 @@ def main():
 
     div, voter = None, None
     if ZONES:
-        div, zname = zones.load_divider(ZONES, flip=STAFF_SIDE > 0)
+        div, zname = zones.load_divider(ZONES, flip=STAFF_SIDE > 0, size=(W, H))
         voter = zones.RoleVoter(div)
         print(f"zones: {ZONES} divider={zname!r}  staff side = the one containing "
               f"{tuple(int(v) for v in div.staff_ref)}  "

@@ -129,9 +129,25 @@ def main():
     print(f"frame {a.frame} of {a.video} ({W}x{H}, preview {scale:.2f}x)")
 
     def save():
-        json.dump({"video": a.video, "width": W, "height": H, "zones": zones},
-                  open(out, "w"), indent=2)
-        print(f"saved {len(zones)} zones -> {out}")
+        # Points are kept in native pixels while drawing, because that is what
+        # the mouse gives and what render() draws, but they are SAVED as
+        # fractions of the frame. A zone is a property of where the camera
+        # points, not of the sensor it was drawn on -- and a file of pixels
+        # used at another resolution is wrong silently, with roles simply
+        # coming out on the wrong side and no error to show for it.
+        payload = {
+            "video": a.video,
+            "drawn_on": {"width": W, "height": H},
+            "note": ("points_norm is fractions of frame width/height. drawn_on "
+                     "is provenance only -- never used to scale."),
+            "zones": [{**z, "points_norm": [[round(x / W, 6), round(y / H, 6)]
+                                            for x, y in z["points"]],
+                       "points": None} for z in zones],
+        }
+        for z in payload["zones"]:
+            del z["points"]
+        json.dump(payload, open(out, "w"), indent=2)
+        print(f"saved {len(zones)} zones (normalized) -> {out}")
 
     while True:
         cv2.imshow(win, render(base, zones, current, scale))

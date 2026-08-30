@@ -74,6 +74,22 @@ class Divider:
         return STAFF if np.sign(s) == self.staff_side else CUSTOMER
 
 
+def _points_norm(zone, path):
+    """Fractional points for one zone, refusing the old pixel format outright.
+
+    Silently converting a legacy `points` list would need the file's `width`
+    and `height`, which is the very coupling this format removes -- and a file
+    that still carries pixels is one nobody converted, so the right outcome is
+    a message naming it, not a guess.
+    """
+    if "points_norm" in zone:
+        return zone["points_norm"]
+    raise ValueError(
+        f"{path}: zone {zone.get('name')!r} still stores absolute pixels. "
+        "Zone files hold points_norm (fractions of the frame); re-export it "
+        "from the zone editor.")
+
+
 def load_divider(path, name=None, flip=False, size=None):
     """Read a zone_editor JSON and return its line divider.
 
@@ -81,20 +97,25 @@ def load_divider(path, name=None, flip=False, size=None):
     camera, the corridor behind the counter that the POS terminals face into.
     `flip` moves it to the top-right corner's side instead.
 
-    `size` is the (W, H) of the frames this divider will be used on. The file
-    stores absolute pixels, so a divider drawn on 1920x1080 lands in the wrong
-    place on any other resolution - silently, and roles would be wrong with no
-    error to show for it. Passing the frame size rescales it. Note this only
-    survives a change of resolution, not a change of viewpoint: the same scene
-    reframed needs the zone drawn again.
+    `size` is the (W, H) of the frames this divider will be used on, and it is
+    required. Points are stored as fractions of the frame, so this is the only
+    place the divider becomes pixels.
+
+    It used to store absolute pixels alongside the resolution they were drawn
+    at, and rescale only when a caller passed `size`. Callers that forgot got a
+    divider from another resolution with no error and no warning -- staff and
+    customer roles simply came out wrong. stream_track's own CLI was one of
+    them. Fractions remove the failure mode rather than documenting it.
+
+    Note this survives a change of resolution, not a change of viewpoint: the
+    same scene reframed needs the zone drawn again.
     """
     data = json.load(open(path))
-    W, H = data["width"], data["height"]
-    sx, sy = (1.0, 1.0) if size is None else (size[0] / W, size[1] / H)
-    if (sx, sy) != (1.0, 1.0):
-        print(f"  divider drawn for {W}x{H}, scaling by "
-              f"({sx:.3f}, {sy:.3f}) for {size[0]}x{size[1]}")
-        W, H = size
+    if size is None:
+        raise ValueError(
+            f"{path}: load_divider needs the frame size (W, H) -- zone points "
+            "are fractions of the frame and cannot be placed without it")
+    W, H = float(size[0]), float(size[1])
     ref = (W - 1.0, 0.0) if flip else (0.0, H - 1.0)
     lines = [z for z in data["zones"] if z.get("type") == "line"]
     if name:
@@ -107,7 +128,7 @@ def load_divider(path, name=None, flip=False, size=None):
     skipped = [z["name"] for z in data["zones"] if z.get("type") != "line"]
     if skipped:
         print(f"  ignoring non-line zones: {', '.join(skipped)}")
-    pts = [[x * sx, y * sy] for x, y in lines[0]["points"]]
+    pts = [[fx * W, fy * H] for fx, fy in _points_norm(lines[0], path)]
     return Divider(pts, ref), lines[0]["name"]
 
 

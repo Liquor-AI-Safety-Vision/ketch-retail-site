@@ -1,61 +1,64 @@
 {
   "video": "videos/storage_1.mp4",
-  "width": 1920,
-  "height": 1080,
   "zones": [
     {
       "name": "inside_storage",
       "type": "polygon",
-      "points": [
+      "points_norm": [
         [
-          8.4,
-          38.4
+          0.004375,
+          0.035556
         ],
         [
-          1621.2,
-          48.0
+          0.844375,
+          0.044444
         ],
         [
-          1466.4,
-          667.2
+          0.76375,
+          0.617778
         ],
         [
-          1423.2,
-          799.2
+          0.74125,
+          0.74
         ],
         [
-          1683.6,
-          910.8
+          0.876875,
+          0.843333
         ],
         [
-          1910.4,
-          433.2
+          0.995,
+          0.401111
         ],
         [
-          1911.6,
-          721.2
+          0.995625,
+          0.667778
         ],
         [
-          1911.6,
-          1038.0
+          0.995625,
+          0.961111
         ],
         [
-          1878.0,
-          1068.0
+          0.978125,
+          0.988889
         ],
         [
-          80.4,
-          1064.4
+          0.041875,
+          0.985556
         ],
         [
-          16.8,
-          1044.0
+          0.00875,
+          0.966667
         ],
         [
-          8.4,
-          40.8
+          0.004375,
+          0.037778
         ]
       ]
     }
-  ]
+  ],
+  "drawn_on": {
+    "width": 1920,
+    "height": 1080
+  },
+  "note": "points_norm is fractions of frame width/height. drawn_on is provenance only -- never used to scale. A zone is a property of where the camera points, not of the sensor it was drawn on."
 }

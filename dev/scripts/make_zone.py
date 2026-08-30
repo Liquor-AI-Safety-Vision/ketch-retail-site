@@ -149,8 +149,10 @@ if args.from_editor:
     if len(polys) > 1:
         print(f"  {len(polys)} polygons present, using {polys[0]['name']!r}; "
               "pass --zone-name to choose")
-    W, H = data["width"], data["height"]
-    pts = np.asarray(polys[0]["points"], np.float64)
+    # Editor output is already fractional; half_plane_polygon works in pixels,
+    # so scale up on a nominal frame and the ratio comes back out below.
+    W, H = data["drawn_on"]["width"], data["drawn_on"]["height"]
+    pts = np.asarray(polys[0]["points_norm"], np.float64) * [W, H]
     cfg = {}
     if os.path.exists(f"{HERE}/dev/outputs/zones/storage_zones.json"):
         cfg = json.load(open(f"{HERE}/dev/outputs/zones/storage_zones.json"))

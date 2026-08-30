@@ -82,14 +82,18 @@ def load_checkout_zones(path, size):
     reason: a customer standing at the station being used means a transaction is
     plausible. One polygon per station, never one for the whole counter - a
     customer at the left till must not silence an alert at the right one.
+
+    Points are fractions of the frame, so `size` is the only thing that turns
+    them into pixels -- no rescale step, and nothing to forget.
     """
     d = json.load(open(path))
-    sx, sy = size[0] / d["width"], size[1] / d["height"]
+    W, H = float(size[0]), float(size[1])
     out = {}
     for z in d["zones"]:
         if z["name"].startswith("checkout") and z.get("type") == "polygon":
-            out[z["name"]] = np.array([[x * sx, y * sy] for x, y in z["points"]],
-                                      np.float32)
+            out[z["name"]] = np.array(
+                [[fx * W, fy * H] for fx, fy in zones._points_norm(z, path)],
+                np.float32)
     return out
 
 
