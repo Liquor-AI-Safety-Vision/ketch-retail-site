@@ -2,8 +2,13 @@
 
 Phiên bản: `v0.2`
 
-Ngày cập nhật: `2026-08-23` (mục 12 và 17 vá lại `2026-08-26` cho khớp thực tế — xem ghi chú
+Ngày cập nhật: `2026-08-30` (bản gốc `2026-08-23`; mục 12 và 17 vá `2026-08-26`, sau đó
+mục 5, 6, 8, 9, 11, 18, 22-24 đối chiếu lại với code thật `2026-08-30` — xem ghi chú
 "Cập nhật" trong từng mục)
+
+**Cảnh báo khi đọc: bản gốc đặt tên cho nhiều class trước khi chúng được viết, và một số
+cái tên đó không bao giờ tồn tại.** Mọi tên class trong doc này đã được đối chiếu với
+`backend/src` ngày 30/08; chỗ nào lệch đều có ghi chú tại chỗ.
 
 **Runtime/process architecture (decode/inference/business/face, số đo thật, process/thread
 map) không còn nằm ở đây nữa — tài liệu sống hiện tại cho phần đó là**
@@ -23,7 +28,7 @@ Tài liệu phục vụ 3 mục đích:
 Tài liệu này không thay thế business docs đã có trong `docs/01_quay_thu_ngan.md` và `docs/02_kho_ngoai_gio.md`.
 Nó đóng vai trò cầu nối giữa:
 - business/problem definition
-- module POC hiện có trong `scripts/`
+- perception stack (nay ở `backend/src/perception/`, xem mục 5)
 - backend system cần xây dựng để chạy end-to-end
 
 ## 2. Phạm vi hệ thống
@@ -54,10 +59,13 @@ Trạng thái mục tiêu sau này:
 
 Hệ thống local không phải demo riêng. Đây là production architecture với local adapters.
 
-Cái được phép khác so với production:
-- `VideoFileStreamSource` thay cho `RtspStreamSource`
-- `SQLiteEventStore` thay cho `NeonEventStore`
-- `LocalMediaStore` thay cho `R2MediaStore`
+Cái được phép khác so với production (tên class **đã sửa 30/08** — ba cái tên bản gốc
+dùng, `VideoFileStreamSource` / `SQLiteEventStore` / `NeonEventStore` / `R2MediaStore`,
+không tồn tại trong code):
+- `VirtualVideoStreamSource` thay cho `RtspStreamSource`
+- `SqliteAlertStore` thay cho `PostgresAlertStore`
+- `LocalMediaStore` thay cho `CloudAlertSink` (R2 upload nằm trong sink, không phải một
+  media store riêng)
 
 Còn lại:
 - pipeline runtime
@@ -72,10 +80,12 @@ Còn lại:
 
 Giai đoạn này không dùng microservice thật và không bắt buộc Kafka thật.
 
+**Cập nhật 2026-08-30: "một backend process chính, nhiều worker trong cùng process" đã
+bị thay.** Đo được là hình dạng đó bị GIL chặn, nên runtime hiện tại là nhiều process
+tách theo tier (mục 6). Nguyên tắc "chưa dùng microservice/broker thật" thì vẫn giữ.
+
 Lựa chọn:
-- Một backend process chính.
-- Nhiều worker/runtime trong cùng process.
-- Queue nội bộ per-camera.
+- Nhiều process tách theo tier, nối bằng shared-memory ring một chiều.
 - Adapter abstraction để sau này thay bằng broker/service thật.
 
 Lý do:
@@ -107,7 +117,8 @@ Stateful logic không được batch chung:
 
 Nếu sau này tối ưu:
 - chỉ batch detector/embedder stateless
-- thông qua shared `InferenceExecutor`
+- thông qua `SharedInferenceRegistry` + `_BatchRunner` (bản gốc gọi là
+  `InferenceExecutor`, tên đó không được dùng)
 
 ## 4. Kịch bản nghiệp vụ mục tiêu
 
@@ -322,9 +333,16 @@ CameraRuntime
 
 ### 9.4. Stream Source
 
-Interface:
-- `VideoFileStreamSource`
-- `RtspStreamSource`
+Hai class, chọn bằng `open_stream_source(spec)` theo `spec.source_kind` — caller
+không đặt tên class nào cả:
+- `VirtualVideoStreamSource` (`virtual_video_stream.py`) — bản cũ gọi nhầm là
+  `VideoFileStreamSource`
+- `RtspStreamSource` (`rtsp_stream.py`)
+
+`camera_runtime` và `decode_tier` đều đi qua `open_stream_source`, nên đổi manifest
+sang camera thật không cần sửa code. Mỗi call site còn hardcode một trong hai class
+là một chỗ sẽ hỏng khi chuyển — hiện chỉ còn `backend/tools/diag_infer_modules.py`,
+là công cụ bench nên chấp nhận được.
 
 Hợp đồng:
 - Trả frame theo wall-clock.
@@ -362,59 +380,77 @@ Khi đó pipeline `storage_intrusion_v1` và `cold_storage_intrusion_v1` vẫn �
 
 ### 9.5. Perception Stack
 
-Perception stack là tập module có thể tái sử dụng giữa nhiều pipeline:
-- person detector / pose
-- tracker
-- role assignment
-- till detector
-- face detect + align + embed + match
+Perception stack là tập module tái sử dụng giữa nhiều pipeline
+(`backend/src/perception/`):
+- person detector / pose — `stream_track.py`
+- tracker — `uae_tracker.py`
+- role assignment — `zones.py`
+- till detector — `run_counter.py`
+- face detect + align + embed + match — `face_align.py`, `face_identity.py`
 
-Đầu ra của nó là `PerceptionFrame`.
+**Cập nhật 2026-08-30: bản cũ nói "đầu ra của nó là `PerceptionFrame`". Class đó
+chưa từng tồn tại.** Ở kiến trúc split, model chạy trong inference tier và kết quả
+đi qua queue dưới dạng mảng/tuple thuần, không đóng gói thành một object chung —
+`SharedInferenceRegistry` giữ session, `_BatchRunner` gom batch.
 
 ### 9.6. Pipeline Logic
 
-Mỗi pipeline nhận:
-- `FrameEnvelope`
-- `PerceptionFrame`
-- `PipelineContext`
+**Cập nhật 2026-08-30: bản cũ mô tả interface `(FrameEnvelope, PerceptionFrame,
+PipelineContext) -> (DomainEvent[], AlertCandidate[])`. Không có class nào trong
+bốn cái đó tồn tại.** Interface thật:
 
-Và trả:
-- zero hoặc nhiều `DomainEvent`
-- zero hoặc nhiều `AlertCandidate`
+```python
+class SomePipeline:
+    def process_frame(self, frame: FrameEnvelope) -> None: ...
+    def finalize(self) -> int: ...
+```
 
-### 9.7. Alert Service
+Pipeline **không trả event**. Nó tự gọi `alert_store.create_alert()` /
+`add_alert_media()` (mục 11.4) khi quyết định có alert, và giữ state của chính nó
+giữa các frame — đó là lý do mỗi camera phải có một instance riêng (mục 3.3), và
+lý do `problem2_fsm` phải được nạp thành bản copy riêng cho từng camera.
 
-Trách nhiệm:
-- Chuyển `AlertCandidate` thành alert persisted
-- Cắt evidence clip/snapshot/face chip
-- Ghi DB
-- Đẩy thông báo sang frontend stream
+`finalize()` trả số alert còn treo được đóng lại lúc kết thúc run.
 
-### 9.8. Event Store
+### 9.7. Đường alert
 
-Phase local:
-- SQLite
+**Cập nhật 2026-08-30: bản cũ mô tả một "Alert Service" gom hết trách nhiệm. Không
+có service nào như vậy; việc chia cho bốn thành phần, và ranh giới giữa chúng là
+điều đáng biết.**
 
-Phase cloud:
-- Neon
+| thành phần | việc |
+|---|---|
+| `AlertClipBuffer` | ring buffer pre/post-event, cắt clip và snapshot |
+| `LocalMediaStore` | ghi file xuống đĩa |
+| `AlertOutbox` | sinh `alert_id` trả về **ngay**, đẩy việc ghi cho một writer thread |
+| `SqliteAlertStore` / `PostgresAlertStore` / `CloudAlertSink` | sink thật, chọn qua `sink_factory` |
 
-Lưu ý:
-- DB chính lưu business objects
-- Không lưu full frame-perception vào bảng chính
+"Đẩy thông báo sang frontend stream" ở bản cũ **chưa tồn tại** — chưa có API
+(mục 23).
 
-### 9.9. Media Store
+Vì sao `AlertOutbox` đứng giữa: pipeline cần `alert_id` ngay lập tức (dùng làm tên
+thư mục ghi clip) nhưng **không** cần row đã nằm trong DB tại thời điểm đó — trong
+một run không ai đọc alert ngược ra. Khoảng hở đó cho phép đẩy việc ghi ra khỏi
+thread pipeline. Một writer thread chứ không phải pool, vì thứ tự kiểu khoá ngoại
+(row `alerts` phải có trước `alert_media` trỏ vào nó) chỉ đúng khi có một người ghi.
 
-Phase local:
-- filesystem local
+### 9.8. Event Store và Media Store
 
-Phase cloud:
-- Cloudflare R2
+**Cập nhật 2026-08-30: bản cũ chia "phase local" và "phase cloud". Không còn là hai
+giai đoạn nối tiếp — cả hai chạy song song hôm nay, chọn bằng
+`--storage-mode {local-db,cloud-db}` (mục 17).**
 
-Media cần lưu:
-- alert clip
-- snapshot
-- face chip
-- optional debug montage
+| | metadata | media |
+|---|---|---|
+| `local-db` | SQLite | filesystem |
+| `cloud-db` | Neon Postgres | Cloudflare R2 |
+
+Media lưu: alert clip, snapshot, face chip. Ở `cloud-db`, file **luôn ghi xuống đĩa
+local trước** (nhanh, không phụ thuộc mạng) rồi mới upload R2 và lưu **object key**
+thay vì path local.
+
+DB chính chỉ lưu business object. Không lưu perception từng frame vào bảng chính
+(mục 13).
 
 ## 10. Quy tắc cho person tracking nhiều camera
 
@@ -437,84 +473,62 @@ vẫn thuộc từng camera runtime.
 
 ## 11. Internal contracts
 
+**Cập nhật 2026-08-30: mục này từng liệt kê 5 contract. Bốn trong số đó —
+`PerceptionFrame`, `DomainEvent`, `AlertCandidate`, `PersistedAlert` — **chưa từng
+được viết**; grep toàn bộ `backend/src` cho ra 0 kết quả cho cả bốn cái tên. Dưới
+đây là các contract thật, đọc từ `backend/src/domain/models.py`.**
+
 ### 11.1. FrameEnvelope
+
+Một frame kèm toàn bộ ngữ cảnh của nó. Bản cũ thiếu 5 field:
 
 ```text
 FrameEnvelope
-- store_id
-- camera_id
-- camera_type
-- frame_idx
-- ts_utc
-- simulated_local_ts (optional nhưng nên có trong local-dev)
-- source_kind
-- source_uri
+- company_id, store_id, camera_id, camera_type
+- frame_idx, ts_utc, simulated_local_ts
+- source_kind, source_uri, source_path
+- source_frame_idx, source_time_s, loop_index   # vị trí trong file nguồn
 - image_bgr
 ```
 
-### 11.2. PerceptionFrame
+`source_frame_idx` / `source_time_s` / `loop_index` tách "frame thứ mấy của
+pipeline" khỏi "frame thứ mấy của file nguồn" — cần thiết vì
+`loop_to_duration` phát lại cùng một file nhiều vòng.
 
-```text
-PerceptionFrame
-- persons[]
-- tracks[]
-- roles[]
-- till_states[]
-- faces[]
-- zone_hits[]
-- debug_refs
+### 11.2. FrameMeta — không có trong bản cũ, nhưng là trục của split architecture
+
+`FrameEnvelope` trừ đi pixel.
+
+`image_bgr` là field duy nhất quá lớn để đi qua queue multiprocessing: pickle một
+mảng 1080p tốn **35.6 ms**, so với **0.85 ms** cho một chỉ số slot (đo trong
+`dev/tools/diag_ipc.py`). Nên decode tier giữ pixel trong `FrameRing` và chỉ gửi
+`FrameMeta`; business tier ghép lại thành `FrameEnvelope` đầy đủ bằng
+`to_envelope()` sau khi đọc frame ra khỏi ring.
+
+Đây chính là lý do kiến trúc split khả thi — bỏ qua nó thì §6 không giải thích được.
+
+### 11.3. CameraStreamSpec / CameraPipelineBindingSpec
+
+Manifest sau khi parse. `camera_specs_from_manifests()` gộp nhiều store thành một
+danh sách phẳng; `store_id` chỉ là một field trên mỗi spec, và đó là toàn bộ cơ chế
+multi-store ở tầng compute.
+
+### 11.4. Đường alert: không phải dataclass
+
+Bản cũ vẽ `AlertCandidate` → `PersistedAlert` như hai contract. Thực tế pipeline gọi
+thẳng **một chữ ký hàm**, giống nhau ở cả ba store backend (SQLite, Postgres, Cloud):
+
+```python
+create_alert(*, store_id, camera_id, run_id, pipeline_type, event_type,
+             severity, opened_at, identity_person_id, identity_label,
+             identity_score, reason_codes, metadata=None,
+             status="open", alert_id=None) -> alert_id
 ```
 
-### 11.3. DomainEvent
-
-```text
-DomainEvent
-- store_id
-- camera_id
-- pipeline_type
-- event_type
-- ts_utc
-- track_ref
-- identity_ref
-- reason_codes[]
-- payload_json
-```
-
-### 11.4. AlertCandidate
-
-```text
-AlertCandidate
-- store_id
-- camera_id
-- pipeline_type
-- event_type
-- severity
-- opened_at
-- identity_decision
-- reason_codes[]
-- evidence_request
-- metadata_json
-```
-
-### 11.5. PersistedAlert
-
-```text
-PersistedAlert
-- alert_id
-- store_id
-- camera_id
-- pipeline_type
-- event_type
-- severity
-- status
-- opened_at
-- closed_at
-- identity_person_id
-- identity_label
-- identity_score
-- reason_codes_json
-- metadata_json
-```
+Chính chữ ký này — chứ không phải một class — là thứ cho `AlertOutbox` thay sink
+mà business tier không đổi dòng nào. Hình dạng đã lưu là **các cột bảng `alerts`**
+(mục 12.2), và có hai cột bản cũ không nhắc: `reviewed_by`, `review_note` (thêm
+cùng owner accounts, mục 12.4).
 
 ## 12. Data model cho DB chính
 
@@ -580,6 +594,8 @@ thứ được seed lại từ chính các file đó lúc chạy (`seed_store_to
 - `identity_score`
 - `reason_codes_json`
 - `metadata_json`
+- `reviewed_by` FK → `owners` — thêm cùng owner accounts (12.4)
+- `review_note`
 
 #### `alert_media`
 - `media_id` PK
@@ -772,6 +788,12 @@ Hệ thống phải config-driven.
 
 ### 18.1. Store manifest
 
+**Cập nhật 2026-08-30: ví dụ dưới đây viết bằng YAML và dùng khoá `type:`.
+Manifest thật là **JSON**, và khoá là **`camera_type`** — `local_config.py:88` đọc
+`camera["camera_type"]`, nên `type:` sẽ `KeyError`. `access_schedule` cũng không có
+khoá `timezone`; timezone khai ở cấp store. Giữ ví dụ ở dạng YAML cho dễ đọc, nhưng
+đừng copy nguyên xi.**
+
 Mỗi store cần có manifest:
 
 ```yaml
@@ -785,7 +807,7 @@ runtime:
     started_at_local: "2026-08-23T20:30:00"
 cameras:
   - camera_id: counter_1
-    type: counter
+    camera_type: counter        # JSON thật: "camera_type"
     stream:
       input_mode: video_file
       uri: data/videos/cctv_counter/top-side-view.mp4
@@ -804,7 +826,7 @@ cameras:
     pipelines:
       - pipeline_id: counter_cash_theft_v1
   - camera_id: storage_1
-    type: storage
+    camera_type: storage
     stream:
       input_mode: rtsp
       uri: rtsp://user:pass@cam-ip/stream
@@ -823,8 +845,7 @@ cameras:
       - pipeline_id: storage_intrusion_v1
         params:
           entry_confirm_seconds: 1.0
-          access_schedule:
-            timezone: Asia/Ho_Chi_Minh
+          access_schedule:          # không có khoá timezone ở đây
             allowed_windows:
               - days: [mon, tue, wed, thu, fri, sat, sun]
                 start: "08:00"
@@ -963,11 +984,14 @@ nên nó không còn là kế hoạch — dưới đây là trạng thái, kèm 
 | Counter cash theft | xong | `counter_cash_theft.py` |
 | Whole store tracking | xong | `tracking_baseline.py` |
 | Neon Postgres + R2 | xong, verify chạy thật | mục 17.2 |
-| RTSP source | **`NotImplementedError`** | mục 9.4, `RTSP_MIGRATION.md` |
-| API frontend (REST/SSE/WS) | **chưa làm** | mục 24 |
+| `RtspStreamSource` | code xong, **chưa từng đo** | `RTSP_MIGRATION.md` bước 3-5 |
+| API frontend (REST/SSE/WS) | **chưa làm** | mục 23 |
 
-Hai dòng cuối là phần thật sự còn lại. Mọi số benchmark đến nay đều đọc file từ
-đĩa, chưa qua RTSP thật.
+`RtspStreamSource` đã implement (28/08) và `open_stream_source()` đã dispatch theo
+`source_kind`, nên `camera_runtime` và `decode_tier` chuyển sang camera thật không
+cần sửa code. Cái còn thiếu là **số đo**: mọi benchmark đến nay đều đọc file từ đĩa
+với `pace_realtime=False`. Biên hiện tại 1.55×; nếu RTSP tốn thêm 20-30% thì tụt
+còn ~1.2×, và con số đó quyết định một box gánh được mấy cửa hàng.
 
 ## 23. Open questions cần ADR riêng
 

@@ -114,6 +114,5 @@ cho một cửa hàng. Đủ biên an toàn, nhưng **là ngoại suy, chưa đo
 
 ### Chưa đo, phải đo trước khi chốt mua
 
-- Toàn bộ số trên đọc **file video từ đĩa**, `pace_realtime=False`. `source_kind=rtsp`
-  vẫn `NotImplementedError` — chưa có số nào tính jitter mạng, mất gói, hay chờ keyframe.
+- Toàn bộ số trên đọc **file video từ đĩa**, `pace_realtime=False`. `source_kind=rtsp` **chưa từng được đo** (lúc viết bản này nó còn là `NotImplementedError`; `RtspStreamSource` được implement 28/08, một ngày sau — nhưng vẫn chưa có bench nào chạy qua nó) — chưa có số nào tính jitter mạng, mất gói, hay chờ keyframe.
 - Chưa chạy trên card tiêu dùng thật.
