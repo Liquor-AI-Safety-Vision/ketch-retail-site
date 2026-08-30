@@ -9,19 +9,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from backend.src.common.paths import repo_root
 from backend.src.common.timing import TimingCollector
 
-ROOT = repo_root()
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-if str(ROOT / "scripts") not in sys.path:
-    sys.path.insert(0, str(ROOT / "scripts"))
 
-import stream_track as S  # noqa: E402
-import warehouse  # noqa: E402
-from face_identity import MatchDecision  # noqa: E402
-from uae_tracker import Detection, Tracker  # noqa: E402
+from backend.src.perception import stream_track as S  # noqa: E402
+from backend.src.perception import warehouse  # noqa: E402
+from backend.src.perception.face_identity import MatchDecision  # noqa: E402
+from backend.src.perception.uae_tracker import Detection, Tracker  # noqa: E402
 
 from backend.src.domain.models import CameraPipelineBindingSpec, CameraStreamSpec, FrameEnvelope
 from backend.src.infra.local_media_store import LocalMediaStore
@@ -29,6 +23,7 @@ from backend.src.infra.sqlite_alert_store import SqliteAlertStore
 from backend.src.pipelines.alert_clip_buffer import AlertClipBuffer, FinalizedAlertClip
 from backend.src.pipelines.track_quality import record_track_quality
 from backend.src.runtime.shared_inference import SharedFaceIdentifier, SharedInferenceRegistry
+from backend.src.common.paths import model_path
 
 
 DAY_NAMES = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
@@ -236,11 +231,11 @@ class StorageIntrusionPipeline:
     def _bootstrap(self, frame: FrameEnvelope):
         pose_model = self.spec.perception_profile.get("person_detector", {}).get(
             "model_path",
-            str(ROOT / "models/yolo26m-pose.onnx"),
+            model_path("yolo26m-pose.onnx"),
         )
         reid_model = self.spec.perception_profile.get("person_tracker", {}).get(
             "reid_model_path",
-            str(ROOT / "models/osnet_x0_25_msmt17.onnx"),
+            model_path("osnet_x0_25_msmt17.onnx"),
         )
         conf = float(
             self.spec.perception_profile.get("person_detector", {}).get("conf_thres", 0.45)
@@ -277,10 +272,10 @@ class StorageIntrusionPipeline:
                 with self.timing.track("bootstrap::face"):
                     self.face_identifier = SharedFaceIdentifier(
                         face_detector=self.shared_inference.get_face_detector(
-                            str(ROOT / "models/yolov6s_face.onnx")
+                            model_path("yolov6s_face.onnx")
                         ),
                         arcface=self.shared_inference.get_arcface(
-                            str(ROOT / "models/ms1mv3_arcface_r18.onnx")
+                            model_path("ms1mv3_arcface_r18.onnx")
                         ),
                         gallery_db_path=self.gallery_db_path,
                         face_conf=float(face_cfg.get("face_conf", 0.20)),
@@ -290,12 +285,12 @@ class StorageIntrusionPipeline:
                         match_margin=float(face_cfg.get("match_margin", 0.10)),
                     )
             else:
-                from face_identity import FaceIdentifier  # noqa: E402
+                from backend.src.perception.face_identity import FaceIdentifier  # noqa: E402
 
                 providers = ["CPUExecutionProvider"] if self.cpu_only else None
                 self.face_identifier = FaceIdentifier(
-                    str(ROOT / "models/yolov6s_face.onnx"),
-                    str(ROOT / "models/ms1mv3_arcface_r18.onnx"),
+                    model_path("yolov6s_face.onnx"),
+                    model_path("ms1mv3_arcface_r18.onnx"),
                     self.gallery_db_path,
                     providers=providers,
                     prefer_coreml=not self.cpu_only,

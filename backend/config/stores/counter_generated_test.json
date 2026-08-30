@@ -28,7 +28,7 @@
       "camera_type": "counter",
       "stream": {
         "input_mode": "video_file",
-        "uri": "${REPO_ROOT}/videos/counter-generated/Left/cvlp_h3_00043_.mp4",
+        "uri": "${DATA_ROOT}/videos/counter-generated/Left/cvlp_h3_00043_.mp4",
         "simulation": {
           "strategy": "trim",
           "start_s": 0,
@@ -57,7 +57,7 @@
           "params": {
             "suppress_if_customer_recent": true,
             "customer_recent_window_s": 3.0,
-            "zones_path": "${REPO_ROOT}/outputs/top-side-view/top-side-view_zones.json",
+            "zones_path": "${BACKEND_ROOT}/config/zones/top_side_view_zones.json",
             "till_conf": 0.7,
             "till_confirm_frames": 5,
             "alert_clip": {
@@ -74,7 +74,7 @@
       "camera_type": "counter",
       "stream": {
         "input_mode": "video_file",
-        "uri": "${REPO_ROOT}/videos/counter-generated/Left/cvlp_h3_00045_.mp4",
+        "uri": "${DATA_ROOT}/videos/counter-generated/Left/cvlp_h3_00045_.mp4",
         "simulation": {
           "strategy": "trim",
           "start_s": 0,
@@ -103,7 +103,7 @@
           "params": {
             "suppress_if_customer_recent": true,
             "customer_recent_window_s": 3.0,
-            "zones_path": "${REPO_ROOT}/outputs/top-side-view/top-side-view_zones.json",
+            "zones_path": "${BACKEND_ROOT}/config/zones/top_side_view_zones.json",
             "till_conf": 0.7,
             "till_confirm_frames": 5,
             "alert_clip": {
@@ -120,7 +120,7 @@
       "camera_type": "counter",
       "stream": {
         "input_mode": "video_file",
-        "uri": "${REPO_ROOT}/videos/counter-generated/Right/cvlp_h3_00013_.mp4",
+        "uri": "${DATA_ROOT}/videos/counter-generated/Right/cvlp_h3_00013_.mp4",
         "simulation": {
           "strategy": "trim",
           "start_s": 0,
@@ -149,7 +149,7 @@
           "params": {
             "suppress_if_customer_recent": true,
             "customer_recent_window_s": 3.0,
-            "zones_path": "${REPO_ROOT}/outputs/top-side-view/top-side-view_zones.json",
+            "zones_path": "${BACKEND_ROOT}/config/zones/top_side_view_zones.json",
             "till_conf": 0.7,
             "till_confirm_frames": 5,
             "alert_clip": {
@@ -166,7 +166,7 @@
       "camera_type": "counter",
       "stream": {
         "input_mode": "video_file",
-        "uri": "${REPO_ROOT}/videos/counter-generated/Right/cvlp_h3_00019_.mp4",
+        "uri": "${DATA_ROOT}/videos/counter-generated/Right/cvlp_h3_00019_.mp4",
         "simulation": {
           "strategy": "trim",
           "start_s": 0,
@@ -195,7 +195,7 @@
           "params": {
             "suppress_if_customer_recent": true,
             "customer_recent_window_s": 3.0,
-            "zones_path": "${REPO_ROOT}/outputs/top-side-view/top-side-view_zones.json",
+            "zones_path": "${BACKEND_ROOT}/config/zones/top_side_view_zones.json",
             "till_conf": 0.7,
             "till_confirm_frames": 5,
             "alert_clip": {

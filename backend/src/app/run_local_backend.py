@@ -9,8 +9,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-if str(ROOT / "scripts") not in sys.path:
-    sys.path.insert(0, str(ROOT / "scripts"))
 
 from backend.src.runtime.perf import cap_native_threads
 
@@ -43,6 +41,7 @@ cap_native_threads(_early_native_threads(sys.argv))
 
 from backend.src.infra.local_config import camera_specs_from_manifest  # noqa: E402
 from backend.src.runtime.supervisor import RuntimeSupervisor  # noqa: E402
+from backend.src.common.paths import backend_root
 
 
 def _parse_camera_float_map(raw: str | None) -> dict[str, float]:
@@ -87,19 +86,19 @@ def main():
     p = argparse.ArgumentParser(description="Run local backend runtime on virtual camera streams.")
     p.add_argument(
         "--manifest",
-        default=str(ROOT / "backend/config/stores/local_dev_store.json"),
+        default=str(backend_root() / "config/stores/local_dev_store.json"),
     )
     p.add_argument(
         "--db-path",
-        default=str(ROOT / "backend/data/local_dev.sqlite"),
+        default=str(backend_root() / "data/local_dev.sqlite"),
     )
     p.add_argument(
         "--gallery-db",
-        default=str(ROOT / "backend/data/local_dev.sqlite"),
+        default=str(backend_root() / "data/local_dev.sqlite"),
     )
     p.add_argument(
         "--media-root",
-        default=str(ROOT / "backend/data/alerts"),
+        default=str(backend_root() / "data/alerts"),
     )
     p.add_argument(
         "--camera-ids",

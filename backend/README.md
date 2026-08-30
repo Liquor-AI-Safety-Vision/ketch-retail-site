@@ -1,27 +1,63 @@
 # Backend
 
-Thư mục này là khu phát triển mới cho hệ thống backend production-shape.
+Đơn vị ship. Copy riêng thư mục này lên một box GPU, cài
+`requirements.txt`, là chạy được — không cần phần còn lại của repo.
 
-Mục tiêu:
-- Tách riêng code hệ thống mới khỏi `scripts/` đang dùng cho POC, benchmark và demo.
-- Giữ được cùng một logic nghiệp vụ, nhưng đưa về runtime/cơ cấu phù hợp backend thật.
-- Cho phép triển khai local trước, sau đó nâng cấp lên Neon + Cloudflare mà không đập đi làm lại.
+Đó không phải mô tả nguyện vọng mà là một hợp đồng có test giữ:
+`tests/test_backend_standalone.py` copy `backend/` sang thư mục trống rồi import
+từng module trong interpreter mới. Nếu bất kỳ module nào với ra ngoài, test đỏ.
 
-Nguyên tắc tổ chức:
-- `docs/`: tài liệu solution architecture, implementation notes, ADR.
-- `src/`: code backend chính.
-- `config/`: config mẫu, store/camera/pipeline binding, zone asset manifests.
-- `sql/`: schema SQL và migration local-first.
-- `tests/`: test cho runtime, adapters và pipeline contracts.
+## Cấu trúc
 
-Tài liệu bắt đầu:
-- [docs/SOLUTION_ARCHITECTURE.md](/Users/ngoquangduc/Desktop/workspace/liquir_store/backend/docs/SOLUTION_ARCHITECTURE.md)
-- [docs/EXECUTION_PLAN.md](/Users/ngoquangduc/Desktop/workspace/liquir_store/backend/docs/EXECUTION_PLAN.md)
-- [config/stores/local_dev_store.json](/Users/ngoquangduc/Desktop/workspace/liquir_store/backend/config/stores/local_dev_store.json)
+| | |
+| --- | --- |
+| `src/perception/` | Detector, tracker, zone FSM, face align/identity, till. Lõi thị giác. |
+| `src/pipelines/` | Nghiệp vụ: counter cash theft, storage intrusion, tracking baseline. |
+| `src/runtime/` | Split architecture: decode / inference / business tier, ring buffer, supervisor. |
+| `src/infra/` | Alert store (SQLite + Postgres), media store (local + R2). |
+| `src/app/` | Entry point: `run_split_pipeline.py`, `run_local_backend.py`, `regression.py`. |
+| `config/` | Manifest store/camera/pipeline, zone, staff seed. |
+| `models/` | 7 ONNX mà runtime thật sự nạp. |
+| `tools/` | Bộ đo bench và test runner. |
 
-Lưu ý:
-- `scripts/` vẫn là nguồn module/pipeline POC hiện tại và sẽ được tái sử dụng có chọn lọc.
-- Code mới cho backend không nên mở rộng tiếp trong `scripts/` trừ khi đó là benchmark/inspection.
-- Manifest local-dev hiện đã mô tả cả hai hướng nguồn vào:
-  - `video_file` để giả lập streaming trên máy local
-  - `rtsp` để sau này thay bằng camera thật mà không đổi business schema
+## Đường dẫn
+
+Ba gốc, tách nhau vì chúng di chuyển độc lập (`src/common/paths.py`):
+
+- `backend_root()` — code, model, config. Luôn suy ra từ `__file__`, không bao
+  giờ từ biến môi trường hay cwd.
+- `data_root()` — footage, dataset. Đổi bằng `LIQUIR_DATA_ROOT`.
+- `outputs_dir()` — artefact chạy ra. Đổi bằng `LIQUIR_OUTPUT_ROOT`.
+
+Config dùng `${BACKEND_ROOT}` và `${DATA_ROOT}`. `${REPO_ROOT}` cũ vẫn được chấp
+nhận và ánh xạ về `data_root()` — mọi chỗ nó từng xuất hiện trong manifest đều là
+đường dẫn video.
+
+## Test
+
+```bash
+python3 tools/run_tests_nopytest.py tests/test_backend_standalone.py
+```
+
+Không cần pytest: box GPU thường không có, và một bộ test không chạy được ở nơi
+cần nó nhất thì không bảo vệ được gì.
+
+Hai test giữ cấu trúc:
+
+- `test_backend_standalone.py` — backend không cần ai.
+- `test_repo_layout.py` — `dev/` và `demo/` vẫn gọi được vào backend, và backend
+  không gọi ngược ra.
+
+## Lưu ý vận hành
+
+**Gọi `cap_native_threads()` trước khi import numpy, cv2 hay onnxruntime.** BLAS
+sizing thread pool một lần lúc load thư viện; cap sau đó là lệnh rỗng. Vi phạm
+luật này từng làm mất 5× runtime và tốn bốn vòng bisect để tìm ra —
+`docs/backend/benchmarks/2026-08-26-till-thread-pool-oversizing.md`.
+
+**Đừng tin `os.cpu_count()` hay `nproc` trong container.** Đọc cgroup `cpu.max`.
+Box 4070 báo 16 nhưng quota là 15.36; một box vast.ai báo 192 trong khi quota 23.
+
+**Xác minh execution provider bằng `InferenceSession` thật**, không phải
+`get_available_providers()` — cái đó liệt kê thứ wheel được build kèm, không phải
+thứ session sẽ nhận.

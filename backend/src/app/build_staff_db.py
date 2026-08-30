@@ -10,12 +10,12 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "scripts"))
 
-from face_align import FaceDetector, align  # noqa: E402
-from face_identity import FaceIdentifier  # noqa: E402
+from backend.src.perception.face_align import FaceDetector, align  # noqa: E402
+from backend.src.perception.face_identity import FaceIdentifier  # noqa: E402
 
 from backend.src.infra.local_config import load_staff_seed_entries
+from backend.src.common.paths import backend_root, model_path
 
 
 def best_face_in_crop(detector, frame, crop_box, center_t, fps, search_window_s):
@@ -66,15 +66,15 @@ def main():
     p = argparse.ArgumentParser(description=__doc__ or "Build local dev staff SQLite DB")
     p.add_argument(
         "--seed-config",
-        default=str(ROOT / "backend/config/staff_seed/local_dev_staff.json"),
+        default=str(backend_root() / "config/staff_seed/local_dev_staff.json"),
     )
     p.add_argument(
         "--face-model",
-        default=str(ROOT / "models/yolov6s_face.onnx"),
+        default=model_path("yolov6s_face.onnx"),
     )
     p.add_argument(
         "--embed-model",
-        default=str(ROOT / "models/ms1mv3_arcface_r18.onnx"),
+        default=model_path("ms1mv3_arcface_r18.onnx"),
     )
     p.add_argument("--cpu", action="store_true", default=True)
     a = p.parse_args()

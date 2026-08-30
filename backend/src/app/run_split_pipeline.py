@@ -46,8 +46,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-if str(ROOT / "scripts") not in sys.path:
-    sys.path.insert(0, str(ROOT / "scripts"))
 
 # Before anything imports numpy, cv2 or onnxruntime -- see perf.py. Every
 # tier's process is spawned from here and inherits this environment at
@@ -55,6 +53,7 @@ if str(ROOT / "scripts") not in sys.path:
 # read it. Capping inside each process entry point instead was a no-op that
 # cost 5x on every inference call.
 from backend.src.runtime.perf import cap_native_threads  # noqa: E402
+from backend.src.common.paths import backend_root, model_path
 
 cap_native_threads(1)
 
@@ -77,11 +76,11 @@ POSE_BLOB_DTYPE = "float32"
 # Total grace for every tier to exit before they are terminated, shared
 # across all of them rather than applied per process.
 SHUTDOWN_GRACE_S = 30.0
-DEFAULT_POSE_MODEL = str(ROOT / "models/yolo26m-pose.onnx")
-DEFAULT_REID_MODEL = str(ROOT / "models/osnet_x0_25_msmt17.onnx")
-DEFAULT_TILL_MODEL = str(ROOT / "models/till_seg_v4_640.onnx")
-DEFAULT_FACE_MODEL = str(ROOT / "models/yolov6s_face.onnx")
-DEFAULT_ARCFACE_MODEL = str(ROOT / "models/ms1mv3_arcface_r18.onnx")
+DEFAULT_POSE_MODEL = model_path("yolo26m-pose.onnx")
+DEFAULT_REID_MODEL = model_path("osnet_x0_25_msmt17.onnx")
+DEFAULT_TILL_MODEL = model_path("till_seg_v4_640.onnx")
+DEFAULT_FACE_MODEL = model_path("yolov6s_face.onnx")
+DEFAULT_ARCFACE_MODEL = model_path("ms1mv3_arcface_r18.onnx")
 
 
 def _shard(items, n):
@@ -431,10 +430,10 @@ def _load_dotenv(path: Path) -> None:
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--manifest", nargs="+",
-                   default=[str(ROOT / "backend/config/stores/local_dev_store_16cams.json")],
+                   default=[str(backend_root() / "config/stores/local_dev_store_16cams.json")],
                    help="one manifest per store; every camera_id across all of them "
                         "must be unique, since rings and queues are keyed by it")
-    p.add_argument("--db-path", default=str(ROOT / "backend/data/split_run.sqlite"))
+    p.add_argument("--db-path", default=str(backend_root() / "data/split_run.sqlite"))
     # Defaults to db_path itself, not a second file: persons/face_embeddings
     # now live in the same schema as stores/cameras/alerts (see
     # local_dev_schema.sql), and persons.store_id is a real foreign key only
@@ -442,7 +441,7 @@ def main() -> None:
     # keep them apart -- e.g. a gallery seeded once and reused across many
     # disposable benchmark databases -- but that gives up the FK.
     p.add_argument("--gallery-db", default=None)
-    p.add_argument("--media-root", default=str(ROOT / "backend/data/split_alerts"))
+    p.add_argument("--media-root", default=str(backend_root() / "data/split_alerts"))
     p.add_argument("--pose-model", default=DEFAULT_POSE_MODEL)
     p.add_argument("--reid-model", default=DEFAULT_REID_MODEL)
     p.add_argument("--till-model", default=DEFAULT_TILL_MODEL)

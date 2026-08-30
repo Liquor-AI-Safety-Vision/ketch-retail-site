@@ -712,7 +712,7 @@ tầng pose chưa cho được cổ tay đúng ([11.2](#112-hạn-chế-chính))
 |---|---|---|---|
 | Phase 1 | Module dùng chung | Ổn định stream, zone, drawer state, event deduplication | Phần lớn xong, event dedup còn thiếu — xem [Phụ lục D](#phụ-lục-d-trạng-thái-triển-khai) |
 | Phase 2 | Chốt model perception | Quyết định góc camera; nếu giữ top-down thì fine-tune pose model trên footage thật. Điều kiện tiên quyết lý tưởng của Bài 2. | Chưa bắt đầu — **nhưng Phase 3 đã triển khai trước, xem ghi chú rủi ro dưới đây** |
-| Phase 3 | Pipeline A cho Bài 2 | Xây FSM, `active_hand`, trajectory và evidence clip | **Đã code** (`backend/src/pipelines/counter_cash_theft.py`, `scripts/problem2_fsm.py`) — độ tin cậy vị trí cổ tay chưa được Phase 2 xác nhận; còn thiếu 3 điểm đặc tả, xem [Phụ lục D](#phụ-lục-d-trạng-thái-triển-khai) |
+| Phase 3 | Pipeline A cho Bài 2 | Xây FSM, `active_hand`, trajectory và evidence clip | **Đã code** (`backend/src/pipelines/counter_cash_theft.py`, `backend/src/perception/problem2_fsm.py`) — độ tin cậy vị trí cổ tay chưa được Phase 2 xác nhận; còn thiếu 3 điểm đặc tả, xem [Phụ lục D](#phụ-lục-d-trạng-thái-triển-khai) |
 | Phase 4 | Thu thập/label sequence hành vi | Tạo taxonomy normal/suspicious và bộ dữ liệu đa camera | Chưa bắt đầu |
 | Phase 5 | Pipeline B baseline | So sánh ST-GCN với CNN+BiLSTM | Chưa bắt đầu |
 | Phase 6 | Fusion + deployment | Kết hợp rule score và DL probability; tối ưu latency | Chưa bắt đầu |
@@ -836,7 +836,7 @@ Tính đến 28/08/2026.
 | `ZoneCalibration / RoleAssignment` | `zones.py` | Xong (đọc polygon từ file cấu hình, MVP theo [4.3](#43-module-c--phân-chia-phía-nhân-viên-và-phía-khách-hàng)) |
 | `CashDrawerStateDetector` | `run_counter.py::Till`, `TillRegistry`, `TillState` | Xong về debounce N-frame. Thiếu confirm bất đối xứng open/close — gap #2 |
 | `TemporalStateCache` | `till_schedule.py` | Xong (lịch sample/confirm quy đổi theo giây, một nguồn công thức duy nhất) |
-| `Problem2PipelineA` | `backend/src/pipelines/counter_cash_theft.py`, `scripts/problem2_fsm.py` | **Đã code**, đủ 7 state theo [6.1](#61-các-trạng-thái-chính). Chạy trước khi Phase 2 (chốt pose model) xong — xem cảnh báo rủi ro ở [11.3](#113-lộ-trình-triển-khai-đề-xuất). Thiếu gate theo `predicted` — gap #1. Ngưỡng FSM per-camera đã sửa 28/08 (`load_private_fsm`) — gap #3 |
+| `Problem2PipelineA` | `backend/src/pipelines/counter_cash_theft.py`, `backend/src/perception/problem2_fsm.py` | **Đã code**, đủ 7 state theo [6.1](#61-các-trạng-thái-chính). Chạy trước khi Phase 2 (chốt pose model) xong — xem cảnh báo rủi ro ở [11.3](#113-lộ-trình-triển-khai-đề-xuất). Thiếu gate theo `predicted` — gap #1. Ngưỡng FSM per-camera đã sửa 28/08 (`load_private_fsm`) — gap #3 |
 | `Problem2PipelineB` | — | Chưa có |
 | `EvidenceRecorder + AlertPublisher` | `alert_clip_buffer.py`, `sqlite_alert_store.py`, `local_media_store.py` | Xong (ring buffer pre/post-event, snapshot + clip, SQLite alert store) |
 

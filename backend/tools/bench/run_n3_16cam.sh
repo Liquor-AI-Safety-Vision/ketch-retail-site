@@ -7,8 +7,12 @@
 #   - stale .err files from a previous run were misread as new results
 #   - one orphaned nvidia-smi kept writing another run's VRAM log
 set -u
-cd /workspace/liquir_store
-OUT=outputs/bench16_4070
+# Repo root from this script's own location, not a hardcoded box path: the
+# bench now runs from a checkout wherever it sits, and backend/ is the only
+# directory that has to be present for the pipeline itself.
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+cd "$REPO"
+OUT=dev/outputs/bench16_4070
 mkdir -p "$OUT"
 
 cleanup() {
@@ -48,7 +52,7 @@ for i in 1 2 3; do
   VPID=$!
 
   echo "run $i started $(date -u +%H:%M:%S)" >> "$OUT/n3_progress"
-  PYTHONPATH=/workspace/liquir_store timeout 1800 /venv/main/bin/python \
+  PYTHONPATH="$REPO" timeout 1800 /venv/main/bin/python \
     backend/tools/diag_split_tiers.py --layer all \
     --cameras 16 --duration 180 \
     --decoders 8 --inferers 2 --infer-threads 8 --business 4 \

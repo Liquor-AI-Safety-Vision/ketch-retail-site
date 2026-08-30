@@ -30,16 +30,15 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from backend.src.common.paths import backend_root, model_path
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-if str(ROOT / "scripts") not in sys.path:
-    sys.path.insert(0, str(ROOT / "scripts"))
 
-POSE_MODEL = ROOT / "models/yolo26m-pose.onnx"
-REID_MODEL = ROOT / "models/osnet_x0_25_msmt17.onnx"
-MANIFEST = ROOT / "backend/config/stores/local_dev_store_16cams.json"
+POSE_MODEL = Path(model_path("yolo26m-pose.onnx"))
+REID_MODEL = Path(model_path("osnet_x0_25_msmt17.onnx"))
+MANIFEST = backend_root() / "config/stores/local_dev_store_16cams.json"
 CAMERA_ID = "storage_1"
 
 pytestmark = pytest.mark.skipif(
@@ -72,8 +71,8 @@ def _local_tracks(spec):
     so they are not what this test is checking; the split's own zone/entry
     logic isn't a second implementation to drift against.
     """
-    import stream_track as S
-    from uae_tracker import Detection, Tracker
+    from backend.src.perception import stream_track as S
+    from backend.src.perception.uae_tracker import Detection, Tracker
 
     from backend.src.runtime.shared_inference import SharedInferenceRegistry
     from backend.src.runtime.virtual_video_stream import VirtualVideoStreamSource
@@ -115,12 +114,12 @@ def _split_run(spec, tmp_path):
     biz_stats, _all_stats, _load_s = run(
         [spec], decoders=1, inferers=1, infer_threads=1, businesses=1,
         pose_model=str(POSE_MODEL), reid_model=str(REID_MODEL),
-        till_model=str(ROOT / "models/till_seg_v4_640.onnx"), till_imgsz=640,
-        face_model=str(ROOT / "models/yolov6s_face.onnx"),
-        arcface_model=str(ROOT / "models/ms1mv3_arcface_r18.onnx"),
+        till_model=model_path("till_seg_v4_640.onnx"), till_imgsz=640,
+        face_model=model_path("yolov6s_face.onnx"),
+        arcface_model=model_path("ms1mv3_arcface_r18.onnx"),
         db_path=str(tmp_path / "test_split.sqlite"),
         media_root=str(tmp_path / "alerts"),
-        gallery_db_path=str(ROOT / "backend/data/local_dev.sqlite"),
+        gallery_db_path=str(backend_root() / "data/local_dev.sqlite"),
         slots_per_camera=8)
     assert len(biz_stats) == 1
     return biz_stats[0]

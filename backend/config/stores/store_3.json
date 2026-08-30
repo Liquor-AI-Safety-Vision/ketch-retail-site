@@ -28,7 +28,7 @@
       "camera_type": "counter",
       "stream": {
         "input_mode": "video_file",
-        "uri": "${REPO_ROOT}/videos/cctv_counter/cash_till_open_2.mp4",
+        "uri": "${DATA_ROOT}/videos/cctv_counter/cash_till_open_2.mp4",
         "simulation": {
           "strategy": "trim",
           "start_s": 0,
@@ -57,7 +57,7 @@
           "params": {
             "suppress_if_customer_recent": true,
             "customer_recent_window_s": 3.0,
-            "zones_path": "${REPO_ROOT}/outputs/top-side-view/top-side-view_zones.json",
+            "zones_path": "${BACKEND_ROOT}/config/zones/top_side_view_zones.json",
             "till_conf": 0.7,
             "till_confirm_frames": 5,
             "alert_clip": {
@@ -75,7 +75,7 @@
       "camera_type": "cold_storage",
       "stream": {
         "input_mode": "video_file",
-        "uri": "${REPO_ROOT}/videos/cctv_storage/storage_1.mp4",
+        "uri": "${DATA_ROOT}/videos/cctv_storage/storage_1.mp4",
         "simulation": {
           "strategy": "trim",
           "start_s": 0,
@@ -109,7 +109,7 @@
           "enabled": true,
           "params": {
             "entry_confirm_seconds": 1.0,
-            "zone_config_path": "${REPO_ROOT}/outputs/zones/storage_zones.json",
+            "zone_config_path": "${BACKEND_ROOT}/config/zones/storage_zones.json",
             "zone_asset_key": "storage_1",
             "face_capture_window": {
               "start_status": "pending_in",
@@ -159,7 +159,7 @@
       "camera_type": "storage",
       "stream": {
         "input_mode": "video_file",
-        "uri": "${REPO_ROOT}/videos/cctv_storage/storage_2.mp4",
+        "uri": "${DATA_ROOT}/videos/cctv_storage/storage_2.mp4",
         "simulation": {
           "strategy": "loop_to_duration",
           "start_s": 0,
@@ -193,7 +193,7 @@
           "enabled": true,
           "params": {
             "entry_confirm_seconds": 1.0,
-            "zone_config_path": "${REPO_ROOT}/outputs/zones/storage_zones.json",
+            "zone_config_path": "${BACKEND_ROOT}/config/zones/storage_zones.json",
             "zone_asset_key": "storage_2",
             "face_capture_window": {
               "start_status": "pending_in",
@@ -243,7 +243,7 @@
       "camera_type": "whole_store",
       "stream": {
         "input_mode": "video_file",
-        "uri": "${REPO_ROOT}/videos/whole_store/whole_store_short.mp4",
+        "uri": "${DATA_ROOT}/videos/whole_store/whole_store_short.mp4",
         "simulation": {
           "strategy": "loop_to_duration",
           "start_s": 0,

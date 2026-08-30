@@ -6,8 +6,12 @@
 # one-liner: that command line contains the pattern, so pkill matches the
 # shell running it and kills itself before nohup ever detaches.
 set -u
-cd /workspace/liquir_store
-OUT=outputs/bench16_4070
+# Repo root from this script's own location, not a hardcoded box path: the
+# bench now runs from a checkout wherever it sits, and backend/ is the only
+# directory that has to be present for the pipeline itself.
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+cd "$REPO"
+OUT=dev/outputs/bench16_4070
 mkdir -p "$OUT"
 
 pkill -9 -f spawn_main         >/dev/null 2>&1
@@ -24,7 +28,7 @@ fi
 rm -f "$OUT/ladder.out" "$OUT/ladder.err"
 echo "ladder started $(date -u +%H:%M:%S)" > "$OUT/ladder_progress"
 
-PYTHONPATH=/workspace/liquir_store timeout 2400 /venv/main/bin/python \
+PYTHONPATH="$REPO" timeout 2400 /venv/main/bin/python \
   backend/tools/diag_split_tiers.py --layer ladder \
   --cameras 16 --duration 180 \
   --decoders 8 --inferers 2 --infer-threads 8 --business 4 \

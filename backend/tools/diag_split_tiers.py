@@ -34,12 +34,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-if str(ROOT / "scripts") not in sys.path:
-    sys.path.insert(0, str(ROOT / "scripts"))
 
 # Before numpy/cv2/onnxruntime load anywhere, including in the tier
 # processes this spawns -- see perf.py.
 from backend.src.runtime.perf import cap_native_threads  # noqa: E402
+from backend.src.common.paths import backend_root, model_path
 
 cap_native_threads(1)
 
@@ -363,7 +362,7 @@ def _roundrobin_by_type(specs: list) -> list:
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--layer", default="all", choices=["decode", "infer", "all", "ladder"])
-    p.add_argument("--manifest", default=str(ROOT / "backend/config/stores/local_dev_store_16cams.json"))
+    p.add_argument("--manifest", default=str(backend_root() / "config/stores/local_dev_store_16cams.json"))
     p.add_argument("--cameras", type=int, default=4)
     p.add_argument("--camera-offset", type=int, default=0)
     p.add_argument("--duration", type=float, default=20.0,
@@ -409,14 +408,14 @@ def main() -> None:
     # Face models included because layer 3 runs the real driver, which starts
     # a face tier for any camera whose manifest enables face identity -- and
     # in the 16-camera manifest, eight of them do.
-    models = {"pose": args.pose_model or str(ROOT / "models/yolo26m-pose.onnx"),
-              "reid": str(ROOT / "models/osnet_x0_25_msmt17.onnx"),
-              "till": args.till_model or str(ROOT / "models/till_seg_v4_640.onnx"),
-              "face": str(ROOT / "models/yolov6s_face.onnx"),
-              "arcface": str(ROOT / "models/ms1mv3_arcface_r18.onnx")}
-    paths = {"db": str(ROOT / "backend/data/diag_split.sqlite"),
-             "media": str(ROOT / "backend/data/diag_split_alerts"),
-             "gallery": str(ROOT / "backend/data/local_dev.sqlite")}
+    models = {"pose": args.pose_model or model_path("yolo26m-pose.onnx"),
+              "reid": model_path("osnet_x0_25_msmt17.onnx"),
+              "till": args.till_model or model_path("till_seg_v4_640.onnx"),
+              "face": model_path("yolov6s_face.onnx"),
+              "arcface": model_path("ms1mv3_arcface_r18.onnx")}
+    paths = {"db": str(backend_root() / "data/diag_split.sqlite"),
+             "media": str(backend_root() / "data/diag_split_alerts"),
+             "gallery": str(backend_root() / "data/local_dev.sqlite")}
 
     layers = ["decode", "infer", "all"] if args.layer == "ladder" else [args.layer]
     print(f"cameras={[s.camera_id for s in specs]} duration={args.duration}s", file=sys.stderr)

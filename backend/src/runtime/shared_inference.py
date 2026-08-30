@@ -13,16 +13,10 @@ import cv2
 import numpy as np
 import onnxruntime as ort
 
-from backend.src.common.paths import repo_root
 
-ROOT = repo_root()
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-if str(ROOT / "scripts") not in sys.path:
-    sys.path.insert(0, str(ROOT / "scripts"))
 
-from face_align import align  # noqa: E402
-from face_identity import FaceGallery, FaceObservation, MatchDecision  # noqa: E402
+from backend.src.perception.face_align import align  # noqa: E402
+from backend.src.perception.face_identity import FaceGallery, FaceObservation, MatchDecision  # noqa: E402
 
 
 ReqT = TypeVar("ReqT")
@@ -625,7 +619,7 @@ class SharedReidService:
     """
 
     def __init__(self, model_path: str, *, cpu_only: bool, num_workers: int = 1):
-        import stream_track as S
+        from backend.src.perception import stream_track as S
 
         S.REID_MODEL = model_path
         S.ORT_PROVIDERS = _preferred_providers(cpu_only)

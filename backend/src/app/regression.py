@@ -40,13 +40,14 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from backend.src.app.compare_sweeps import load  # noqa: E402
+from backend.src.common.paths import outputs_dir
 
 # Alerts and identity came back bit-identical across three repeats of an
 # unchanged build, so this tolerance exists only to absorb a track that
 # starts one frame either side of a boundary, not measurement spread.
 IDENTITY_MARGIN_PCT = 2.0
 
-STORE = ROOT / "outputs" / "regression"
+STORE = outputs_dir() / "regression"
 
 # Counters that ride along in the timing dict but are not durations.
 NON_TIMING = ("tracks_considered", "::calls")

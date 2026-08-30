@@ -36,8 +36,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-if str(ROOT / "scripts") not in sys.path:
-    sys.path.insert(0, str(ROOT / "scripts"))
 
 # numpy is imported below rather than above on purpose: the BLAS pool sizes
 # itself at import and never re-reads the environment, so the cap has to come
@@ -47,10 +45,11 @@ from backend.src.runtime.perf import cap_native_threads  # noqa: E402
 cap_native_threads(1)
 
 import numpy as np  # noqa: E402
+from backend.src.common.paths import backend_root, model_path
 
-POSE_MODEL = str(ROOT / "models/yolo26m-pose.onnx")
-REID_MODEL = str(ROOT / "models/osnet_x0_25_msmt17.onnx")
-TILL_MODEL = str(ROOT / "models/till_seg_v4_640.onnx")
+POSE_MODEL = model_path("yolo26m-pose.onnx")
+REID_MODEL = model_path("osnet_x0_25_msmt17.onnx")
+TILL_MODEL = model_path("till_seg_v4_640.onnx")
 
 
 def _real_frames(n: int, camera_id: str = "counter_1"):
@@ -62,7 +61,7 @@ def _real_frames(n: int, camera_id: str = "counter_1"):
     from backend.src.infra.local_config import camera_specs_from_manifest
     from backend.src.runtime.virtual_video_stream import VirtualVideoStreamSource
 
-    specs = camera_specs_from_manifest(str(ROOT / "backend/config/stores/local_dev_store_16cams.json"))
+    specs = camera_specs_from_manifest(str(backend_root() / "config/stores/local_dev_store_16cams.json"))
     spec = copy.deepcopy(next(s for s in specs if s.camera_id == camera_id))
     spec.target_duration_s = max(4.0, n / max(1.0, spec.target_fps))
     frames = []
@@ -177,7 +176,7 @@ def bench_till_service(frames, sweeps):
 def bench_reid(frames, boxes_per_frame, reid_model, thread_counts=(1, 2, 4)):
     """One private Embedder per thread -- sharing one is a data race on its
     pad buffer, found in the spike, so this measures the shape we actually run."""
-    import stream_track as S
+    from backend.src.perception import stream_track as S
 
     print(f"  Embedder ({reid_model}, private instance per thread)", file=sys.stderr)
     for n_threads in thread_counts:

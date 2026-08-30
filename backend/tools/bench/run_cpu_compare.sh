@@ -13,8 +13,12 @@
 # alone is fast and only slows down under the full stack, the contention is
 # with inference, which is a different fix.
 set -u
-cd /workspace/liquir_store
-OUT=outputs/bench16_4070
+# Repo root from this script's own location, not a hardcoded box path: the
+# bench now runs from a checkout wherever it sits, and backend/ is the only
+# directory that has to be present for the pipeline itself.
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+cd "$REPO"
+OUT=dev/outputs/bench16_4070
 mkdir -p "$OUT"
 P="$OUT/cpu_compare_progress"
 
@@ -42,7 +46,7 @@ run_case() {
   local u0 t0 u1 t1
   u0=$(usage_usec); t0=$(date +%s.%N)
 
-  PYTHONPATH=/workspace/liquir_store timeout 3000 /venv/main/bin/python \
+  PYTHONPATH="$REPO" timeout 3000 /venv/main/bin/python \
     backend/tools/diag_split_tiers.py --layer ladder \
     --manifest "$manifest" --cameras "$ncam" --duration 180 \
     --decoders "$dec" --inferers "$inf" --infer-threads "$thr" --business "$biz" \

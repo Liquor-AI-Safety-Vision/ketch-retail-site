@@ -4,21 +4,16 @@ import sys
 import threading
 from pathlib import Path
 
-from backend.src.common.paths import repo_root
 from backend.src.common.timing import TimingCollector
 
-ROOT = repo_root()
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-if str(ROOT / "scripts") not in sys.path:
-    sys.path.insert(0, str(ROOT / "scripts"))
 
-import stream_track as S  # noqa: E402
-from uae_tracker import Detection, Tracker  # noqa: E402
+from backend.src.perception import stream_track as S  # noqa: E402
+from backend.src.perception.uae_tracker import Detection, Tracker  # noqa: E402
 
 from backend.src.domain.models import CameraPipelineBindingSpec, CameraStreamSpec, FrameEnvelope
 from backend.src.pipelines.track_quality import record_track_quality
 from backend.src.runtime.shared_inference import SharedInferenceRegistry
+from backend.src.common.paths import model_path
 
 
 BOOTSTRAP_LOCK = threading.Lock()
@@ -74,11 +69,11 @@ class TrackingBaselinePipeline:
     def _bootstrap(self, frame: FrameEnvelope):
         pose_model = self.spec.perception_profile.get("person_detector", {}).get(
             "model_path",
-            str(ROOT / "models/yolo26m-pose.onnx"),
+            model_path("yolo26m-pose.onnx"),
         )
         reid_model = self.spec.perception_profile.get("person_tracker", {}).get(
             "reid_model_path",
-            str(ROOT / "models/osnet_x0_25_msmt17.onnx"),
+            model_path("osnet_x0_25_msmt17.onnx"),
         )
         conf = float(
             self.spec.perception_profile.get("person_detector", {}).get("conf_thres", 0.35)

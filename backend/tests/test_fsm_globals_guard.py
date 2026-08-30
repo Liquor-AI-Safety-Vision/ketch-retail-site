@@ -32,8 +32,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-if str(ROOT / "scripts") not in sys.path:
-    sys.path.insert(0, str(ROOT / "scripts"))
 
 
 class _FakeSpec:
@@ -106,7 +104,7 @@ def test_the_shared_module_is_left_alone():
     Other callers -- the standalone scripts the FSM was written for -- still
     import it normally, and a pipeline reaching into it would retune them.
     """
-    import problem2_fsm as shared
+    from backend.src.perception import problem2_fsm as shared
 
     baseline = (shared.FPS, shared.ANY_HAND, shared.WRIST_CONF_TH)
     _FakePipeline("counter_1", 7.0, {"any_hand": True, "wrist_conf_th": 0.9}).configure()
@@ -133,10 +131,10 @@ def test_each_pipeline_gets_a_distinct_module_object():
     first, second = load_private_fsm(), load_private_fsm()
     assert first is not second
     # And neither is the shared one.
-    import problem2_fsm as shared
+    from backend.src.perception import problem2_fsm as shared
     assert first is not shared
 
     # Not registered in sys.modules: the canonical name keeps meaning the
     # canonical module for every other importer.
-    assert sys.modules.get("problem2_fsm") is shared
+    assert sys.modules.get("backend.src.perception.problem2_fsm") is shared
     assert first.__name__ not in sys.modules

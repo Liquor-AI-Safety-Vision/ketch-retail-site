@@ -402,7 +402,7 @@ class InferenceLane:
 
     @staticmethod
     def _build_reid(reid_model: str, cpu_only: bool):
-        import stream_track as S
+        from backend.src.perception import stream_track as S
 
         S.REID_MODEL = reid_model
         S.ORT_PROVIDERS = ["CPUExecutionProvider"] if cpu_only else None

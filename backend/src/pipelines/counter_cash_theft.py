@@ -2,29 +2,21 @@ from __future__ import annotations
 
 import importlib.util
 import itertools
-import sys
 import threading
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
-from backend.src.common.paths import repo_root
 from backend.src.common.timing import TimingCollector
-
-ROOT = repo_root()
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-if str(ROOT / "scripts") not in sys.path:
-    sys.path.insert(0, str(ROOT / "scripts"))
 
 # problem2_fsm is deliberately NOT imported here. Every use goes through
 # self.F, the per-camera copy from load_private_fsm(); a shared module-level
 # alias is exactly what one camera would retune out from under another.
-import stream_track as S  # noqa: E402
-import zones  # noqa: E402
-from run_counter import Till, TillRegistry  # noqa: E402
-from uae_tracker import Detection, Tracker  # noqa: E402
+from backend.src.perception import stream_track as S  # noqa: E402
+from backend.src.perception import zones  # noqa: E402
+from backend.src.perception.run_counter import Till, TillRegistry  # noqa: E402
+from backend.src.perception.uae_tracker import Detection, Tracker  # noqa: E402
 
 from backend.src.domain.models import CameraPipelineBindingSpec, CameraStreamSpec, FrameEnvelope
 from backend.src.infra.local_media_store import LocalMediaStore
@@ -33,6 +25,7 @@ from backend.src.pipelines.alert_clip_buffer import AlertClipBuffer, FinalizedAl
 from backend.src.pipelines.till_schedule import compute_till_schedule
 from backend.src.pipelines.track_quality import record_track_quality
 from backend.src.runtime.shared_inference import SharedInferenceRegistry
+from backend.src.common.paths import model_path, zones_dir
 
 
 BOOTSTRAP_LOCK = threading.Lock()
@@ -64,7 +57,7 @@ def load_private_fsm():
     `import problem2_fsm` stays a single shared module for every other caller,
     and nothing here can be reached by name from outside.
     """
-    source = ROOT / "scripts" / "problem2_fsm.py"
+    source = Path(__file__).resolve().parents[1] / "perception" / "problem2_fsm.py"
     name = f"problem2_fsm__private{next(_FSM_INSTANCE_COUNTER)}"
     spec = importlib.util.spec_from_file_location(name, source)
     if spec is None or spec.loader is None:
@@ -195,9 +188,13 @@ class CounterCashTheftPipeline:
         with self.timing.track("bootstrap::tracker"):
             self.tracker = Tracker(img_h=h, img_w=w, fps=self.spec.target_fps)
 
+        # The default used to point into outputs/, the dev artefact directory,
+        # so a backend unpacked anywhere else came up with no zones at all --
+        # and failed at camera bootstrap rather than at import, where nothing
+        # was looking. Zones are input, not output: they ship with the config.
         zones_path = self.params.get(
             "zones_path",
-            str(ROOT / "outputs/top-side-view/top-side-view_zones.json"),
+            str(zones_dir() / "top_side_view_zones.json"),
         )
         with self.timing.track("bootstrap::zones"):
             divider, _name = zones.load_divider(zones_path, size=(w, h))
@@ -209,11 +206,11 @@ class CounterCashTheftPipeline:
     def _bootstrap(self, frame: FrameEnvelope):
         pose_model = self.spec.perception_profile.get("person_detector", {}).get(
             "model_path",
-            str(ROOT / "models/yolo26m-pose.onnx"),
+            model_path("yolo26m-pose.onnx"),
         )
         reid_model = self.spec.perception_profile.get("person_tracker", {}).get(
             "reid_model_path",
-            str(ROOT / "models/osnet_x0_25_msmt17.onnx"),
+            model_path("osnet_x0_25_msmt17.onnx"),
         )
         conf = float(
             self.spec.perception_profile.get("person_detector", {}).get("conf_thres", 0.35)
@@ -242,7 +239,7 @@ class CounterCashTheftPipeline:
             else:
                 self.emb = _build_embedder()
 
-        till_model_path = self.params.get("till_model_path", str(ROOT / "models/till_seg_v4_640.onnx"))
+        till_model_path = self.params.get("till_model_path", model_path("till_seg_v4_640.onnx"))
         till_imgsz = int(self.params.get("till_imgsz", 640))
         till_conf = float(self.params.get("till_conf", 0.70))
         till_providers = (

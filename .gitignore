@@ -15,24 +15,25 @@ venv/
 .env.*
 !.env.example
 
-# Large local assets and references
-datasets/
-demo/
-models/
-models_fp16/
-/tools/
-uae-main/
-videos/
+# Large binaries. Weights are tracked by neither half of the split: the ones
+# backend needs to run ship with the deployment, not through git.
+backend/models/
+data/
+dev/models_fp16/
+dev/uae-main/
+dev/pdf/node_modules/
+demo/**/*.mp4
 
-# Generated outputs
-outputs/*
-!outputs/zones/
-!outputs/zones/storage_zones.json
-!outputs/top-side-view/
-outputs/top-side-view/*
-!outputs/top-side-view/top-side-view_zones.json
+# Dev scratch: bench logs, frame dumps, regression records, run artefacts.
+dev/outputs/
+dev/bench/*.jpg
+dev/bench/*.jpeg
+dev/bench/*.png
+dev/bench/*.npy
 
-# Runtime data and evidence
+# Runtime data and evidence. Zone configs are NOT here any more -- they are
+# input the pipeline reads at runtime, so they live in backend/config/zones/
+# and are tracked.
 backend/data/alerts/
 backend/data/alerts_runtime_test/
 backend/data/alerts_targeted/
@@ -40,12 +41,7 @@ backend/data/face_artifacts/
 backend/data/*.sqlite
 backend/data/*.sqlite-*
 backend/data/*.lock
-
-# Benchmark scratch artifacts
-bench/*.jpg
-bench/*.jpeg
-bench/*.png
-bench/*.npy
+backend/data/*.json
 
 # mediamtx tu sinh cert cho MoQ/QUIC khi chay rtsp_sim
 auto.crt

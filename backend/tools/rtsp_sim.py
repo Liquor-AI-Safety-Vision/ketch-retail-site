@@ -66,11 +66,12 @@ import json
 import shutil
 import subprocess
 import sys
+from backend.src.common.paths import backend_root, outputs_dir
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_MANIFEST = ROOT / "backend/config/stores/local_dev_store_16cams.json"
-DEFAULT_CONFIG = ROOT / "outputs/rtsp_sim/mediamtx.yml"
+DEFAULT_MANIFEST = backend_root() / "config/stores/local_dev_store_16cams.json"
+DEFAULT_CONFIG = outputs_dir() / "rtsp_sim/mediamtx.yml"
 
 
 def _require(binary: str) -> str:
