@@ -286,15 +286,17 @@ cần để chạy hệ thống.
 
 ### 9.1. Control Plane
 
-Trách nhiệm:
-- Nạp cấu hình store/camera/pipeline
-- Start/stop runtime
-- Query health, metrics, active alerts
-- Expose API cho frontend
+**Cập nhật 2026-08-30: không có component nào tên Control Plane. Trách nhiệm bị
+chia ra và hai trong bốn việc chưa tồn tại.**
 
-Không làm:
-- Không chạy CV inference
-- Không giữ state track logic
+| trách nhiệm | thực tế |
+|---|---|
+| Nạp cấu hình store/camera/pipeline | `infra/local_config.py` |
+| Start/stop runtime | entry point (`run_split_pipeline.py`, `run_local_backend.py`) — chạy một lần rồi thoát, không có start/stop tại runtime |
+| Query health, metrics, active alerts | **chưa có** |
+| Expose API cho frontend | **chưa có** — không có HTTP server nào trong `backend/src` |
+
+Ràng buộc vẫn giữ: không chạy CV inference, không giữ state track logic.
 
 ### 9.2. Runtime Supervisor
 
@@ -674,10 +676,25 @@ Rule đã chốt:
 
 ### 14.2. Match rule
 
-Rule đã chốt:
-- `top1 >= 0.3`
-- `top1 - top2 >= 0.1`
+Rule:
+- `top1 >= match_threshold`
+- `top1 - top2 >= match_margin`
 - Nếu không đạt => `unknown`
+
+Mặc định trong code là `0.30` / `0.10` (`storage_intrusion.py:284`), khớp con số
+"đã chốt" của bản gốc.
+
+**Cập nhật 2026-08-30: manifest KHÔNG thống nhất, và không rõ có chủ đích hay không.**
+
+| manifest | `match_threshold` |
+|---|---|
+| `local_dev_store.json`, `local_dev_store_16cams.json` | 0.30 |
+| `store_1..4.json` | **0.25** |
+
+Tức bốn manifest mang hình dạng production chạy ở ngưỡng **lỏng hơn** doc, còn
+manifest bench thì chạy đúng ngưỡng doc. Ngưỡng thấp hơn = dễ gán tên cho một
+khuôn mặt lạ hơn, nên đây là khác biệt về hành vi, không phải về hiệu năng. `margin`
+thì thống nhất 0.10 ở mọi nơi. **Cần chốt lại một con số.**
 
 ### 14.3. Entry window policy
 
@@ -891,17 +908,21 @@ Nếu sau này cần sâu hơn, cho phép tách device theo module:
 
 ### 18.4. Pipeline registry
 
-Pipeline registry là map:
+**Cập nhật 2026-08-30: chưa có registry. Thực tế là một chuỗi if/elif có nhánh mặc
+định** (`business_tier.py:44-52`, `camera_runtime.py:64-76`):
 
-```text
-pipeline_type -> pipeline factory
+```python
+if pipeline_id == "counter_cash_theft_v1":            -> CounterCashTheftPipeline
+if pipeline_id in {"storage_intrusion_v1",
+                   "cold_storage_intrusion_v1"}:      -> StorageIntrusionPipeline
+return TrackingBaselinePipeline(...)                  # mọi thứ còn lại
 ```
 
-Ví dụ:
-- `counter_cash_theft_v1`
-- `storage_intrusion_v1`
-- `cold_storage_intrusion_v1`
-- `whole_store_tracking_v1`
+Hệ quả phải biết: **`whole_store_tracking_v1` không được khớp theo tên** — nó rơi
+vào nhánh mặc định. Nghĩa là một `pipeline_id` viết sai (`storage_intrusion_v2`,
+hay lỗi chính tả) **không báo lỗi**, nó lặng lẽ chạy tracking baseline: camera vẫn
+chạy, vẫn ra frame, chỉ là không bao giờ có alert. Đây đúng là kiểu hỏng mà một
+registry có kiểm tra tên sẽ chặn được.
 
 ## 18.5. Manifest local-dev hiện tại
 
@@ -945,10 +966,13 @@ Cần có ngay từ đầu:
 - dropped frames
 - failed matches
 
-Phase local có thể:
-- log file
-- SQLite runtime table
-- simple `/health` và `/metrics` JSON
+**Cập nhật 2026-08-30: `/health` và `/metrics` **chưa tồn tại** — không có HTTP
+endpoint nào. Cái đang có:**
+
+- `pipeline_runs.metrics_json` — metric mỗi lần chạy, ghi lúc `finish_run()`
+- stdout của entry point (`print(json.dumps(results))` cuối `run_split_pipeline.py`)
+- `TimingCollector` — profile theo tầng, dùng cho bench
+- `tier_status.py` — health-check giữa các tier process, không phải cho ngoài vào hỏi
 
 ## 21. Bảo mật và boundary
 
