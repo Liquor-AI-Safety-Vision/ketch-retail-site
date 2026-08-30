@@ -109,10 +109,8 @@ def resolve_repo_path(value: str | Path) -> str:
         path = data_root() / path
     return str(path.resolve())
 
-
-# Kept so callers that only ever wanted "the directory above backend" still
-# have a name for it. New code should ask for backend_root() or data_root(),
-# whichever it actually means -- those two used to be the same directory,
-# which is precisely why model paths and video paths got tangled together.
-def repo_root() -> Path:
-    return backend_root().parent
+# There is deliberately no repo_root(). "The directory above backend" is not a
+# thing backend should have an opinion about: it was one name covering models,
+# footage, config and scratch at once, which is exactly how model paths and
+# video paths got tangled. Ask for backend_root() or data_root() by what you
+# actually mean.

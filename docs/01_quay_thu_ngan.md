@@ -830,15 +830,15 @@ Tính đến 28/08/2026.
 
 | Mô-đun | File | Trạng thái |
 |---|---|---|
-| `FrameSampler` | `stream_track.py` | Xong. Thiếu adaptive FPS ([4.1](#41-video-ingestion-và-frame-sampling)) |
-| `PersonPoseDetector` | `stream_track.py` | Xong. YOLO26n-pose ONNX, CoreML EP |
-| `MultiObjectTracker` | `uae_tracker.py` | Xong. DeepSORT 4 pass + OSNet-x0.25 re-id feature. `bbox_source: predicted/detected` được tracker trả về đúng, nhưng **pipeline tiêu thụ nó không dùng tag này** — xem gap #1 dưới đây |
-| `ZoneCalibration / RoleAssignment` | `zones.py` | Xong (đọc polygon từ file cấu hình, MVP theo [4.3](#43-module-c--phân-chia-phía-nhân-viên-và-phía-khách-hàng)) |
-| `CashDrawerStateDetector` | `run_counter.py::Till`, `TillRegistry`, `TillState` | Xong về debounce N-frame. Thiếu confirm bất đối xứng open/close — gap #2 |
-| `TemporalStateCache` | `till_schedule.py` | Xong (lịch sample/confirm quy đổi theo giây, một nguồn công thức duy nhất) |
+| `FrameSampler` | `backend/src/perception/stream_track.py` | Xong. Thiếu adaptive FPS ([4.1](#41-video-ingestion-và-frame-sampling)) |
+| `PersonPoseDetector` | `backend/src/perception/stream_track.py` | Xong. YOLO26n-pose ONNX, CoreML EP |
+| `MultiObjectTracker` | `backend/src/perception/uae_tracker.py` | Xong. DeepSORT 4 pass + OSNet-x0.25 re-id feature. `bbox_source: predicted/detected` được tracker trả về đúng, nhưng **pipeline tiêu thụ nó không dùng tag này** — xem gap #1 dưới đây |
+| `ZoneCalibration / RoleAssignment` | `backend/src/perception/zones.py` | Xong (đọc polygon từ file cấu hình, MVP theo [4.3](#43-module-c--phân-chia-phía-nhân-viên-và-phía-khách-hàng)) |
+| `CashDrawerStateDetector` | `backend/src/perception/run_counter.py::Till`, `TillRegistry`, `TillState` | Xong về debounce N-frame. Thiếu confirm bất đối xứng open/close — gap #2 |
+| `TemporalStateCache` | `backend/src/pipelines/till_schedule.py` | Xong (lịch sample/confirm quy đổi theo giây, một nguồn công thức duy nhất) |
 | `Problem2PipelineA` | `backend/src/pipelines/counter_cash_theft.py`, `backend/src/perception/problem2_fsm.py` | **Đã code**, đủ 7 state theo [6.1](#61-các-trạng-thái-chính). Chạy trước khi Phase 2 (chốt pose model) xong — xem cảnh báo rủi ro ở [11.3](#113-lộ-trình-triển-khai-đề-xuất). Thiếu gate theo `predicted` — gap #1. Ngưỡng FSM per-camera đã sửa 28/08 (`load_private_fsm`) — gap #3 |
 | `Problem2PipelineB` | — | Chưa có |
-| `EvidenceRecorder + AlertPublisher` | `alert_clip_buffer.py`, `sqlite_alert_store.py`, `local_media_store.py` | Xong (ring buffer pre/post-event, snapshot + clip, SQLite alert store) |
+| `EvidenceRecorder + AlertPublisher` | `backend/src/pipelines/alert_clip_buffer.py`, `backend/src/infra/sqlite_alert_store.py`, `backend/src/infra/local_media_store.py` | Xong (ring buffer pre/post-event, snapshot + clip, SQLite alert store) |
 
 ### Lỗ hổng / thiếu so với đặc tả (đo trên code hiện tại, 28/08/2026)
 
@@ -860,14 +860,14 @@ không di chuyển giữa chừng, và `TillRegistry` chỉ ghi nhận toạ đ�
    (`backend/src/pipelines/counter_cash_theft.py`) nhận `_source` từ tracker rồi bỏ
    luôn (`for track, _source in live`), và vòng lặp FSM chạy `F.step(...)` bằng
    `track.kpts` bất kể track đang `detected` hay `predicted`. Vì `Track.kpts` chỉ được
-   cập nhật khi có detection thật (`uae_tracker.py`, `_record_pose`), một track predicted
+   cập nhật khi có detection thật (`backend/src/perception/uae_tracker.py`, `_record_pose`), một track predicted
    vẫn mang keypoints cũ và có thể đẩy state qua `HAND_IN_DRAWER` / `CONCEALED` từ dữ
    liệu không phải của frame hiện tại.
 
 2. **Confirm đối xứng open/close, đặc tả yêu cầu bất đối xứng.**
    Phụ lục A tách riêng `open_confirmation` (0.3–0.5s) và `close_confirmation`
    (0.8–1.5s, dài hơn cố ý để tránh closed giả do occlusion). `TillState.update`
-   (`run_counter.py`) dùng chung một số `confirm` cho cả hai chiều chuyển trạng thái.
+   (`backend/src/perception/run_counter.py`) dùng chung một số `confirm` cho cả hai chiều chuyển trạng thái.
    **Cách sửa đề xuất:** tách `confirm` thành `confirm_open` (giữ ~5 frame) và
    `confirm_close` (dài hơn, ví dụ ~10 frame ở cùng FPS); `TillState.update` so
    streak với `confirm_open` khi ứng viên là "Open", với `confirm_close` khi ứng

@@ -1,7 +1,8 @@
 # 2026-08-26 — Till 57 ms: sáu vòng bisect, và cái thước đo bị hỏng
 
-Ghi lại từ `backend/tools/diag_till.py` + `diag_till_bisect{,2..6}.py` (7 file,
-~820 dòng) trước khi xoá chúng. Nguyên nhân đã tìm ra và cách sửa đã nằm trong
+Ghi lại từ 7 file đã **xoá** (`diag_till.py` + `diag_till_bisect{,2..6}.py`,
+~820 dòng trong `backend/tools/`) — chúng không còn trong cây, xem lịch sử git
+nếu cần đọc code. Nguyên nhân đã tìm ra và cách sửa đã nằm trong
 code (`backend/src/runtime/perf.py`), nhưng **kết quả đo thì chưa được ghi ở
 đâu cả** — đây là cú tối ưu lớn nhất của dự án mà lịch sử benchmark không có
 dòng nào.

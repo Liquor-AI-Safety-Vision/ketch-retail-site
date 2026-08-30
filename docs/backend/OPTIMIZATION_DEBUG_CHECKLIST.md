@@ -239,7 +239,7 @@ Chạy theo thứ tự này. Không nhảy lên full pipeline khi tầng trướ
   (`backend/src/runtime/alert_outbox.py`): mỗi business process có 1 writer thread riêng rút
   hàng đợi, camera-thread không còn block trên I/O ghi. Verify bằng benchmark thật (123.42 vs
   122.22 FPS trước khi tách — không suy giảm) và dùng làm điểm nối cho cloud-db (NeonDB + R2,
-  đã verify chạy thật, xem `dev/outputs/reports/split_architecture_design.html` mục 9 và 11).
+  đã verify chạy thật, xem `docs/backend/split_architecture_design.html` mục 9 và 11).
 - [ ] Không bật clip trong benchmark layer nếu đang tách I/O, nhưng full benchmark phải bật nếu production cần.
 - [ ] Có retention policy cho media benchmark để không đầy disk.
 
@@ -313,18 +313,35 @@ Hypothesis:
 - [ ] Đã ghi tài liệu benchmark trước/sau.
 - [ ] Đã thêm hoặc cập nhật test nếu thay đổi logic.
 
-## 12. Thứ tự ưu tiên để làm ngay
+## 12. Trạng thái ladder
 
-- [ ] Sửa face async để không thể deadlock.
-- [ ] Thêm timeout/health-check/finally cleanup cho split orchestrator.
-- [ ] Thêm metrics JSON chuẩn cho split runtime.
-- [ ] Chạy B0 decode-only 16 cam.
-- [ ] Chạy B1 decode + pose 16 cam.
-- [ ] Chạy B2 decode + pose + ReID 16 cam.
-- [ ] Chạy B3 perception + business, tắt media.
-- [ ] Chạy B4 full pipeline.
-- [ ] Xác định bottleneck lớn nhất bằng số liệu.
-- [ ] Mỗi lần tối ưu chỉ xử lý bottleneck lớn nhất hiện tại.
+**Cập nhật 2026-08-30: mục này từng là danh sách việc "làm ngay", toàn bộ chưa
+tích. Ladder đã chạy xong và bottleneck đã xác định, nên để nguyên danh sách
+trống là nói sai về trạng thái dự án.**
+
+| việc | trạng thái |
+|---|---|
+| Timeout / health-check / cleanup cho split orchestrator | xong — `tier_status.py`, `test_split_cleanup.py` |
+| Ladder decode-only → decode+infer → full stack, 16 cam | xong — `benchmarks/2026-08-27-16cam-4070-multistore.md` |
+| Xác định bottleneck lớn nhất bằng số liệu | xong — **inference** |
+
+Kết quả ladder trên 4070, 16 camera:
+
+| tầng | FPS |
+|---|---|
+| decode only | 375.50 |
+| decode + infer | 99.84 (**−73%**) |
+| full stack | 99.18 (−1%) |
+
+Decode dư **4×**, business tier gần như miễn phí, CPU chỉ dùng 39% quota. Toàn
+bộ chi phí nằm ở inference — nên mọi tối ưu tiếp theo nhắm vào tier đó (batch
+pose lớn hơn, model pose nhẹ hơn, topology inferer×thread), **không phải** NVDEC
+hay decode nhanh hơn.
+
+Còn lại chưa làm: metrics JSON chuẩn cho split runtime (hiện chỉ
+`print(json.dumps(results))` ở cuối `run_split_pipeline.py`).
+
+Luật vẫn giữ: mỗi lần tối ưu chỉ xử lý bottleneck lớn nhất hiện tại.
 
 ## 13. Bảng quyết định nhanh
 

@@ -7,7 +7,7 @@ Ngày cập nhật: `2026-08-23` (mục 12 và 17 vá lại `2026-08-26` cho kh�
 
 **Runtime/process architecture (decode/inference/business/face, số đo thật, process/thread
 map) không còn nằm ở đây nữa — tài liệu sống hiện tại cho phần đó là**
-`dev/outputs/reports/split_architecture_design.html`**, mục 1-12.** Doc này giữ vai trò blueprint
+`docs/backend/split_architecture_design.html`**, mục 1-12.** Doc này giữ vai trò blueprint
 nghiệp vụ/data-model ban đầu; phần data model đã sửa lại cho khớp schema thật ở mục 12, phần
 storage cloud sửa lại ở mục 17.
 
@@ -139,25 +139,28 @@ Mở rộng đã được dự tính:
 - `cashier_presence_v1`
 - các pipeline custom theo từng store
 
-## 5. Tài sản POC hiện có và cách tái sử dụng
+## 5. Perception stack
 
-POC code hiện tại là input cho backend mới, không phải đích đến cuối.
+**Cập nhật 2026-08-30: mục này từng mô tả code POC trong `scripts/` như "input cho
+backend mới, không phải đích đến". Việc chuyển đã xong — các module dưới đây nằm
+trong `backend/src/perception/` và là code chạy thật, không còn là tài sản tham
+chiếu.**
 
-| Module hiện có | Vai trò backend mới |
+| Module | Vai trò |
 |---|---|
-| `backend/src/perception/stream_track.py` | nguồn detector/embedder/draw helper; tách lại thành perception adapter |
-| `backend/src/perception/uae_tracker.py` | core tracker stateful, tái sử dụng |
-| `backend/src/perception/run_counter.py` | tham chiếu cho till detector + role assignment counter |
-| `backend/src/perception/problem2_fsm.py` | rule engine counter cash theft để đưa vào pipeline runtime |
-| `backend/src/perception/warehouse.py` | zone state machine cho storage/cold_storage |
-| `scripts/run_warehouse.py` | tham chiếu offline runner |
-| `backend/src/perception/face_align.py` | face detect + 5-landmark align |
-| `backend/src/perception/face_identity.py` | face embedding + gallery + matching |
+| `stream_track.py` | detector + ReID embedder |
+| `uae_tracker.py` | DeepSORT tracker stateful |
+| `run_counter.py` | till segmentation (`Till`, `TillRegistry`) |
+| `problem2_fsm.py` | rule engine counter cash theft |
+| `warehouse.py` | zone state machine cho storage/cold_storage |
+| `zones.py` | divider, role voter, anchor |
+| `face_align.py` | face detect + 5-landmark align |
+| `face_identity.py` | face embedding + gallery + matching |
 
-Nguyên tắc:
-- Tái sử dụng logic nghiệp vụ.
-- Không tái sử dụng nguyên xi runner/demo offline.
-- Runtime mới phải dựa vào contracts thống nhất.
+Runner offline (`run_warehouse.py`, các `demo_*.py`) **không** đi cùng — chúng ở
+`dev/scripts/` và `demo/`, và phụ thuộc một chiều: dev/demo import vào backend,
+backend không import ngược ra. `backend/tests/test_backend_standalone.py` giữ luật
+này bằng cách copy `backend/` ra thư mục trống rồi import lại từng module.
 
 ## 6. Kiến trúc tổng thể
 
@@ -184,6 +187,26 @@ flowchart LR
     J --> L[API / Frontend Feed]
     K --> L
 ```
+
+**Cập nhật 2026-08-30: sơ đồ trên là đường `local` — mỗi camera một
+`CameraRuntime` tự cầm perception stack của nó. Nó vẫn tồn tại và vẫn dùng
+(`run_local_backend.py`), nhưng KHÔNG phải hình dạng đo benchmark.**
+
+Hình dạng production là **split architecture**: ba tier tách process, nối bằng
+shared-memory ring một chiều.
+
+| tier | process | giữ CUDA context |
+|---|---|---|
+| decode | 8 | không |
+| inference | 2 × 8 thread | **có — chỉ ở đây** |
+| business | 4 | không |
+
+Lý do chia như vậy là số đo, không phải thẩm mỹ: decode và business giữ GIL,
+còn CUDA context tốn 19 ms ở 2 context, 45 ms ở 4, 153 ms ở 8 — nên gom toàn bộ
+GPU vào một tier và để hai tier kia scale CPU tự do.
+
+Chi tiết và số đo: `docs/backend/split_architecture_design.html`,
+`benchmarks/2026-08-25-split-16cam-l40s.md`.
 
 ## 7. Tổ chức theo multi-store
 
@@ -215,48 +238,38 @@ mà không cần fork code runtime.
 
 ## 8. Cấu trúc thư mục để xây dựng hệ thống mới
 
+**Cập nhật 2026-08-30: đây là cấu trúc THẬT, không phải đề xuất. Bản cũ vẽ
+`src/adapters/` và `src/api/` — cả hai chưa từng được tạo; adapter perception
+nằm thẳng trong `src/perception/`, còn API frontend vẫn chưa làm (mục 24).**
+
 ```text
-backend/
-├── docs/
-│   └── SOLUTION_ARCHITECTURE.md
+backend/                     # đơn vị ship, chạy độc lập
 ├── src/
-│   ├── app/
-│   ├── domain/
-│   ├── pipelines/
-│   ├── adapters/
-│   ├── runtime/
-│   ├── infra/
-│   └── api/
-├── config/
-│   ├── stores/
-│   ├── pipelines/
-│   └── zones/
+│   ├── app/                 # entrypoint: run_split_pipeline, run_local_backend, regression
+│   ├── domain/              # dataclass thuần, không I/O
+│   ├── perception/          # detector, tracker, zone FSM, face, till
+│   ├── pipelines/           # nghiệp vụ theo camera_type
+│   ├── runtime/             # tier, ring buffer, supervisor, alert outbox
+│   └── infra/               # SQLite, Postgres, filesystem, R2, config loader
+├── config/                  # stores/, zones/, staff_seed/
+├── models/                  # ONNX runtime thật sự nạp
 ├── sql/
-└── tests/
+├── tools/                   # bench + test runner
+├── tests/
+└── requirements.txt
 ```
+
+Docs không nằm trong `backend/` — chúng ở `docs/backend/`, vì tài liệu không
+cần để chạy hệ thống.
 
 Ý nghĩa từng nhóm:
 
-- `src/app/`
-  - wiring, DI nhẹ, startup
-
-- `src/domain/`
-  - entities, enums, event contracts, schemas
-
-- `src/pipelines/`
-  - pipeline implementations theo nghiệp vụ
-
-- `src/adapters/`
-  - wrappers cho detector, tracker, face identity, till detector
-
-- `src/runtime/`
-  - `CameraRuntime`, `RuntimeSupervisor`, evidence buffer, queue
-
-- `src/infra/`
-  - SQLite, filesystem, Neon, R2, metrics, config loader
-
-- `src/api/`
-  - REST/SSE/WebSocket cho frontend và control plane
+- `src/app/` — wiring, startup
+- `src/domain/` — entities, enums, event contracts
+- `src/perception/` — wrapper ONNX cho detector, tracker, face identity, till
+- `src/pipelines/` — pipeline theo nghiệp vụ
+- `src/runtime/` — `CameraRuntime`, `RuntimeSupervisor`, ba tier tách process, frame ring
+- `src/infra/` — SQLite, filesystem, Neon, R2, metrics, config loader
 
 ## 9. Thành phần hệ thống
 
@@ -724,7 +737,7 @@ Sau này mở rộng:
 **Cập nhật 2026-08-26: 17.1 và 17.2 không còn là "phase" tách biệt theo thời gian nữa —
 cả hai chạy song song hôm nay, chọn bằng một cờ (`--storage-mode {local-db,cloud-db}`), cùng
 một business tier, cùng một schema (chỉ khác cú pháp SQLite/Postgres).** Xem
-`dev/outputs/reports/split_architecture_design.html` mục 9-11 để có số đo thật.
+`docs/backend/split_architecture_design.html` mục 9-11 để có số đo thật.
 
 ### 17.1. `local-db` — mặc định hôm nay
 
@@ -936,71 +949,47 @@ Không được:
 - query alert cross-store mặc định
 - xem camera của store khác nếu không được phân quyền
 
-## 22. Implementation roadmap
+## 22. Trạng thái triển khai
 
-### Phase 0 - Foundation
-- Tạo `backend/`
-- Chốt contracts và schema
-- Tạo config store/camera/pipeline manifest
+**Cập nhật 2026-08-30: mục này từng là roadmap Phase 0-5. Cả sáu phase đã xong,
+nên nó không còn là kế hoạch — dưới đây là trạng thái, kèm chỗ kiểm chứng.**
 
-### Phase 1 - Local runtime skeleton
-- Runtime supervisor
-- Camera runtime
-- VideoFileStreamSource
-- SQLite + local filesystem adapters
-- alert API feed cơ bản
+| hạng mục | trạng thái | kiểm chứng |
+|---|---|---|
+| Contracts, schema, manifest | xong | `domain/models.py`, `sql/`, `config/stores/` |
+| Runtime supervisor, camera runtime | xong | `run_local_backend.py` |
+| Split architecture 3 tier | xong | `run_split_pipeline.py`, bench 16 cam |
+| Storage + cold storage pipeline | xong | `storage_intrusion.py` |
+| Counter cash theft | xong | `counter_cash_theft.py` |
+| Whole store tracking | xong | `tracking_baseline.py` |
+| Neon Postgres + R2 | xong, verify chạy thật | mục 17.2 |
+| RTSP source | **`NotImplementedError`** | mục 9.4, `RTSP_MIGRATION.md` |
+| API frontend (REST/SSE/WS) | **chưa làm** | mục 24 |
 
-### Phase 2 - Storage and cold storage
-- Port `warehouse.py` vào pipeline runtime
-- Nối `face_identity.py`
-- Entry face window `PENDING_IN -> INSIDE + 1s`
-- Alert persistence + clip export
+Hai dòng cuối là phần thật sự còn lại. Mọi số benchmark đến nay đều đọc file từ
+đĩa, chưa qua RTSP thật.
 
-### Phase 3 - Counter
-- Port till detector + role assignment
-- Port FSM cash theft
-- Chốt customer-at-checkout gating
+## 23. Open questions cần ADR riêng
 
-### Phase 4 - Whole store
-- Tracking-only pipeline
-- Metrics/event cơ bản
+Đã trả lời, giữ lại vì lý do chọn mới là phần đáng giá:
 
-### Phase 5 - Cloud-ready adapters
-- Neon event store
-- R2 media store
-- Worker/edge API bridge nếu cần
+- **Queue nội bộ: asyncio, threads hay process workers?** → process, nối bằng
+  shared-memory ring một chiều. Request/reply đã thử và bị bác bỏ bằng số đo:
+  ping tới process chỉ nạp model rồi ngồi im tốn 9.35 ms, trên frame mà chi phí
+  thật ~25 ms (`benchmarks/2026-08-24-rejected-request-reply-proxy.md`).
+- **Cần GPU scheduling layer riêng không?** → không. Gom toàn bộ model vào tier
+  inference, batch trong runner của nó là đủ; thêm một layer nữa chỉ thêm hop.
 
-## 23. Quy tắc code migration từ `scripts/`
+Còn mở:
 
-Khi đưa code vào backend mới:
-- tách `logic` khỏi `runner`
-- tách `draw/debug` khỏi `domain`
-- đặt adapter ONNX ở `src/adapters/`
-- đặt state machine ở `src/pipelines/`
-- đặt dataclass/schema ở `src/domain/`
+- Framework API cho backend: FastAPI hay Starlette?
+- Frontend đọc alert bằng SSE hay WebSocket?
+- Debug artifacts có cần retention policy riêng không?
 
-Không copy nguyên file runner vào backend.
+## 24. Kết luận
 
-## 24. Open questions cần ADR riêng
-
-- Dùng framework API nào cho backend: FastAPI hay sanic/Starlette?
-- Queue nội bộ dùng `asyncio.Queue`, threads hay process workers?
-- Cần GPU/Metal scheduling layer riêng hay không?
-- Frontend sẽ đọc alert bằng SSE hay WebSocket?
-- Debug artifacts có đòi hỏi retention policy riêng hay không?
-
-## 25. Kết luận
-
-Kiến trúc đề xuất là:
-- local-first
-- production-shape
-- modular monolith
-- config-driven multi-store
+- local-first, production-shape, config-driven multi-store
 - state cô lập theo camera
-- SQLite/local filesystem trước
-- Neon + Cloudflare sau
-
-Đây là hướng có rủi ro thấp nhất và phù hợp nhất với trạng thái code hiện tại:
-- giữ lại được các module POC đã verify
-- không bị khóa bởi một stack hạ tầng quá sớm
-- vẫn sẵn sàng để scale lên multi-store và thêm pipeline mới
+- **local-db và cloud-db chạy song song, chọn bằng một cờ** — không còn là hai
+  giai đoạn nối tiếp như bản đầu mô tả
+- perception stack nằm trong backend, `dev/` và `demo/` phụ thuộc một chiều vào nó

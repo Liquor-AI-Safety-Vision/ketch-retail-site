@@ -30,6 +30,35 @@ embed, so với DB tội phạm ngay lúc họ vào cửa. Khớp với người
 ngay, trước khi họ kịp hành động — khác các pipeline hiện tại vốn chỉ hỏi face khi có sự
 kiện xảy ra (vào zone cấm).
 
+### Đã đo 2026-08-29: camera entrance hiện tại KHÔNG nhận dạng được
+
+Trước khi đọc phần còn lại, cần biết một kết quả đã đo trên footage entrance thật
+(`data/videos/entrance/entrance_180s.mp4`, 180 s, 18 lượt vào):
+
+**Embedding ArcFace ở camera này không mang danh tính.** Cosine trong cùng một track
+0.087–0.960 (p50 0.355) so với giữa hai người khác nhau 0.019–0.506 (p50 0.214) —
+**hai phân bố chồng lên nhau hoàn toàn**. Hai người khác nhau đạt 0.51, cao hơn nhiều
+cặp cùng một người. Không có ngưỡng nào tách được, và không có cách gộp/trung bình
+embedding nào cứu được.
+
+Bốn giả thuyết đã thử và bị loại bằng số đo, không phải bằng suy luận:
+
+| thử | kết quả |
+|---|---|
+| `yolov6m_face` thay `yolov6s_face` | không tốt hơn, chậm hơn 1.5× |
+| Lọc theo vị trí mặt trong bbox người | loại được **0/168** — không lọc gì cả |
+| Hình học 5 landmark tách mặt thật khỏi gáy | không tách; cả 7 chip đều là mặt thật, chỉ khác hướng đầu |
+| `estimateAffinePartial2D(LMEDS)` so với umeyama | tương đương (p50 0.355 so với 0.354) |
+
+Nguyên nhân là **góc camera**: cam treo cao nhìn xuống, bắt được đỉnh đầu nhiều hơn mặt.
+Đây là giới hạn phần cứng, không phải giới hạn model hay tham số.
+
+**Hệ quả cho bài toán A**: dòng "nhánh FACE dùng lại được y hệt" ở mục *Đã có sẵn* đúng
+về mặt **code**, nhưng **không** đúng là cứ cắm vào là chạy. Muốn watchlist hoạt động
+thật thì phải đổi phần cứng trước: thêm một camera ngang tầm mặt chĩa vào cửa, hoặc
+chuyển việc nhận dạng sang camera quầy thu ngân (nơi khách đứng đối diện, mặt hướng thẳng).
+Không làm bước đó thì mọi thứ phía dưới đều xây trên nền không có tín hiệu.
+
 ### Vấn đề mở — chưa có câu trả lời, cần chốt trước khi làm
 
 **Chọn ảnh nào để crop face lúc confirm?** Lúc mark confirm, cần một ảnh có mặt rõ, quay
@@ -81,7 +110,7 @@ chủ), business/face tier không cần biết gì về thay đổi này.
 
 1. **Model/logic phát hiện hành vi shoplifting** — phần khó nhất. Đây là bài toán nhận diện
    *hành vi*, khác hẳn intrusion (chỉ cần vị trí). Repo có sẵn dataset
-   (`datasets/DCSASS_Shoplifting`, `datasets/RetailS`) nhưng **chưa có pipeline production
+   (`data/datasets/DCSASS_Shoplifting`, `data/datasets/RetailS`) nhưng **chưa có pipeline production
    nào** dùng chúng.
 2. **Cơ chế confirm trên web** — owner xem alert shoplifting, bấm "confirm" mới trigger
    pipeline crop/align/embed/lưu DB tội phạm. Cần một trạng thái mới trên `alerts` (hoặc

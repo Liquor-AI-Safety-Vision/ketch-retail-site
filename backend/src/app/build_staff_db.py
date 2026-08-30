@@ -18,18 +18,6 @@ from backend.src.infra.local_config import load_staff_seed_entries
 from backend.src.common.paths import backend_root, model_path
 
 
-def best_face_in_crop(detector, frame, crop_box, center_t, fps, search_window_s):
-    x1, y1, x2, y2 = crop_box
-    best = None
-    best_key = None
-    for dt in np.arange(-search_window_s, search_window_s + 1e-9, 0.25):
-        t = center_t + float(dt)
-        if t < 0:
-            continue
-        frame_idx = max(0, int(round(t * fps)))
-        yield ("seek", frame_idx)
-
-
 def find_best_face(detector, cap, center_t, crop_box, fps, search_window_s):
     x1, y1, x2, y2 = crop_box
     best = None
