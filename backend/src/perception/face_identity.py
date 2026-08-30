@@ -26,6 +26,7 @@ import numpy as np
 import onnxruntime as ort
 
 from backend.src.perception.face_align import FaceDetector, align
+from backend.src.common.paths import schema_path
 
 
 def utc_now():
@@ -199,16 +200,7 @@ class FaceGallery:
         # db_path) and this file's own inline CREATE TABLE was the only
         # definition of them anywhere. Two independent copies of the same
         # tables is how they drift; one file read from both places is not.
-        # backend/src/perception/face_identity.py -> backend/
-        schema_path = Path(__file__).resolve().parents[2] / "sql/local_dev_schema.sql"
-        if not schema_path.exists():
-            # It used to be reached as ROOT/"backend/sql/..." from the repo
-            # root, guarded by an exists() check that silently did nothing when
-            # the path was wrong -- leaving a database with no tables and a
-            # confusing failure several calls later. The file now ships inside
-            # backend, so a miss is a packaging fault and should say so here.
-            raise FileNotFoundError(f"gallery schema missing: {schema_path}")
-        self.conn.executescript(schema_path.read_text())
+        self.conn.executescript(schema_path("local_dev_schema.sql").read_text())
         # Defensive only: a database built before store_id/company_id were
         # columns in schema.sql (an older gallery_db_path file, say) still
         # opens correctly instead of failing on the first query that

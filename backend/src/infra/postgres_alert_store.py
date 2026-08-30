@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from backend.src.common.stream_uri import redact_stream_credentials
+from backend.src.common.paths import schema_path
 
 
 def seed_store_topology_pg(dsn: str, specs: list) -> None:
@@ -23,9 +24,7 @@ def seed_store_topology_pg(dsn: str, specs: list) -> None:
     conn = psycopg2.connect(dsn)
     try:
         with conn.cursor() as cur:
-            root = Path(__file__).resolve().parents[3]
-            schema_path = root / "backend/sql/postgres_schema.sql"
-            cur.execute(schema_path.read_text())
+            cur.execute(schema_path("postgres_schema.sql").read_text())
 
             stores_seen: dict[str, str] = {}
             for spec in specs:

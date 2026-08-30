@@ -120,6 +120,52 @@ def test_no_module_puts_a_named_directory_on_sys_path():
     )
 
 
+def test_nothing_locates_its_own_files_by_going_up_and_back_down():
+    """`parents[3] / "backend/sql/..."` is banned; ask backend_root() instead.
+
+    Four call sites located the SQL schema that way -- walking up to what they
+    assumed was a checkout, then back down through a directory they assumed was
+    named `backend`. Both assumptions hold in this repo and neither is checked
+    anywhere, so a renamed deploy directory breaks them all at once. Two of the
+    four then swallowed the miss with `if schema_path.exists()`, creating a
+    database with no tables and surfacing it later as a foreign-key error in
+    start_run().
+
+    A path derived from __file__ and used to reach *upward* past backend is the
+    tell. Reaching sideways into a sibling is already covered by the sys.path
+    test; this covers reaching up and back in.
+    """
+    offenders = []
+    for path in sorted((BACKEND / "src").rglob("*.py")):
+        tree = ast.parse(path.read_text())
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div)):
+                continue
+            right = node.right
+            if not (isinstance(right, ast.Constant) and isinstance(right.value, str)):
+                continue
+            if right.value.startswith("backend/") or right.value == "backend":
+                offenders.append(f"{path.relative_to(REPO)}:{node.lineno} "
+                                 f"-> {right.value!r}")
+    assert not offenders, (
+        "backend reaches up out of itself and back in by name. Use "
+        "backend_root() / schema_path() / model_path():\n  " + "\n  ".join(offenders)
+    )
+
+
+def test_a_missing_schema_says_so_instead_of_carrying_on():
+    sys.path.insert(0, str(REPO))
+    from backend.src.common.paths import schema_path
+
+    assert schema_path("local_dev_schema.sql").exists()
+    try:
+        schema_path("no_such_schema.sql")
+    except FileNotFoundError as e:
+        assert "packaging" in str(e)
+    else:
+        raise AssertionError("a missing schema was accepted silently")
+
+
 def test_config_and_models_resolve_inside_backend():
     """Zones and weights are inputs the pipeline reads at runtime, so they ship."""
     sys.path.insert(0, str(REPO))
@@ -153,6 +199,13 @@ def test_manifests_use_placeholders_not_repo_layout():
         text = manifest.read_text()
         if "${REPO_ROOT}" in text:
             bad.append(f"{manifest.name}: still uses ${{REPO_ROOT}}")
+        # ${DATA_ROOT} is footage. Anything under backend/ is backend's own and
+        # must say so: the bulk rewrite from ${REPO_ROOT} turned the staff-seed
+        # db_path into ${DATA_ROOT}/backend/data/..., which resolves to a
+        # directory that does not exist and would have failed at seed time.
+        if "${DATA_ROOT}/backend" in text:
+            bad.append(f"{manifest.name}: ${{DATA_ROOT}}/backend -- "
+                       "use ${BACKEND_ROOT}/ for backend's own files")
         for cam in json.loads(text).get("cameras", []):
             uri = cam.get("stream", {}).get("uri", "")
             if uri.startswith("${DATA_ROOT}"):

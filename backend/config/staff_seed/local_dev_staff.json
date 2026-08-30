@@ -1,8 +1,8 @@
 {
   "company_id": "liquor_store_demo",
   "store_id": "local_dev_store",
-  "db_path": "${DATA_ROOT}/backend/data/local_dev.sqlite",
-  "artifacts_dir": "${DATA_ROOT}/backend/data/face_artifacts",
+  "db_path": "${BACKEND_ROOT}/data/local_dev.sqlite",
+  "artifacts_dir": "${BACKEND_ROOT}/data/face_artifacts",
   "entries": [
     {
       "person_id": "staff_a",

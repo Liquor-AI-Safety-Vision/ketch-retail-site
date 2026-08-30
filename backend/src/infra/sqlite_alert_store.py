@@ -11,6 +11,7 @@ from typing import Any
 import fcntl
 
 from backend.src.common.stream_uri import redact_stream_credentials
+from backend.src.common.paths import schema_path
 
 
 @contextmanager
@@ -48,10 +49,7 @@ def seed_store_topology(db_path: str | Path, specs: list) -> None:
         with _bootstrap_lock(db_file.with_suffix(db_file.suffix + ".bootstrap.lock")):
             time.sleep(0.01)
             conn.execute("PRAGMA journal_mode=WAL")
-            root = Path(__file__).resolve().parents[3]
-            schema_path = root / "backend/sql/local_dev_schema.sql"
-            if schema_path.exists():
-                conn.executescript(schema_path.read_text())
+            conn.executescript(schema_path("local_dev_schema.sql").read_text())
 
             stores_seen: dict[str, str] = {}
             for spec in specs:
@@ -116,11 +114,7 @@ class SqliteAlertStore:
         self.conn.close()
 
     def _ensure_schema(self):
-        root = Path(__file__).resolve().parents[3]
-        schema_path = root / "backend/sql/local_dev_schema.sql"
-        if not schema_path.exists():
-            return
-        self.conn.executescript(schema_path.read_text())
+        self.conn.executescript(schema_path("local_dev_schema.sql").read_text())
         self.conn.commit()
 
     def start_run(self, camera_id: str, source_ref: str, status: str = "running",

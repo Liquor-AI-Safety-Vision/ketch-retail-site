@@ -63,6 +63,29 @@ def zones_dir() -> Path:
     return config_dir() / "zones"
 
 
+def schema_path(name: str) -> Path:
+    """A SQL schema shipped with backend, or a loud failure naming it.
+
+    Four call sites used to locate this independently, each as
+    `Path(__file__).parents[3] / "backend/sql/..."` -- walking up to the repo
+    root and back down through a directory named `backend`. That is correct
+    only while backend's parent is a checkout and backend keeps its name;
+    rename the deploy directory and every one of them silently misses.
+
+    Two of them then guarded the miss with `if schema_path.exists()` and
+    returned quietly, which is the worse half: the database gets created with
+    no tables at all, and the failure surfaces later as a foreign-key error in
+    start_run() -- far from the cause, and reading like a data problem rather
+    than a packaging one.
+    """
+    p = backend_root() / "sql" / name
+    if not p.exists():
+        raise FileNotFoundError(
+            f"SQL schema missing: {p}. It ships inside backend/sql/, so this "
+            "is a packaging fault, not a configuration one.")
+    return p
+
+
 def model_path(name: str) -> str:
     """Resolve a model by bare filename. Absolute paths pass through."""
     p = Path(name)
