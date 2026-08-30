@@ -1,0 +1,25 @@
+{
+  "video": "videos/entrance/entrance_180s.mp4",
+  "width": 1280,
+  "height": 1440,
+  "zones": [
+    {
+      "name": "inside_store",
+      "type": "polygon",
+      "points": [
+        [
+          11.2,
+          652.8
+        ],
+        [
+          881.6,
+          603.2
+        ],
+        [
+          1267.2,
+          593.6
+        ]
+      ]
+    }
+  ]
+}

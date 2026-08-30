@@ -1,0 +1,35 @@
+{
+  "entrance": {
+    "zone_norm": [
+      [
+        0.0,
+        0.4038
+      ],
+      [
+        0.0087,
+        0.4033
+      ],
+      [
+        0.6887,
+        0.3689
+      ],
+      [
+        0.99,
+        0.3622
+      ],
+      [
+        0.9992,
+        0.362
+      ],
+      [
+        0.9992,
+        0.9993
+      ],
+      [
+        0.0,
+        0.9993
+      ]
+    ],
+    "note": "hand-drawn divider raised by 5% of frame height (72px). 15% was tried first and put the line inside the door glass, where a track can be first seen already in the zone and then gets skipped as out-bound."
+  }
+}
