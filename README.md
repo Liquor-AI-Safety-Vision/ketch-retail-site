@@ -79,7 +79,9 @@ origin policy. `API_ORIGIN` and `API_TRUSTED_ORIGIN` may override its safe defau
 `public/_headers`. This covers both static responses and Functions, which
 [do not inherit Cloudflare Pages `_headers` rules](https://developers.cloudflare.com/pages/configuration/headers/).
 The policy blocks framing (`frame-ancestors 'none'` and `X-Frame-Options: DENY`),
-inline/eval JavaScript, plugins and third-party connections. HSTS is enabled for this host;
+inline/eval JavaScript and plugins. Script/connect sources allow this site and the two
+[Cloudflare Web Analytics sources](https://developers.cloudflare.com/web-analytics/faq/)
+used by the existing edge-injected beacon. HSTS is enabled for this host;
 `includeSubDomains` and preload are intentionally not enabled without reviewing other services.
 Inline styles remain allowed for Material UI/Emotion and GSAP. Theme startup uses an external
 same-origin script. Existing Render secure-video playback is allowed by `media-src`.

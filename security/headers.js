@@ -3,11 +3,11 @@
 export const securityHeaders = Object.freeze({
   'Content-Security-Policy': [
     "default-src 'self'",
-    "script-src 'self'",
+    "script-src 'self' https://static.cloudflareinsights.com",
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
     "font-src 'self' data:",
-    "connect-src 'self'",
+    "connect-src 'self' https://cloudflareinsights.com",
     "media-src 'self' blob: https://liquor-store-api-7tq2.onrender.com",
     "object-src 'none'",
     "base-uri 'none'",

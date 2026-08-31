@@ -89,7 +89,9 @@ test('static Cloudflare headers match Functions and CSP blocks inline JavaScript
   const file = await readFile(new URL('../public/_headers', import.meta.url), 'utf8');
   for (const [name, value] of Object.entries(securityHeaders)) assert.ok(file.includes(`  ${name}: ${value}\n`), name);
   const csp = securityHeaders['Content-Security-Policy'];
-  assert.match(csp, /script-src 'self';/);
+  assert.match(csp, /script-src 'self' https:\/\/static\.cloudflareinsights\.com;/);
+  assert.match(csp, /connect-src 'self' https:\/\/cloudflareinsights\.com;/);
+  assert.doesNotMatch(csp.split(';').find((directive) => directive.trim().startsWith('script-src')), /unsafe-inline|\*/);
   assert.match(csp, /frame-ancestors 'none'/);
   assert.doesNotMatch(csp, /unsafe-eval/);
   const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');

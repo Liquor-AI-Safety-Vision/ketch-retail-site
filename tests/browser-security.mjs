@@ -19,6 +19,15 @@ try {
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   const requests = [];
   const errors = [];
+  // Keep test visits out of production analytics while retaining browser CSP checks.
+  await context.route('**/cdn-cgi/rum*', (route) => route.fulfill({
+    status: 204, headers: { 'Access-Control-Allow-Origin': new URL(baseUrl).origin },
+  }));
+  if (new URL(baseUrl).hostname === '127.0.0.1') {
+    await context.route('https://static.cloudflareinsights.com/beacon.min.js', (route) => route.fulfill({
+      contentType: 'text/javascript', body: 'window.edgeBeaconReady = true;',
+    }));
+  }
   await context.addInitScript(() => {
     window.securityViolations = [];
     document.addEventListener('securitypolicyviolation', (event) => {
@@ -38,6 +47,16 @@ try {
   assert.match(response.headers()['content-security-policy'], /frame-ancestors 'none'/);
   assert.equal(response.headers()['x-frame-options'], 'DENY');
   assert.match(response.headers()['strict-transport-security'], /max-age=/);
+  if (new URL(baseUrl).hostname === '127.0.0.1') {
+    await page.evaluate(() => new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = 'https://static.cloudflareinsights.com/beacon.min.js';
+      script.onload = () => resolve();
+      script.onerror = () => reject(new Error('Cloudflare beacon blocked by CSP'));
+      document.head.appendChild(script);
+    }));
+    assert.equal(await page.evaluate(() => window.edgeBeaconReady), true);
+  }
   await page.getByRole('link', { name: 'View dashboard', exact: true }).first().click();
   await page.getByRole('heading', { name: 'Overview', exact: true }).waitFor();
   await page.getByText('Read-only demo', { exact: true }).filter({ visible: true }).waitFor();
@@ -81,9 +100,21 @@ try {
   await page.screenshot({ path: new URL('demo-mobile.png', output).pathname.replace(/^\/(\w:)/, '$1') });
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1));
   checks.push('Production CSP allows media/theme/UI, persists dark mode and keeps mobile within the viewport.');
+  await page.evaluate(() => {
+    window.inlineProbeRan = false;
+    const script = document.createElement('script');
+    script.textContent = 'window.inlineProbeRan = true;';
+    document.head.appendChild(script);
+  });
+  await page.waitForFunction(() => window.securityViolations.some((violation) => violation.includes('inline')));
+  assert.equal(await page.evaluate(() => window.inlineProbeRan), false);
+  checks.push('CSP permits the Cloudflare beacon source but blocks an injected inline script.');
   await context.close();
 
   const ownerContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  await ownerContext.route('**/cdn-cgi/rum*', (route) => route.fulfill({
+    status: 204, headers: { 'Access-Control-Allow-Origin': new URL(baseUrl).origin },
+  }));
   const ownerCalls = [];
   const user = { id: 'test-owner', email: 'owner@example.invalid', displayName: 'Security test owner', stores: [] };
   const store = { id: 'test-owner-store', name: 'Test store', code: 'test-only', address: null, timezone: 'UTC', role: 'OWNER' };
