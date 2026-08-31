@@ -27,8 +27,11 @@ process may use.
 """
 from __future__ import annotations
 
+import logging
 import os
 import sys
+
+logger = logging.getLogger(__name__)
 
 _THREAD_ENV_KEYS = (
     "OMP_NUM_THREADS",
@@ -106,10 +109,10 @@ def cap_native_threads(num_threads: int = 1, *, warn: bool = True) -> bool:
         pass
 
     if stale and warn:
-        print(
-            f"cap_native_threads({value}) ran after {', '.join(already_loaded)} was already "
-            f"imported: the BLAS/OpenMP pools are already sized and will not shrink in this "
-            f"process. Children spawned from here will still inherit the cap.",
-            file=sys.stderr,
+        logger.warning(
+            "cap_native_threads(%s) ran after %s was already imported: the BLAS/OpenMP "
+            "pools are already sized and will not shrink in this process. Children "
+            "spawned from here will still inherit the cap.",
+            value, ", ".join(already_loaded),
         )
     return not stale

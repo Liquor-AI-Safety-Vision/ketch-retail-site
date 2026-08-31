@@ -11,9 +11,12 @@ Layer 3 is what makes this work. Staff step out from behind the counter; a
 customer leans across it. Either produces frames on the wrong side, and neither
 should change what the person is. Only a sustained majority does.
 """
+import logging
 import json
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 # keypoint indices (COCO-17)
 K_SHOULDER = (5, 6)
@@ -124,10 +127,10 @@ def load_divider(path, name=None, flip=False, size=None):
         raise SystemExit(f"{path} has no line zone"
                          + (f" named {name!r}" if name else ""))
     if len(lines) > 1:
-        print(f"  {len(lines)} line zones present, using {lines[0]['name']!r}")
+        logger.info("%d line zones present, using %r", len(lines), lines[0]["name"])
     skipped = [z["name"] for z in data["zones"] if z.get("type") != "line"]
     if skipped:
-        print(f"  ignoring non-line zones: {', '.join(skipped)}")
+        logger.info("ignoring non-line zones: %s", ", ".join(skipped))
     pts = [[fx * W, fy * H] for fx, fy in _points_norm(lines[0], path)]
     return Divider(pts, ref), lines[0]["name"]
 

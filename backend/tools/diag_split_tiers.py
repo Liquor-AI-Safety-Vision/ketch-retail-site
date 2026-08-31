@@ -39,6 +39,7 @@ if str(ROOT) not in sys.path:
 # processes this spawns -- see perf.py.
 from backend.src.runtime.perf import cap_native_threads  # noqa: E402
 from backend.src.common.paths import backend_root, model_path
+from backend.src.common.logging_setup import configure_logging
 
 cap_native_threads(1)
 
@@ -360,6 +361,7 @@ def _roundrobin_by_type(specs: list) -> list:
 
 
 def main() -> None:
+    configure_logging()
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--layer", default="all", choices=["decode", "infer", "all", "ladder"])
     p.add_argument("--manifest", default=str(backend_root() / "config/stores/local_dev_store_16cams.json"))

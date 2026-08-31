@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import dataclasses
 import json
 import sys
@@ -24,6 +25,8 @@ from backend.src.pipelines.alert_clip_buffer import AlertClipBuffer, FinalizedAl
 from backend.src.pipelines.track_quality import record_track_quality
 from backend.src.runtime.shared_inference import SharedFaceIdentifier, SharedInferenceRegistry
 from backend.src.common.paths import model_path
+
+logger = logging.getLogger(__name__)
 
 
 DAY_NAMES = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
@@ -331,12 +334,12 @@ class StorageIntrusionPipeline:
         self.metrics["gallery"] = summary
         if summary["embeddings"] > 0:
             return
-        print(
-            f"WARNING [{self.spec.camera_id}] face identity is enabled but the gallery "
-            f"is empty for store_id={self.spec.store_id!r} "
-            f"company_id={self.spec.company_id!r}. Every identification will report "
-            f"gallery_empty. Registered store ids: {summary['known_store_ids']}",
-            file=sys.stderr,
+        logger.warning(
+            "%s: face identity is enabled but the gallery is empty for store_id=%r "
+            "company_id=%r. Every identification will report gallery_empty. "
+            "Registered store ids: %s",
+            self.spec.camera_id, self.spec.store_id, self.spec.company_id,
+            summary["known_store_ids"],
         )
 
     def warmup(self, frame: FrameEnvelope):

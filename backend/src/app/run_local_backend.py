@@ -43,6 +43,7 @@ from backend.src.infra.local_config import camera_specs_from_manifest  # noqa: E
 from backend.src.runtime.supervisor import RuntimeSupervisor  # noqa: E402
 from backend.src.common.paths import backend_root
 from backend.src.pipelines.registry import COUNTER_CASH_THEFT
+from backend.src.common.logging_setup import configure_logging
 
 
 def _parse_camera_float_map(raw: str | None) -> dict[str, float]:
@@ -83,6 +84,7 @@ def _print_throughput_summary(results: list[dict], started_at: float) -> None:
 
 
 def main():
+    configure_logging()
     started_at = time.time()
     p = argparse.ArgumentParser(description="Run local backend runtime on virtual camera streams.")
     p.add_argument(

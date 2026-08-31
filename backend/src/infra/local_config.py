@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 from backend.src.common.paths import resolve_repo_path
@@ -10,6 +11,13 @@ from backend.src.domain.models import (
     CameraStreamSpec,
     StaffSeedEntry,
 )
+from backend.src.infra.manifest_schema import validate_manifest
+
+
+logger = logging.getLogger(__name__)
+
+#: Inert-key warnings already reported by this process.
+_WARNED: set[str] = set()
 
 
 def load_store_manifest(path: str | Path) -> dict:
@@ -53,6 +61,18 @@ def _parse_pipeline_bindings(camera: dict) -> list[CameraPipelineBindingSpec]:
 
 def camera_specs_from_manifest(path: str | Path) -> list[CameraStreamSpec]:
     data = load_store_manifest(path)
+    # Validated before anything is read out of it. Every access below is a
+    # .get() with a fallback, so an unrecognised key used to reach the running
+    # system as silence -- the camera came up, used the default, and reported
+    # nothing unusual.
+    for warning in validate_manifest(data, path=str(path)):
+        # Once per process, not once per manifest. A four-store run loads four
+        # files that share the same dead keys, and a warning repeated four
+        # times reads as four problems.
+        if warning in _WARNED:
+            continue
+        _WARNED.add(warning)
+        logger.warning("manifest: %s", warning)
     runtime_defaults = dict(data.get("runtime", {}))
     default_target_fps = float(runtime_defaults.get("default_target_fps", data.get("target_fps", 5.0)))
     default_target_duration_s = float(

@@ -16,6 +16,7 @@ from backend.src.perception.face_identity import FaceIdentifier  # noqa: E402
 
 from backend.src.infra.local_config import load_staff_seed_entries
 from backend.src.common.paths import backend_root, model_path
+from backend.src.common.logging_setup import configure_logging
 
 
 def find_best_face(detector, cap, center_t, crop_box, fps, search_window_s):
@@ -51,6 +52,7 @@ def find_best_face(detector, cap, center_t, crop_box, fps, search_window_s):
 
 
 def main():
+    configure_logging()
     p = argparse.ArgumentParser(description=__doc__ or "Build local dev staff SQLite DB")
     p.add_argument(
         "--seed-config",

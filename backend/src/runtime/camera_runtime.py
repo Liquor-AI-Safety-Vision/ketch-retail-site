@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import time
 from typing import Any
 
@@ -10,6 +11,8 @@ from backend.src.infra.sqlite_alert_store import SqliteAlertStore
 from backend.src.pipelines.registry import build_pipeline
 from backend.src.runtime.shared_inference import SharedInferenceRegistry
 from backend.src.runtime.rtsp_stream import open_stream_source
+
+logger = logging.getLogger(__name__)
 
 
 class CameraRuntime:
@@ -127,11 +130,11 @@ class CameraRuntime:
                         self.metrics["events_emitted"] += int(result.get("events_emitted", 0))
                 self.metrics["frames_processed"] += 1
                 if self.metrics["frames_processed"] % 25 == 0:
-                    print(
-                        f"[{self.spec.camera_id}] frames={self.metrics['frames_processed']} "
-                        f"alerts={self.metrics['alerts_emitted']} events={self.metrics['events_emitted']} "
-                        f"avg_frame_ms={self.timing.stats['frame_total'].as_dict()['avg_ms']}",
-                        flush=True,
+                    logger.info(
+                        "%s frames=%s alerts=%s events=%s avg_frame_ms=%s",
+                        self.spec.camera_id, self.metrics["frames_processed"],
+                        self.metrics["alerts_emitted"], self.metrics["events_emitted"],
+                        self.timing.stats["frame_total"].as_dict()["avg_ms"],
                     )
         except KeyboardInterrupt:
             status = "cancelled"

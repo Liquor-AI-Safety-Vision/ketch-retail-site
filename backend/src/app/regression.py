@@ -41,6 +41,7 @@ if str(ROOT) not in sys.path:
 
 from backend.src.app.compare_sweeps import load  # noqa: E402
 from backend.src.common.paths import outputs_dir
+from backend.src.common.logging_setup import configure_logging
 
 # Alerts and identity came back bit-identical across three repeats of an
 # unchanged build, so this tolerance exists only to absorb a track that
@@ -222,6 +223,7 @@ def cmd_diff(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
+    configure_logging()
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = p.add_subparsers(dest="cmd", required=True)
 

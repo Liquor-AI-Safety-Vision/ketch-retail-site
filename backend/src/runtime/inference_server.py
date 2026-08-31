@@ -54,6 +54,7 @@ tolerate a decision landing after the fact.
 """
 from __future__ import annotations
 
+import logging
 import sys
 import threading
 import time
@@ -65,6 +66,8 @@ import numpy as np
 
 from backend.src.domain.models import FrameMeta
 from backend.src.runtime.frame_ring import FrameRing, RingSpec
+
+logger = logging.getLogger(__name__)
 
 # Sentinel put on a queue to end its consumer's loop. Distinguished from a
 # real message by identity, not by shape, since a real message may itself be
@@ -242,9 +245,8 @@ class FaceLane:
                     self.busy_s += time.perf_counter() - started
                     self.served += 1
             else:
-                print(f"WARNING [face lane] no identifier for camera {req.camera_id}; "
-                      f"answering empty so the business worker can finish",
-                      file=sys.stderr)
+                logger.warning("face lane: no identifier for camera %s; answering empty "
+                               "so the business worker can finish", req.camera_id)
             # Looked up, not indexed. A camera with no identifier is by
             # definition one this lane does not know, so indexing
             # business_qs with that same id raises KeyError and kills the
@@ -253,9 +255,8 @@ class FaceLane:
             # indexing with it here was a contradiction in the same block.
             business_q = self.business_qs.get(req.camera_id)
             if business_q is None:
-                print(f"ERROR [face lane] no business queue for camera {req.camera_id}; "
-                      f"its answer cannot be delivered and a worker may be waiting on it",
-                      file=sys.stderr)
+                logger.error("face lane: no business queue for camera %s; its answer cannot "
+                             "be delivered and a worker may be waiting on it", req.camera_id)
                 continue
             business_q.put(
                 FaceAnswer(camera_id=req.camera_id, track_id=req.track_id, decision=decision))
@@ -311,9 +312,8 @@ def _run_face_process(face_model, arcface_model, gallery_db_path, camera_configs
         summary = identifiers[camera_id].gallery.summarize(
             store_id=None, company_id=None)  # store_id/company_id filtered per-call, not here
         if summary["embeddings"] == 0:
-            print(f"WARNING [face process] gallery has no embeddings at all "
-                 f"({gallery_db_path}); every identification will report gallery_empty.",
-                 file=sys.stderr)
+            logger.warning("face process: gallery has no embeddings at all (%s); every "
+                           "identification will report gallery_empty", gallery_db_path)
 
     try:
         ready_q.put(("face", 1))

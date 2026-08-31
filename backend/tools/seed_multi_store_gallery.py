@@ -30,6 +30,7 @@ import json
 import sys
 from backend.src.common.paths import backend_root
 from pathlib import Path
+from backend.src.common.logging_setup import configure_logging
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
@@ -45,6 +46,7 @@ ROSTER = {
 
 
 def main() -> None:
+    configure_logging()
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--db", required=True, help="the merged db_path/gallery_db_path file")
     p.add_argument("--export", default=str(backend_root() / "data/_gallery_export.json"))

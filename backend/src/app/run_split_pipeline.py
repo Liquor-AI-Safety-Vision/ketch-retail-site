@@ -55,6 +55,7 @@ if str(ROOT) not in sys.path:
 from backend.src.runtime.perf import cap_native_threads  # noqa: E402
 from backend.src.common.paths import backend_root, model_path
 from backend.src.pipelines.registry import COUNTER_CASH_THEFT, INTRUSION_IDS
+from backend.src.common.logging_setup import configure_logging
 
 cap_native_threads(1)
 
@@ -429,6 +430,7 @@ def _load_dotenv(path: Path) -> None:
 
 
 def main() -> None:
+    configure_logging()
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--manifest", nargs="+",
                    default=[str(backend_root() / "config/stores/local_dev_store_16cams.json")],

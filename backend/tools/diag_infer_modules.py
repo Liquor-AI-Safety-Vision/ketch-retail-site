@@ -46,6 +46,7 @@ cap_native_threads(1)
 
 import numpy as np  # noqa: E402
 from backend.src.common.paths import backend_root, model_path
+from backend.src.common.logging_setup import configure_logging
 
 POSE_MODEL = model_path("yolo26m-pose.onnx")
 REID_MODEL = model_path("osnet_x0_25_msmt17.onnx")
@@ -195,6 +196,7 @@ def bench_reid(frames, boxes_per_frame, reid_model, thread_counts=(1, 2, 4)):
 
 
 def main() -> None:
+    configure_logging()
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--module", default="all", choices=["pose-raw", "pose", "till", "reid", "all"])
     p.add_argument("--frames", type=int, default=24)

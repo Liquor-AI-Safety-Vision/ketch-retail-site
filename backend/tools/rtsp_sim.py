@@ -68,6 +68,7 @@ import subprocess
 import sys
 from backend.src.common.paths import backend_root, outputs_dir
 from pathlib import Path
+from backend.src.common.logging_setup import configure_logging
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_MANIFEST = backend_root() / "config/stores/local_dev_store_16cams.json"
@@ -228,6 +229,7 @@ def check_streams(cameras, *, host, port, user, password, timeout: float) -> int
 
 
 def main() -> None:
+    configure_logging()
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--manifest", default=str(DEFAULT_MANIFEST))
     p.add_argument("--config", default=str(DEFAULT_CONFIG))
