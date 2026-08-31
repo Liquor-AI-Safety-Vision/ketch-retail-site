@@ -1,8 +1,8 @@
 # Ketch retail site — ketchenterprise.net
 
 The US retail / liquor-store pitch site for Ketch Enterprise, paired with the Liquor Store
-owner security dashboard. The landing page remains static; authenticated dashboard data comes
-from the Go security API.
+owner security dashboard. The landing page and public, read-only dashboard demo work without
+authentication or backend access. Only explicitly signed-in owners load data from the Go API.
 
 | | |
 |---|---|
@@ -36,6 +36,7 @@ HashRouter is deliberate so static hosting needs no rewrite rules.
 npm run build      # tsc -b && vite build → dist/
 npm run preview    # serve dist/ locally
 npm run lint
+npm run test:security  # proxy, CSP and demo-isolation regression checks (Node 22)
 ```
 
 ## Deploying
@@ -58,6 +59,40 @@ production — prefer the workflow.
 The `functions/api/v1/[[path]].js` Pages Function proxies dashboard requests to the Render API.
 This keeps authentication same-origin on the Ketch domain while the Go API retains its strict
 origin policy. `API_ORIGIN` and `API_TRUSTED_ORIGIN` may override its safe defaults in Cloudflare.
+
+### Public demo and owner access
+
+- **View dashboard** still opens the demo directly. Its 18 camera records and alert fixtures
+  are synthetic frontend data referencing the existing public media, not a database export.
+- The demo has no access token, never refreshes an old demo cookie, and cannot modify alerts,
+  cameras or notification settings. Review and camera videos remain available.
+- **Owner sign in** in the account menu (or `/#/login`) is the separate, explicit login flow.
+  Only a successful explicit sign-in opts that browser into restoring an owner session.
+  Real UUID alert deep-links require login and keep their destination after sign-in.
+- `/api/v1/auth/demo` returns `404` for every method in Cloudflare and local development.
+  The duplicate TypeScript proxy and server-held demo credential exchange were removed.
+  `DEMO_EMAIL` / `DEMO_PASSWORD` are no longer read by this application.
+
+### Frontend security headers
+
+`security/headers.js` is shared by the API proxy and the build step that generates
+`public/_headers`. This covers both static responses and Functions, which
+[do not inherit Cloudflare Pages `_headers` rules](https://developers.cloudflare.com/pages/configuration/headers/).
+The policy blocks framing (`frame-ancestors 'none'` and `X-Frame-Options: DENY`),
+inline/eval JavaScript, plugins and third-party connections. HSTS is enabled for this host;
+`includeSubDomains` and preload are intentionally not enabled without reviewing other services.
+Inline styles remain allowed for Material UI/Emotion and GSAP. Theme startup uses an external
+same-origin script. Existing Render secure-video playback is allowed by `media-src`.
+
+Run `npm run build`, start `npm run preview -- --host 127.0.0.1`, then run
+`npm run test:browser` for an isolated Chromium smoke test. Install its browser with
+`npx playwright install chromium` if needed. Tests mock all owner API calls, never use real
+credentials and never send Telegram/WhatsApp notifications. Screenshots go to `.security-check/`.
+
+This change prevents **new automatic OWNER sessions**; it does not revoke previously issued
+sessions or rotate backend credentials. Those, backend rate limiting/AI-ingest hardening,
+private storage and Render availability remain separate, deferred work. Public demo media
+is still public by design; no existing footage or tracking assets are removed here.
 
 ### What your access covers, and what it doesn't
 
@@ -99,7 +134,8 @@ public/
 
 `public/demo/manifest.json` and its clip directories remain the source for selected landing-page
 imagery. The owner dashboard uses the top-level evidence clips and tracking JSON copied from the
-Liquor Store dashboard, while alert and camera records are loaded from the API.
+Liquor Store dashboard. Public demo records live in `src/security-dashboard/lib/demoApi.ts`;
+authenticated owner records are loaded from the API and are not mixed with demo fixtures.
 
 ⚠ **The clips are not licence-cleared.** `seedance_liquor_01` — the hero — was generated with a
 model whose licence for this use is unresolved, and the other three came from third-party store

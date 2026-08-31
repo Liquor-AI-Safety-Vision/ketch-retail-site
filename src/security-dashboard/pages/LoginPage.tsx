@@ -22,8 +22,12 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const { mode, toggleMode } = useColorMode();
+  const from = (location.state as { from?: { pathname?: string; search?: string } } | null)?.from;
+  const destination = from?.pathname && allowedPostLoginPaths.has(from.pathname)
+    ? `${from.pathname}${typeof from.search === 'string' && from.search.startsWith('?') ? from.search : ''}`
+    : '/dashboard';
 
-  if (!isLoading && user) return <Navigate to="/dashboard" replace />;
+  if (!isLoading && user) return <Navigate to={destination} replace />;
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -31,8 +35,6 @@ export function LoginPage() {
     setSubmitting(true);
     try {
       await login(email, password);
-	  const requestedPath = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname;
-	  const destination = requestedPath && allowedPostLoginPaths.has(requestedPath) ? requestedPath : '/dashboard';
       navigate(destination, { replace: true });
     } catch (cause) {
       setError(getErrorMessage(cause));
@@ -88,6 +90,7 @@ export function LoginPage() {
             </Stack>
           </Box>
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 4, lineHeight: 1.6 }}>Authorized store personnel only. Contact your system administrator if you need access.</Typography>
+          <Button onClick={() => navigate('/dashboard')} sx={{ mt: 2 }}>View read-only demo</Button>
         </Box>
       </Box>
     </Box>

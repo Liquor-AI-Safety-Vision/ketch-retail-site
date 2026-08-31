@@ -14,10 +14,8 @@ import { AppBar, Avatar, Box, Collapse, Divider, Drawer, IconButton, List, ListI
 import { useTheme } from '@mui/material/styles';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
-import { api } from '../lib/api';
-import { expandPresentationAlerts } from '../lib/presentationAlerts';
 import type { Alert } from '../lib/types';
 import { useColorMode } from '../../theme/ColorModeProvider';
 import { DashboardFooter } from './DashboardFooter';
@@ -31,7 +29,7 @@ const navigation = [
 ];
 
 function hasVideoEvidence(alert: Alert) {
-  return typeof alert.metadata?.videoUrl === 'string' && alert.metadata.videoUrl.length > 0;
+  return alert.hasVideoEvidence || (typeof alert.metadata?.videoUrl === 'string' && alert.metadata.videoUrl.length > 0);
 }
 
 export function AppShell() {
@@ -49,7 +47,8 @@ export function AppShell() {
   const isDesktop = useMediaQuery(theme.breakpoints.up('md'));
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [accountMenuAnchor, setAccountMenuAnchor] = useState<HTMLElement | null>(null);
-  const { user, store } = useAuth();
+  const { user, store, api, isDemo, logout } = useAuth();
+  const navigate = useNavigate();
   const location = useLocation();
   const isAlertPage = location.pathname.startsWith('/alerts');
   const alertSection = new URLSearchParams(location.search).get('section') === 'confirmed' ? 'confirmed' : 'attention';
@@ -61,8 +60,8 @@ export function AppShell() {
         api.getAlerts(store!.id, { status: 'NEW', limit: 100 }),
         api.getAlerts(store!.id, { status: 'RESOLVED', limit: 100 }),
       ]);
-      const attentionAlerts = expandPresentationAlerts(attentionResult.items, 'NEW');
-      const confirmedAlerts = expandPresentationAlerts(confirmedResult.items, 'RESOLVED');
+      const attentionAlerts = attentionResult.items;
+      const confirmedAlerts = confirmedResult.items;
       return {
         attention: attentionAlerts.filter(hasVideoEvidence).length,
         confirmed: confirmedAlerts.filter(hasVideoEvidence).length,
@@ -288,9 +287,9 @@ export function AppShell() {
           </Avatar>
           <Box minWidth={0} sx={{ flex: 1, textAlign: 'left' }}>
             <Typography variant="body2" fontWeight={650} color="text.primary" noWrap sx={{ fontSize: 12.75 }}>
-              {user?.displayName ?? 'Store owner'}
+              {user?.displayName ?? 'Demo visitor'}
             </Typography>
-            <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11.25 }}>Owner</Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11.25 }}>{isDemo ? 'Read-only demo' : store?.role ?? 'Signed in'}</Typography>
           </Box>
           <MoreHorizRoundedIcon aria-hidden="true" sx={{ flexShrink: 0, color: 'text.secondary', fontSize: 20 }} />
         </ListItemButton>
@@ -308,6 +307,16 @@ export function AppShell() {
             },
           }}
         >
+          <MenuItem
+            onClick={() => {
+              setAccountMenuAnchor(null);
+              if (isDemo) navigate('/login');
+              else void logout().finally(() => navigate('/dashboard')).catch(() => {});
+            }}
+            sx={{ minHeight: 42 }}
+          >
+            <ListItemText primary={isDemo ? 'Owner sign in' : 'Sign out'} primaryTypographyProps={{ fontSize: 13 }} />
+          </MenuItem>
           <MenuItem
             onClick={() => {
               setAccountMenuAnchor(null);

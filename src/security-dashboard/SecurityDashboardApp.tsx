@@ -2,7 +2,7 @@ import '@fontsource-variable/outfit';
 import { CssBaseline, ThemeProvider } from '@mui/material';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useMemo } from 'react';
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { useColorMode } from '../theme/ColorModeProvider';
 import { AuthProvider, useAuth } from './auth/AuthProvider';
 import { AppShell } from './components/AppShell';
@@ -10,6 +10,7 @@ import { ScreenLoader } from './components/common';
 import { AlertsPage } from './pages/AlertsPage';
 import { CamerasPage } from './pages/CamerasPage';
 import { DashboardPage } from './pages/DashboardPage';
+import { LoginPage } from './pages/LoginPage';
 import { createDashboardTheme } from './theme';
 
 const queryClient = new QueryClient({
@@ -23,10 +24,14 @@ const queryClient = new QueryClient({
 
 function ProtectedLayout() {
   const { user, isLoading } = useAuth();
+  const location = useLocation();
+  const alertId = new URLSearchParams(location.search).get('alertId') ?? '';
+  const privateAlertLink = location.pathname === '/alerts'
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(alertId);
 
   if (isLoading) return <ScreenLoader label="Restoring your secure session…" />;
-  if (!user) return <Navigate to="/" replace />;
-  return <AppShell />;
+  if (!user && privateAlertLink) return <Navigate to="/login" replace state={{ from: location }} />;
+  return <AppShell key={user?.id ?? 'public-demo'} />;
 }
 
 function DashboardRedirect() {
@@ -46,7 +51,7 @@ export default function SecurityDashboardApp() {
         <CssBaseline />
         <AuthProvider>
           <Routes>
-            <Route path="/login" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/login" element={<LoginPage />} />
             <Route element={<ProtectedLayout />}>
               <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/alerts" element={<AlertsPage />} />

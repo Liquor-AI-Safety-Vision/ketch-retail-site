@@ -6,6 +6,7 @@ npm-debug.log*
 # Build output
 dist
 dist-ssr
+.security-check/
 *.local
 
 # Cloudflare wrangler local state — carries the deploying account's identity

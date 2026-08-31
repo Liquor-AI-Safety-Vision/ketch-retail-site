@@ -10,8 +10,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
 import { EmptyState, InlineError, ScreenLoader, alertTitle, formatDateTime, toTitle } from '../components/common';
-import { api, getErrorMessage } from '../lib/api';
-import { expandPresentationAlerts, hideConfirmedAlertLocally, isPresentationOnlyAlert, presentationBaseAlertId, setPresentationAlertDecision, storageAlertSessionFor } from '../lib/presentationAlerts';
+import { getErrorMessage } from '../lib/api';
+import { hideConfirmedAlertLocally, isPresentationOnlyAlert, presentationBaseAlertId, setPresentationAlertDecision, storageAlertSessionFor } from '../lib/presentationAlerts';
 import type { Alert, AlertDetail } from '../lib/types';
 
 type ReviewDecision = 'match' | 'false-alarm';
@@ -369,7 +369,7 @@ function AlertPagination({ page, count, onChange }: { page: number; count: numbe
 export function AlertsPage() {
   const attentionSectionRef = useRef<HTMLDivElement>(null);
   const confirmedSectionRef = useRef<HTMLDivElement>(null);
-  const { store } = useAuth();
+  const { store, api, isDemo } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [confirmedAlerts, setConfirmedAlerts] = useState<Alert[]>([]);
@@ -405,7 +405,7 @@ export function AlertsPage() {
       ...alert,
       metadata: { ...(alert.metadata ?? {}), videoUrl: playback.url },
     };
-  }, [store]);
+  }, [api, store]);
 
   const loadAlerts = useCallback(async () => {
     if (!store) return;
@@ -416,14 +416,14 @@ export function AlertsPage() {
         api.getAlerts(store.id, { status: 'NEW', limit: 100 }),
         api.getAlerts(store.id, { status: 'RESOLVED', limit: 100 }),
       ]);
-      setAlerts(sortActiveAlerts(expandPresentationAlerts(activeResult.items, 'NEW').filter(hasVideo)));
-      setConfirmedAlerts(expandPresentationAlerts(confirmedResult.items, 'RESOLVED').filter(hasVideo));
+      setAlerts(sortActiveAlerts(activeResult.items.filter(hasVideo)));
+      setConfirmedAlerts(confirmedResult.items.filter(hasVideo));
     } catch (cause) {
       setError(getErrorMessage(cause));
     } finally {
       setLoading(false);
     }
-  }, [store]);
+  }, [api, store]);
 
   useEffect(() => { void loadAlerts(); }, [loadAlerts]);
 
@@ -482,7 +482,7 @@ export function AlertsPage() {
   }, [loading, requestedSection]);
 
   const reviewAlert = async (alert: Alert, decision: ReviewDecision) => {
-    if (!store || reviewingId || isEmergency(alert)) return;
+    if (isDemo || !store || reviewingId || isEmergency(alert)) return;
     setReviewingId(alert.id);
     setError(null);
     try {
@@ -534,7 +534,7 @@ export function AlertsPage() {
     } finally {
       setDetailLoading(false);
     }
-  }, [attachPlaybackUrl, store]);
+  }, [api, attachPlaybackUrl, store]);
 
   useEffect(() => {
     if (!requestedAlertId) {
@@ -559,7 +559,7 @@ export function AlertsPage() {
       .then((alert) => setDetail(alert))
       .catch((cause) => setError(getErrorMessage(cause)))
       .finally(() => setDetailLoading(false));
-  }, [alerts, attachPlaybackUrl, confirmedAlerts, loading, openContext, requestedAlertId, store]);
+  }, [alerts, api, attachPlaybackUrl, confirmedAlerts, loading, openContext, requestedAlertId, store]);
 
   const closeDetail = () => {
     setDetail(null);
@@ -570,7 +570,7 @@ export function AlertsPage() {
   };
 
   const markConfirmedAlertAsFalseAlarm = async () => {
-    if (!falseAlarmTarget || !store || reviewingId) return;
+    if (isDemo || !falseAlarmTarget || !store || reviewingId) return;
     setReviewingId(falseAlarmTarget.id);
     setError(null);
     try {
@@ -829,6 +829,7 @@ export function AlertsPage() {
           {!detailLoading && detail && (
             <AlertContext
               alert={detail}
+              readOnly={isDemo}
               reviewing={reviewingId === detail.id}
               onReview={(decision) => reviewAlert(detail, decision)}
               onReclassify={() => setFalseAlarmTarget(detail)}
@@ -987,7 +988,7 @@ function ContextValue({ label, value }: { label: string; value: string }) {
   return <Box><Typography variant="caption" color="text.secondary">{label}</Typography><Typography variant="body2" fontWeight={650} sx={{ mt: 0.2 }}>{value}</Typography></Box>;
 }
 
-function AlertContext({ alert, reviewing, onReview, onReclassify }: { alert: AlertDetail; reviewing: boolean; onReview: (decision: ReviewDecision) => void | Promise<void>; onReclassify: () => void }) {
+function AlertContext({ alert, readOnly, reviewing, onReview, onReclassify }: { alert: AlertDetail; readOnly: boolean; reviewing: boolean; onReview: (decision: ReviewDecision) => void | Promise<void>; onReclassify: () => void }) {
   const videoUrl = metadataUrl(alert, 'videoUrl');
   const thumbnail = metadataUrl(alert, 'thumbnailUrl') ?? imageForAlert(alert);
   const isConfirmed = alert.status === 'RESOLVED';
@@ -1003,11 +1004,12 @@ function AlertContext({ alert, reviewing, onReview, onReclassify }: { alert: Ale
         </Box>
       )}
       {!videoUrl && <MuiAlert severity="info">A video link has not been attached to this alert yet. The available camera snapshot is shown instead.</MuiAlert>}
+      {readOnly && <MuiAlert severity="info">Read-only demo. Videos are available to view; sign in as an owner to manage real incidents.</MuiAlert>}
       <Typography color="text.secondary" sx={{ lineHeight: 1.7 }}>{alertDescriptions[alert.type] ?? 'Review the recorded context before making a decision.'}</Typography>
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', sm: isEmergency(alert) ? '1fr 1fr' : 'minmax(150px, .8fr) minmax(130px, .65fr) minmax(310px, 1.55fr)' }, gap: 2, alignItems: 'end' }}>
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', sm: readOnly || isEmergency(alert) ? '1fr 1fr' : 'minmax(150px, .8fr) minmax(130px, .65fr) minmax(310px, 1.55fr)' }, gap: 2, alignItems: 'end' }}>
         <ContextValue label="Detected" value={formatDateTime(alert.detectedAt)} />
         <ContextValue label="Camera" value={alert.cameraName ?? 'Unknown'} />
-        {!isEmergency(alert) && !isConfirmed && (
+        {!readOnly && !isEmergency(alert) && !isConfirmed && (
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ gridColumn: { xs: '1 / -1', sm: 'auto' }, justifySelf: { sm: 'end' }, width: { xs: '100%', sm: 'auto' } }}>
             <Button
               variant="contained"
@@ -1030,7 +1032,7 @@ function AlertContext({ alert, reviewing, onReview, onReclassify }: { alert: Ale
             </Button>
           </Stack>
         )}
-        {isConfirmed && (
+        {!readOnly && isConfirmed && (
           <Button
             variant="text"
             color="inherit"

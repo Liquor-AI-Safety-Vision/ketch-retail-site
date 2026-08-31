@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
 import { EmptyState, InlineError, ScreenLoader } from '../components/common';
-import { api, getErrorMessage } from '../lib/api';
+import { getErrorMessage } from '../lib/api';
 import type { Camera } from '../lib/types';
 
 interface LiveFeed {
@@ -109,7 +109,7 @@ function recordAsset(camera: Camera, extension: 'jpg' | 'mp4') {
 
 export function CamerasPage() {
   const restoredScrollRef = useRef(false);
-  const { store } = useAuth();
+  const { store, api } = useAuth();
   const [searchParams] = useSearchParams();
   const [preferences, setPreferences] = useState<CameraPreferences>(() => {
     const restored = restorePreferences();

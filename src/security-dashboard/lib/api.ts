@@ -1,6 +1,6 @@
 import type { Alert, AlertDetail, AlertFilters, AlertPage, AuthSession, Camera, CameraInput, CameraZone, Store, ZoneInput } from './types';
 
-const baseUrl = (import.meta.env.VITE_API_BASE_URL ?? '/api/v1').replace(/\/$/, '');
+const baseUrl = (import.meta.env?.VITE_API_BASE_URL ?? '/api/v1').replace(/\/$/, '');
 
 export class ApiError extends Error {
   readonly status: number;
@@ -21,12 +21,6 @@ class ApiClient {
       method: 'POST',
       body: { email, password },
     });
-    this.accessToken = session.accessToken;
-    return session;
-  }
-
-  async demoLogin() {
-    const session = await this.rawRequest<AuthSession>('/auth/demo', { method: 'POST' });
     this.accessToken = session.accessToken;
     return session;
   }
@@ -162,6 +156,9 @@ interface RequestOptions {
 }
 
 export const api = new ApiClient();
+
+export type DashboardApi = Pick<typeof api,
+  'getCameras' | 'getAlerts' | 'getAlert' | 'getEvidencePlaybackUrl' | 'actionAlert'>;
 
 export function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : 'Something went wrong. Please try again.';

@@ -131,8 +131,8 @@ function presentationAlertStatus(definition: PresentationAlertDefinition): Alert
   return value === 'RESOLVED' || value === 'DISMISSED' ? value : definition.defaultStatus;
 }
 
-function presentationAlert(definition: PresentationAlertDefinition): Alert {
-  const status = presentationAlertStatus(definition);
+function presentationAlert(definition: PresentationAlertDefinition, readOnly = false): Alert {
+  const status = readOnly ? definition.defaultStatus : presentationAlertStatus(definition);
   const cameraName = definition.cameraName ?? 'Whole store';
   const personLabel = definition.personLabel ?? 'Customer';
   return {
@@ -196,7 +196,7 @@ export function hideConfirmedAlertLocally(alert: Alert) {
   window.localStorage.setItem(locallyDismissedConfirmedAlertsKey, JSON.stringify([...hiddenIds]));
 }
 
-export function expandPresentationAlerts(items: Alert[], statusScope: 'NEW' | 'RESOLVED' | 'ALL' = 'ALL') {
+export function expandPresentationAlerts(items: Alert[], statusScope: 'NEW' | 'RESOLVED' | 'ALL' = 'ALL', { readOnly = false } = {}) {
   const expanded = items.flatMap((alert) => {
     if (alert.type !== 'UNAUTHORIZED_STOCKROOM_ACCESS') return [alert];
     const session = storageAlertSessionFor(alert.sourceEventId);
@@ -229,10 +229,10 @@ export function expandPresentationAlerts(items: Alert[], statusScope: 'NEW' | 'R
 
   const retainedAlerts = expanded.filter((alert) => !replacedPresentationTypes.has(alert.type as PresentationAlertDefinition['type']));
   const presentationAlerts = presentationAlertDefinitions
-    .map(presentationAlert)
+    .map((definition) => presentationAlert(definition, readOnly))
     .filter((alert) => alert.status !== 'DISMISSED')
     .filter((alert) => statusScope === 'ALL' || alert.status === statusScope);
 
-  const hiddenIds = locallyDismissedConfirmedAlertIds();
+  const hiddenIds = readOnly ? new Set<string>() : locallyDismissedConfirmedAlertIds();
   return [...retainedAlerts, ...presentationAlerts].filter((alert) => !hiddenIds.has(alert.id));
 }

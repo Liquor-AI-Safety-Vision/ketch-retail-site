@@ -11,8 +11,7 @@ import { useMemo } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
 import { InlineError, ScreenLoader } from '../components/common';
-import { api, getErrorMessage } from '../lib/api';
-import { expandPresentationAlerts } from '../lib/presentationAlerts';
+import { getErrorMessage } from '../lib/api';
 import type { Alert, Camera } from '../lib/types';
 
 interface Metric {
@@ -25,7 +24,7 @@ interface Metric {
 }
 
 function hasVideoEvidence(alert: Alert) {
-  return typeof alert.metadata?.videoUrl === 'string' && alert.metadata.videoUrl.length > 0;
+  return alert.hasVideoEvidence || (typeof alert.metadata?.videoUrl === 'string' && alert.metadata.videoUrl.length > 0);
 }
 
 interface OverviewData {
@@ -35,7 +34,7 @@ interface OverviewData {
 
 export function DashboardPage() {
   const theme = useTheme();
-  const { store } = useAuth();
+  const { store, api } = useAuth();
 
   const { data, error, isLoading, isFetching, refetch } = useQuery({
     queryKey: ['overview', store?.id],
@@ -44,7 +43,7 @@ export function DashboardPage() {
         api.getCameras(store!.id),
         api.getAlerts(store!.id, { limit: 100 }),
       ]);
-      return { cameras, alerts: expandPresentationAlerts(alertResult.items, 'ALL') };
+      return { cameras, alerts: alertResult.items };
     },
     enabled: Boolean(store),
     staleTime: 15_000,

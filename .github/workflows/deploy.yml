@@ -29,11 +29,13 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - run: npm ci
       - run: npm run build
+      - run: npm run lint
+      - run: npm run test:security
 
       # --branch=main is what makes a deployment the production one for this
       # project. Anything else lands on a preview URL and leaves the live site
