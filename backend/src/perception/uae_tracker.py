@@ -554,10 +554,16 @@ def cascade_matching(cost_func, max_cost, tracks, dets, tidx, didx,
 
 # ==================================================================== tracker
 
-#: Manifest spelling -> Config attribute. `match_thres` is the association gate
-#: a camera most often needs to move, so it gets the short name; everything else
-#: is addressed by the attribute's own name, lowercased.
-TRACKER_ALIASES = {"match_thres": "STEP_A_MAX_COST"}
+#: Deliberately empty. A manifest names a tracker setting by the Config
+#: attribute's own name, lowercased -- `step_a_max_cost`, not `match_thres`.
+#:
+#: There was a `match_thres` in every manifest, read by nothing, in every
+#: commit. It has no counterpart in uae-main (whose defaults.py has
+#: STEP_A/B/C/D.MAX_COST and no such key), so its 0.65 could not be traced to
+#: any meaning -- and 0.65 is above the 0.5 that this file's own note beside
+#: STEP_B_EMBED_GATE calls different-person territory. An alias that maps an
+#: untraceable number onto a real gate is worse than no alias.
+TRACKER_ALIASES: dict = {}
 
 
 def camera_config(overrides, *, camera_id="?"):

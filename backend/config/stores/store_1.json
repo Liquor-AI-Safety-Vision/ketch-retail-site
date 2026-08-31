@@ -46,8 +46,7 @@
           "nms_thres": 0.7
         },
         "person_tracker": {
-          "device": "cpu",
-          "match_thres": 0.65
+          "device": "cpu"
         }
       },
       "pipelines": [
@@ -93,8 +92,7 @@
           "nms_thres": 0.7
         },
         "person_tracker": {
-          "device": "cpu",
-          "match_thres": 0.65
+          "device": "cpu"
         },
         "face_identity": {
           "enabled": true,
@@ -177,8 +175,7 @@
           "nms_thres": 0.7
         },
         "person_tracker": {
-          "device": "cpu",
-          "match_thres": 0.5
+          "device": "cpu"
         },
         "face_identity": {
           "enabled": true,
@@ -261,8 +258,7 @@
           "nms_thres": 0.7
         },
         "person_tracker": {
-          "device": "cpu",
-          "match_thres": 0.65
+          "device": "cpu"
         }
       },
       "pipelines": [

@@ -138,8 +138,8 @@ def test_inert_keys_warn_but_do_not_fail():
     joined = "\n".join(warnings)
     for dead in ("runtime.device", "perception.person_detector.nms_thres"):
         assert dead in joined, f"{dead} configures nothing and should be named"
-    # match_thres was on this list until it was wired through to the tracker.
-    # It reaches Config.STEP_A_MAX_COST now, so naming it here would be wrong.
+    # match_thres is gone from the manifests entirely, so it cannot appear.
+
     assert "person_tracker.match_thres" not in joined
 
 
@@ -177,20 +177,41 @@ def test_loading_a_manifest_emits_the_warnings_once_per_process(caplog=None):
         local_config._WARNED.clear()
 
 
-def test_tracker_tuning_is_per_camera_and_reaches_the_tracker():
-    """person_tracker.match_thres used to configure nothing, in any commit.
+def test_no_manifest_still_carries_match_thres():
+    """Untraceable, unread in every commit, and above the different-person mark.
 
-    Tracker already accepted a `cfg`; nothing ever passed one, so all sixteen
-    cameras shared the class defaults while each manifest declared its own
-    threshold. A value someone tuned for a corridor camera did nothing to it.
+    0.65 has no counterpart in uae-main's defaults.py, and uae_tracker's own
+    note beside STEP_B_EMBED_GATE puts different people above 0.5 cosine on
+    this OSNet. Wiring that number into the association gate would have
+    loosened tracking on no evidence, so the key is gone.
+    """
+    for path in MANIFESTS:
+        assert '"match_thres"' not in path.read_text(), \
+            f"{path.name} still sets match_thres"
+
+
+def test_the_tracker_default_is_still_the_one_every_benchmark_ran():
+    from backend.src.perception.uae_tracker import Config
+
+    assert Config.STEP_A_MAX_COST == 0.25, (
+        "0.25 is uae-main's default and the value behind every recorded "
+        "benchmark; changing it invalidates them")
+
+
+def test_tracker_tuning_is_per_camera_when_a_camera_asks_for_it():
+    """Tracker always accepted a `cfg`; nothing ever passed one.
+
+    So all sixteen cameras ran the class defaults. The mechanism exists now,
+    addressed by the Config attribute's own name -- no alias, because the one
+    alias that existed could not be traced to a meaning.
     """
     from backend.src.perception.uae_tracker import Config, camera_config
 
-    counter = camera_config({"match_thres": 0.65}, camera_id="counter_1")
-    storage = camera_config({"match_thres": 0.5}, camera_id="storage_2")
+    strict = camera_config({"step_a_max_cost": 0.2}, camera_id="counter_1")
+    loose = camera_config({"step_a_max_cost": 0.3}, camera_id="storage_2")
 
-    assert counter.STEP_A_MAX_COST == 0.65
-    assert storage.STEP_A_MAX_COST == 0.5
+    assert strict.STEP_A_MAX_COST == 0.2
+    assert loose.STEP_A_MAX_COST == 0.3
     assert Config.STEP_A_MAX_COST == 0.25, (
         "the shared Config was mutated -- in the split tier several cameras "
         "are threads in one process, so that retunes the others")

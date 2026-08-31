@@ -40,8 +40,7 @@ quyết định nghiệp vụ của từng camera, không phải tinh chỉnh k�
 | khoá | tới |
 | --- | --- |
 | `person_detector.conf_thres` | ngưỡng detect người |
-| `person_tracker.match_thres` | `Config.STEP_A_MAX_COST` — cổng association chính |
-| `person_tracker.<tên_config>` | bất kỳ trường nào của `uae_tracker.Config`, viết thường |
+| `person_tracker.<tên_config>` | bất kỳ trường nào của `uae_tracker.Config`, viết thường — ví dụ `step_a_max_cost` |
 | `face_identity.face_conf` | ngưỡng **detect** khuôn mặt |
 | `face_identity.match_threshold` / `match_margin` | ngưỡng **match** khuôn mặt |
 | `face_identity.crop_expand` / `iou_thres` | cắt và NMS của face detector |
@@ -51,6 +50,22 @@ gốc — trong split tier nhiều camera là thread trong cùng một process, 
 `Config` sẽ retune lẫn nhau, đúng lỗi mà FSM globals từng mắc. Tên không có
 trong `Config` thì **báo lỗi**, vì một ngưỡng tracker không ai đọc là cách tốn
 một ngày chỉnh một con số vô nghĩa.
+
+### `match_thres` đã bị gỡ
+
+Nó có trong mọi manifest từ commit đầu, **không code nào đọc**, và không có
+khoá tương ứng nào trong `uae-main` (`defaults.py` chỉ có `STEP_A/B/C/D.MAX_COST`).
+Nên giá trị 0.65 không truy được ra nghĩa gì — trong khi 0.65 nằm trên mốc 0.5
+mà chính `uae_tracker.py` chú thích là "hai người khác nhau".
+
+Tracker vẫn chạy `STEP_A_MAX_COST = 0.25`, đúng mặc định của uae-main và đúng
+con số mọi vòng benchmark đã dùng. Muốn chỉnh theo camera thì khai bằng tên thật:
+
+```json
+"person_tracker": { "step_a_max_cost": 0.3 }
+```
+
+Tên đó không mơ hồ, và sai tên thì báo lỗi ngay.
 
 ### Hai khoá chưa tới đâu, và vì sao
 
