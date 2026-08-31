@@ -553,6 +553,44 @@ def cascade_matching(cost_func, max_cost, tracks, dets, tidx, didx,
 
 
 # ==================================================================== tracker
+
+#: Manifest spelling -> Config attribute. `match_thres` is the association gate
+#: a camera most often needs to move, so it gets the short name; everything else
+#: is addressed by the attribute's own name, lowercased.
+TRACKER_ALIASES = {"match_thres": "STEP_A_MAX_COST"}
+
+
+def camera_config(overrides, *, camera_id="?"):
+    """A Config subclass carrying one camera's tuning.
+
+    Tracker already took a `cfg`; nothing ever passed one, so every camera in a
+    16-camera run shared the class-level defaults and the per-camera
+    `person_tracker` block in each manifest configured nothing at all.
+
+    A subclass rather than a mutated Config, because the split architecture runs
+    several cameras as threads in one process: writing onto Config would have
+    the second camera retune the first, which is the same failure the FSM
+    globals had.
+
+    Unknown names raise. A tracker threshold that silently does nothing is how
+    someone spends a day tuning a value the tracker never reads.
+    """
+    if not overrides:
+        return Config
+    fields = {}
+    for key, value in overrides.items():
+        attr = TRACKER_ALIASES.get(key, key.upper())
+        if not hasattr(Config, attr):
+            known = ", ".join(sorted(TRACKER_ALIASES)
+                              + [a.lower() for a in vars(Config)
+                                 if a.isupper()])
+            raise ValueError(
+                f"camera {camera_id}: person_tracker.{key} is not a tracker "
+                f"setting (looked for Config.{attr}). Known: {known}")
+        fields[attr] = value
+    return type(f"Config_{camera_id}", (Config,), fields)
+
+
 class Tracker:
     def __init__(self, img_h, img_w, cfg=Config, fps=None):
         self.cfg = cfg

@@ -35,6 +35,34 @@ Code có mặc định `0.30 / 0.10` (`storage_intrusion.py`), chỉ dùng khi m
 không khai. Ngưỡng thấp hơn = dễ gán tên cho một khuôn mặt lạ hơn, nên chỉnh nó là
 quyết định nghiệp vụ của từng camera, không phải tinh chỉnh kỹ thuật.
 
+### Ngưỡng nào đã nối tới đâu
+
+| khoá | tới |
+| --- | --- |
+| `person_detector.conf_thres` | ngưỡng detect người |
+| `person_tracker.match_thres` | `Config.STEP_A_MAX_COST` — cổng association chính |
+| `person_tracker.<tên_config>` | bất kỳ trường nào của `uae_tracker.Config`, viết thường |
+| `face_identity.face_conf` | ngưỡng **detect** khuôn mặt |
+| `face_identity.match_threshold` / `match_margin` | ngưỡng **match** khuôn mặt |
+| `face_identity.crop_expand` / `iou_thres` | cắt và NMS của face detector |
+
+Tracker nhận một lớp `Config` **con** riêng cho từng camera, không sửa `Config`
+gốc — trong split tier nhiều camera là thread trong cùng một process, ghi đè lên
+`Config` sẽ retune lẫn nhau, đúng lỗi mà FSM globals từng mắc. Tên không có
+trong `Config` thì **báo lỗi**, vì một ngưỡng tracker không ai đọc là cách tốn
+một ngày chỉnh một con số vô nghĩa.
+
+### Hai khoá chưa tới đâu, và vì sao
+
+`nms_thres` — pose head là **NMS-free** (`stream_track.py`: `(300, 57) NMS-free`),
+không có NMS để đặt ngưỡng. Không phải "chưa nối" mà là không có chỗ nối.
+
+`device` — giữ lại có chủ đích, đón trước multi-GPU/multi-node (`cuda:0`,
+`cuda:1`). Hiện chưa đọc vì kiến trúc split nạp model **một lần cho cả tier** và
+dùng chung 16 camera; đặt provider khác nhau theo camera cần nhiều bộ session,
+tức thêm CUDA context — đã đo là 19ms ở 2 context, 45ms ở 4. Việc này thuộc bước
+scale ra nhiều node, không phải sửa cấu hình.
+
 ## `pipeline_id` phải nằm trong registry
 
 `backend/src/pipelines/registry.py` giữ danh sách id hợp lệ. Một id lạ **báo lỗi

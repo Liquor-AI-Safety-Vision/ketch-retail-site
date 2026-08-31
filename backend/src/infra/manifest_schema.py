@@ -34,6 +34,28 @@ from typing import Any
 NUMBER = (int, float)
 
 
+def _tracker_keys():
+    """Every Config attribute a camera may override, by its own name.
+
+    Built from the class rather than typed out, so a tracker setting added
+    later is configurable without editing two files -- and, more to the point,
+    so this list cannot drift into promising a knob that no longer exists.
+    """
+    from backend.src.perception.uae_tracker import Config, TRACKER_ALIASES
+
+    keys = {"device": str, "reid_model": str}
+    for attr, value in vars(Config).items():
+        if attr.isupper():
+            keys[attr.lower()] = bool if isinstance(value, bool) else (
+                str if isinstance(value, str) else NUMBER)
+    for alias, attr in TRACKER_ALIASES.items():
+        keys[alias] = NUMBER
+    return keys
+
+
+_TRACKER_KEYS = _tracker_keys()
+
+
 @dataclass(frozen=True)
 class Section:
     """One nesting level of the manifest."""
@@ -147,12 +169,19 @@ CAMERA = Section(
             keys={"person_detector": dict, "person_tracker": dict, "face_identity": dict},
             children={
                 "person_detector": Section(
-                    keys={"device": str, "conf_thres": NUMBER, "nms_thres": NUMBER},
+                    keys={"device": str, "conf_thres": NUMBER, "nms_thres": NUMBER,
+                          "pose_model": str},
+                    # nms_thres is inert for a reason no wiring can fix: the
+                    # pose head is NMS-free (stream_track.py: "(300, 57)
+                    # NMS-free"), so there is no NMS to give a threshold to.
                     inert=frozenset({"device", "nms_thres"}),
                 ),
+                # Tracker tuning is per camera and validated against the real
+                # Config attributes, so a name the tracker does not have fails
+                # here rather than being read by nobody.
                 "person_tracker": Section(
-                    keys={"device": str, "match_thres": NUMBER},
-                    inert=frozenset({"device", "match_thres"}),
+                    keys=_TRACKER_KEYS,
+                    inert=frozenset({"device"}),
                 ),
                 "face_identity": Section(
                     keys={

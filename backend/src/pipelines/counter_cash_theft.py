@@ -16,7 +16,7 @@ from backend.src.common.timing import TimingCollector
 from backend.src.perception import stream_track as S  # noqa: E402
 from backend.src.perception import zones  # noqa: E402
 from backend.src.perception.run_counter import Till, TillRegistry  # noqa: E402
-from backend.src.perception.uae_tracker import Detection, Tracker  # noqa: E402
+from backend.src.perception.uae_tracker import Detection, Tracker, camera_config  # noqa: E402
 
 from backend.src.domain.models import CameraPipelineBindingSpec, CameraStreamSpec, FrameEnvelope
 from backend.src.infra.local_media_store import LocalMediaStore
@@ -26,6 +26,20 @@ from backend.src.pipelines.till_schedule import compute_till_schedule
 from backend.src.pipelines.track_quality import record_track_quality
 from backend.src.runtime.shared_inference import SharedInferenceRegistry
 from backend.src.common.paths import model_path, zones_dir
+
+
+def _tracker_overrides(spec) -> dict:
+    """Per-camera tracker tuning out of the manifest.
+
+    `device` and `reid_model` live in the same block but are not tracker
+    settings -- one selects a provider, the other names a file -- so they are
+    dropped here rather than reaching camera_config(), which refuses names it
+    does not recognise.
+    """
+    block = dict(spec.perception_profile.get("person_tracker", {}))
+    for not_a_threshold in ("device", "reid_model"):
+        block.pop(not_a_threshold, None)
+    return block
 
 
 BOOTSTRAP_LOCK = threading.Lock()
@@ -186,7 +200,9 @@ class CounterCashTheftPipeline:
 
         h, w = frame.image_bgr.shape[:2]
         with self.timing.track("bootstrap::tracker"):
-            self.tracker = Tracker(img_h=h, img_w=w, fps=self.spec.target_fps)
+            self.tracker = Tracker(
+            img_h=h, img_w=w, fps=self.spec.target_fps,
+            cfg=camera_config(_tracker_overrides(self.spec), camera_id=self.spec.camera_id))
 
         # The default used to point into outputs/, the dev artefact directory,
         # so a backend unpacked anywhere else came up with no zones at all --

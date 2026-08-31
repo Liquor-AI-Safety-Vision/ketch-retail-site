@@ -136,9 +136,11 @@ def test_inert_keys_warn_but_do_not_fail():
     """
     warnings = validate_manifest(_load())
     joined = "\n".join(warnings)
-    for dead in ("runtime.device", "perception.person_tracker.match_thres",
-                 "perception.person_detector.nms_thres"):
+    for dead in ("runtime.device", "perception.person_detector.nms_thres"):
         assert dead in joined, f"{dead} configures nothing and should be named"
+    # match_thres was on this list until it was wired through to the tracker.
+    # It reaches Config.STEP_A_MAX_COST now, so naming it here would be wrong.
+    assert "person_tracker.match_thres" not in joined
 
 
 def test_inert_warnings_are_grouped_not_repeated_per_camera():
@@ -173,3 +175,43 @@ def test_loading_a_manifest_emits_the_warnings_once_per_process(caplog=None):
     finally:
         logger.removeHandler(handler)
         local_config._WARNED.clear()
+
+
+def test_tracker_tuning_is_per_camera_and_reaches_the_tracker():
+    """person_tracker.match_thres used to configure nothing, in any commit.
+
+    Tracker already accepted a `cfg`; nothing ever passed one, so all sixteen
+    cameras shared the class defaults while each manifest declared its own
+    threshold. A value someone tuned for a corridor camera did nothing to it.
+    """
+    from backend.src.perception.uae_tracker import Config, camera_config
+
+    counter = camera_config({"match_thres": 0.65}, camera_id="counter_1")
+    storage = camera_config({"match_thres": 0.5}, camera_id="storage_2")
+
+    assert counter.STEP_A_MAX_COST == 0.65
+    assert storage.STEP_A_MAX_COST == 0.5
+    assert Config.STEP_A_MAX_COST == 0.25, (
+        "the shared Config was mutated -- in the split tier several cameras "
+        "are threads in one process, so that retunes the others")
+
+
+def test_a_tracker_setting_the_tracker_does_not_have_is_refused():
+    from backend.src.perception.uae_tracker import camera_config
+
+    try:
+        camera_config({"mach_thres": 0.5}, camera_id="cam_x")
+    except ValueError as e:
+        assert "mach_thres" in str(e) and "cam_x" in str(e)
+    else:
+        raise AssertionError("a nonexistent tracker setting was accepted")
+
+
+def test_device_is_accepted_as_forward_looking_config():
+    """Not a typo and not junk: it is placement for the multi-GPU/multi-node
+    shape this is heading toward. Nothing reads it yet, so it warns -- but it
+    must not be an error, and it must not be dropped from the schema."""
+    data = _load()
+    data["cameras"][0]["runtime"]["device"] = "cuda:1"
+    warnings = validate_manifest(data)
+    assert any("runtime.device" in w for w in warnings)

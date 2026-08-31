@@ -16,7 +16,7 @@ from backend.src.common.timing import TimingCollector
 from backend.src.perception import stream_track as S  # noqa: E402
 from backend.src.perception import warehouse  # noqa: E402
 from backend.src.perception.face_identity import MatchDecision  # noqa: E402
-from backend.src.perception.uae_tracker import Detection, Tracker  # noqa: E402
+from backend.src.perception.uae_tracker import Detection, Tracker, camera_config  # noqa: E402
 
 from backend.src.domain.models import CameraPipelineBindingSpec, CameraStreamSpec, FrameEnvelope
 from backend.src.infra.local_media_store import LocalMediaStore
@@ -25,6 +25,20 @@ from backend.src.pipelines.alert_clip_buffer import AlertClipBuffer, FinalizedAl
 from backend.src.pipelines.track_quality import record_track_quality
 from backend.src.runtime.shared_inference import SharedFaceIdentifier, SharedInferenceRegistry
 from backend.src.common.paths import model_path
+
+
+def _tracker_overrides(spec) -> dict:
+    """Per-camera tracker tuning out of the manifest.
+
+    `device` and `reid_model` live in the same block but are not tracker
+    settings -- one selects a provider, the other names a file -- so they are
+    dropped here rather than reaching camera_config(), which refuses names it
+    does not recognise.
+    """
+    block = dict(spec.perception_profile.get("person_tracker", {}))
+    for not_a_threshold in ("device", "reid_model"):
+        block.pop(not_a_threshold, None)
+    return block
 
 logger = logging.getLogger(__name__)
 
@@ -227,7 +241,9 @@ class StorageIntrusionPipeline:
 
         h, w = frame.image_bgr.shape[:2]
         with self.timing.track("bootstrap::tracker"):
-            self.tracker = Tracker(img_h=h, img_w=w, fps=self.spec.target_fps)
+            self.tracker = Tracker(
+            img_h=h, img_w=w, fps=self.spec.target_fps,
+            cfg=camera_config(_tracker_overrides(self.spec), camera_id=self.spec.camera_id))
             self.monitor = warehouse.ZoneMonitor(self.zone_cfg["zone_norm"], w, h, cfg)
         self._business_ready = True
 
