@@ -13,9 +13,9 @@ từng module trong interpreter mới. Nếu bất kỳ module nào với ra ngo
 | --- | --- |
 | `src/perception/` | Detector, tracker, zone FSM, face align/identity, till. Lõi thị giác. |
 | `src/pipelines/` | Nghiệp vụ: counter cash theft, storage intrusion, tracking baseline. |
-| `src/runtime/` | Split architecture: decode / inference / business tier, ring buffer, supervisor. |
+| `src/runtime/` | Split architecture: decode / inference / business tier, ring buffer. |
 | `src/infra/` | Alert store (SQLite + Postgres), media store (local + R2). |
-| `src/app/` | Entry point: `run_split_pipeline.py`, `run_local_backend.py`, `regression.py`. |
+| `src/app/` | Entry point: `run_split_pipeline.py`. `build_staff_db.py` nạp gallery nhân viên. |
 | `config/` | Manifest store/camera/pipeline, zone, staff seed. |
 | `models/` | 7 ONNX mà runtime thật sự nạp. |
 | `tools/` | Bộ đo bench và test runner. |

@@ -6,8 +6,7 @@ TrackingBaselinePipeline) the current architecture already uses -- the
 split does not reimplement tracking, FSM, zone logic or alerting, it only
 changes where the boxes/features/till-detections those classes consume come
 from. Each camera keeps its own tracker, till registry, clip buffer and
-SQLite connection, exactly as camera_runtime.py already does; nothing here
-changes that.
+SQLite connection; nothing here changes that.
 
 This tier is the last to touch a frame's pixels, and the one that releases
 the ring slot back to the free list -- after tracking and after any crop
@@ -36,8 +35,8 @@ from backend.src.runtime.inference_server import FaceAnswer, FaceRequest, Percep
 
 
 def _build_pipeline(spec, binding, alert_store, media_store, run_id, gallery_db_path):
-    """One mapping, shared with camera_runtime, so a camera behaves identically
-    regardless of which architecture is running it."""
+    """The one mapping, via the registry, so an unknown pipeline_id fails at
+    bootstrap instead of falling through to the tracking pipeline."""
     return build_pipeline(
         spec, binding, alert_store=alert_store, media_store=media_store,
         run_id=run_id, gallery_db_path=gallery_db_path,
@@ -57,8 +56,8 @@ class BusinessStats:
 
 
 class _CameraWorker:
-    """One camera's state, matching camera_runtime.CameraRuntime's role but
-    fed from PerceptionResult messages instead of calling det/emb itself."""
+    """One camera's state, fed from PerceptionResult messages rather than
+    calling det/emb itself -- those live in the inference tier."""
 
     def __init__(self, spec, alert_store, media_store, gallery_db_path, face_q):
         self.spec = spec

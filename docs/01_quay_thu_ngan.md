@@ -892,12 +892,13 @@ không di chuyển giữa chừng, và `TillRegistry` chỉ ghi nhận toạ đ�
 
    | | chia camera | trong 1 nhóm |
    |---|---|---|
-   | Đường monolithic (`supervisor.py`) | `shards[i % num_workers]`, [supervisor.py:222-226](../backend/src/runtime/supervisor.py#L222-L226) | `ThreadPoolExecutor`, [supervisor.py:91](../backend/src/runtime/supervisor.py#L91) |
+   | Đường monolithic (`supervisor.py`, **đã gỡ 01/09/2026**) | `shards[i % num_workers]` | `ThreadPoolExecutor` |
    | Đường split (`run_split_pipeline.py`) | `_shard(specs, businesses)` = `items[i::n]` | `ThreadPoolExecutor`, [business_tier.py](../backend/src/runtime/business_tier.py) |
 
-   (Lưu ý `hybrid_workers` chỉ tồn tại ở đường monolithic; đường split dùng
-   `--decoders/--inferers/--infer-threads/--business`. Hai đường chia camera theo cùng
-   một hình dạng vòng tròn nhưng bằng cơ chế khác nhau.)
+   (Đường monolithic đã bị gỡ khi split trở thành kiến trúc triển khai duy nhất;
+   giữ lại dòng trên vì bài học không nằm ở kiến trúc nào mà ở chỗ **nhiều camera
+   là nhiều thread trong cùng một process** — điều vẫn đúng với split, nên
+   `setattr` lên module global vẫn sẽ hỏng y hệt nếu ai đó viết lại như cũ.)
 
    Camera bootstrap sau ghi đè ngưỡng của camera bootstrap trước trong cùng process, và
    từ đó alert của camera này bị phán xử bằng ngưỡng của camera kia, không có log nào

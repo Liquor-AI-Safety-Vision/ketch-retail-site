@@ -112,7 +112,7 @@ chi phí phát sinh thêm khi chuyển sang RTSP.
 
 [`backend/src/runtime/rtsp_stream.py`](../src/runtime/rtsp_stream.py), cùng surface
 với `VirtualVideoStreamSource`. Chọn lớp qua `open_stream_source(spec)`, đã gắn vào
-`decode_tier.py` và `camera_runtime.py`.
+`decode_tier.py`.
 
 Khác biệt so với nguồn file, và lý do phải là lớp riêng chứ không phải nhánh `if`:
 

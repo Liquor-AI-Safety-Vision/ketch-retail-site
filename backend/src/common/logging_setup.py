@@ -61,9 +61,8 @@ def configure_logging(
 
     formatter = logging.Formatter(FORMAT, datefmt=DATEFMT)
 
-    # stderr, not stdout: stdout carries the machine-readable result that
-    # regression.py and the bench scripts parse, and interleaving log lines
-    # into it would corrupt the JSON.
+    # stderr, not stdout: stdout carries the machine-readable result the bench
+    # scripts parse, and interleaving log lines into it would corrupt the JSON.
     stream = logging.StreamHandler(sys.stderr)
     stream.setFormatter(formatter)
     root.addHandler(stream)

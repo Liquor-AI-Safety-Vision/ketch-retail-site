@@ -72,26 +72,35 @@ def test_every_id_in_every_shipped_manifest_is_registered():
         "\n  ".join(unknown)
 
 
-def test_the_two_architectures_cannot_disagree_about_the_mapping():
-    """camera_runtime and business_tier both go through build_pipeline now.
+def test_nothing_constructs_a_pipeline_behind_the_registry():
+    """Every path to a pipeline goes through build_pipeline.
 
-    They used to hold separate copies of the same if/elif chain, kept in step
-    by a docstring saying "Same mapping camera_runtime.py uses". A comment does
-    not stop a copy drifting, and a camera behaving differently depending on
-    which architecture ran it is the exact bug that would follow.
+    There were once two: the monolithic camera_runtime and business_tier,
+    each holding its own copy of the same if/elif chain, kept in step by a
+    docstring saying "Same mapping camera_runtime.py uses". A comment does not
+    stop a copy drifting. The monolith is gone, but the guard is not about how
+    many call sites exist -- it is about the next one, which would reintroduce
+    the fallthrough that let a typo'd pipeline_id run and never alert.
+
+    So this scans every runtime and app module rather than a named pair.
     """
     import ast
 
     offenders = []
-    for name in ("runtime/camera_runtime.py", "runtime/business_tier.py"):
-        path = BACKEND / "src" / name
-        for node in ast.walk(ast.parse(path.read_text())):
-            if not isinstance(node, ast.Call):
-                continue
-            fn = node.func
-            called = fn.id if isinstance(fn, ast.Name) else getattr(fn, "attr", "")
-            if called.endswith("Pipeline"):
-                offenders.append(f"{name}:{node.lineno} constructs {called} directly")
+    scanned = 0
+    for sub in ("runtime", "app"):
+        for path in sorted((BACKEND / "src" / sub).rglob("*.py")):
+            name = path.relative_to(BACKEND / "src").as_posix()
+            scanned += 1
+            for node in ast.walk(ast.parse(path.read_text())):
+                if not isinstance(node, ast.Call):
+                    continue
+                fn = node.func
+                called = fn.id if isinstance(fn, ast.Name) else getattr(fn, "attr", "")
+                if called.endswith("Pipeline"):
+                    offenders.append(
+                        f"{name}:{node.lineno} constructs {called} directly")
+    assert scanned > 5, "the scan found almost nothing; the layout moved"
     assert not offenders, (
         "a pipeline is being built outside registry.build_pipeline:\n  "
         + "\n  ".join(offenders)

@@ -18,7 +18,12 @@ gắn với ngày chạy, lệnh chạy, commit hash, cấu hình phần cứng 
 | `2026-08-26-till-thread-pool-oversizing.md` | cú tối ưu lớn nhất (5×), và cái thước đo hỏng làm lạc hướng 4 vòng |
 | `2026-08-24-rejected-request-reply-proxy.md` | hai hướng đã thử và bị bác bỏ bằng số đo |
 | `2026-08-27-till-nano-rejected.md` | model till nhẹ hơn, bị bác bỏ vì bỏ sót 55% |
+| `2026-08-24-hybrid-16cam-l40s.md` | **nguồn của 3 quyết định split đang dùng**: CUDA EP trả giá khi batch shape đổi → `pose_pad_batch`; số CUDA context quyết định `infer` → 2 inferer; batch thật không giúp khi GPU bão hoà. Kèm danh sách hướng đã bác bỏ |
 | `2026-08-24-process-l40s.md` | baseline cũ, giữ làm mốc |
+
+Hai bản ghi `2026-08-24-*-l40s.md` đo trên **kiến trúc monolithic đã gỡ 01/09/2026**.
+Lệnh trong đó không chạy lại được và FPS không so chéo được với split; phần nguyên
+nhân gốc thì vẫn đang chi phối split, nên chúng ở lại.
 
 ## Ba cái bẫy đã trả giá, đừng lặp lại
 

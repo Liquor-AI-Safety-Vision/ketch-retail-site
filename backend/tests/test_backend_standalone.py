@@ -4,8 +4,8 @@ This is the test the old layout would have failed, and the reason it existed
 unnoticed for so long: backend/src reached the perception stack by inserting
 the repo's top-level scripts/ directory onto sys.path at import time. Inside a
 checkout that worked perfectly. Copied to a GPU box on its own, nine modules
-raised ModuleNotFoundError -- every pipeline, the camera runtime, the inference
-registry and the supervisor among them.
+raised ModuleNotFoundError -- every pipeline and the inference registry among
+them.
 
 Nothing about that was visible from inside the repo, so no amount of care
 would have caught it. Only a test that takes backend away from its siblings

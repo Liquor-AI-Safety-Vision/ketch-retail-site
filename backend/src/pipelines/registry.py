@@ -1,10 +1,11 @@
 """pipeline_id -> pipeline class, in one place, with unknown ids refused.
 
-There used to be no registry. Two call sites -- camera_runtime for the local
-path and business_tier for the split path -- each carried the same if/elif
-chain, and business_tier's docstring said "Same mapping camera_runtime.py
-uses", which is a comment standing guard over a copy. Comments do not stop
-copies drifting.
+There used to be no registry. Two call sites -- the monolithic camera_runtime
+and business_tier for the split path -- each carried the same if/elif chain,
+and business_tier's docstring said "Same mapping camera_runtime.py uses",
+which is a comment standing guard over a copy. Comments do not stop copies
+drifting. (The monolithic path was retired once split became the only
+deployed architecture; this module is why retiring it changed no behaviour.)
 
 Worse than the duplication was how both chains ended: an unconditional
 `return TrackingBaselinePipeline(...)`. Only three ids were ever matched by

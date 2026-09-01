@@ -117,7 +117,7 @@ def test_logs_go_to_stderr_so_stdout_stays_machine_readable():
         assert streams, "no stream handler configured"
         assert all(s is sys.stderr for s in streams), (
             "a log handler writes to stdout, which also carries the JSON result "
-            "that regression.py parses"
+            "the bench scripts parse"
         )
     finally:
         for h in list(root.handlers):
