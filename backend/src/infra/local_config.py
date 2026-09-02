@@ -94,7 +94,7 @@ def camera_specs_from_manifest(path: str | Path) -> list[CameraStreamSpec]:
         )
         for binding in pipeline_bindings:
             params = dict(binding.params)
-            for key in ("zone_config_path", "zones_path", "till_model_path"):
+            for key in ("zone_config_path", "zones_path"):
                 if key in params:
                     params[key] = resolve_repo_path(params[key])
             binding.params = params

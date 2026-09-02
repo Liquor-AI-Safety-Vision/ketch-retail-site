@@ -276,8 +276,19 @@ class CounterCashTheftPipeline:
             else:
                 self.emb = _build_embedder()
 
-        till_model_path = self.params.get("till_model_path", model_path("till_seg_v4_640.onnx"))
-        till_imgsz = int(self.params.get("till_imgsz", 640))
+        # Fixed, not per camera. What varies between counters is the zone, the
+        # confidence threshold and the sampling rate -- till_conf and till_fps
+        # are per camera for exactly that reason. Which drawer model to run,
+        # and at what input size, is a property of the deployment and of the
+        # exported graph, not of where a camera is mounted.
+        #
+        # imgsz especially: this ONNX takes a dynamic input shape, so a camera
+        # asking for 512 would run cleanly and simply detect worse than the
+        # 640 it was trained at, with nothing to say so. --till-model and
+        # --till-imgsz on run_split_pipeline remain, for deliberately
+        # swapping the model across a whole run.
+        till_model_path = model_path("till_seg_v4_640.onnx")
+        till_imgsz = 640
         till_conf = float(self.params.get("till_conf", 0.70))
         till_providers = (
             ["CPUExecutionProvider"]

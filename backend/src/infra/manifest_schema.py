@@ -118,8 +118,14 @@ PIPELINE_PARAMS: dict[str, Section] = {
             "till_conf": NUMBER,
             "till_confirm_frames": int,
             "till_fps": NUMBER,
-            "till_imgsz": int,
-            "till_model_path": str,
+            # till_model_path and till_imgsz were here and are gone. The
+            # split tier builds one till service per (model, imgsz) and shares
+            # it across every counter in the process, so a per-camera value
+            # would have meant another 90 MB session, another worker thread,
+            # and -- worst of it -- four cameras' drawer requests no longer
+            # batching into one GPU call. Meanwhile nothing read them: the
+            # tier takes its model from --till-model. What differs between
+            # counters is till_conf and till_fps, which are per camera.
             "fsm": dict,
             "alert_clip": dict,
         },

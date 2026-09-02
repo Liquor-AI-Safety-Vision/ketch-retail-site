@@ -175,6 +175,7 @@ cảnh báo chỉ mời người sau đi nối chúng.
 | `policies.default_alert_clip` | mặc định thật là số `15.0` trong pipeline. `alert_clip` theo **từng binding** mới là chỗ đặt, và đó mới là mức đúng: alert quầy và alert kho trên cùng camera muốn độ dài khác nhau |
 | `mode` | nhãn không nhánh nào rẽ theo |
 | `perception.person_detector.nms_thres` | pose head là **NMS-free** (`stream_track.py`: `(300, 57) NMS-free`). Không phải "chưa nối" mà là **không tồn tại chỗ để nối** |
+| `params.till_model_path` / `till_imgsz` | model till **dùng chung cho mọi quầy**, đó là chủ trương. Tier inference dựng một service till cho mỗi cặp `(model, imgsz)` rồi chia cho cả 4 camera quầy; khai riêng từng camera là thêm 90MB session, thêm thread, và **mất gộp batch** — đúng chỗ đắt nhất theo bench 2026-08-24. Muốn đổi model cho cả run thì dùng `--till-model`. Cái riêng theo camera là `till_conf` và `till_fps` |
 | `params.emit_customer_tracks` | mô tả hành vi không có |
 | `params.face_capture_window.start_status` | không code nào đọc |
 

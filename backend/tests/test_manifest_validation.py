@@ -323,3 +323,37 @@ def test_device_is_accepted_as_forward_looking_config():
     data["cameras"][0]["runtime"]["device"] = "cuda:1"
     warnings = validate_manifest(data)
     assert any("runtime.device" in w for w in warnings)
+
+
+def test_the_till_model_is_not_a_per_camera_setting():
+    """Shared across every counter, deliberately.
+
+    The split inference tier builds one till service per (model_path, imgsz)
+    and shares it across all four counters in the process. A per-camera value
+    would fork that: another 90 MB session, another worker thread, and four
+    cameras' drawer requests no longer batching into one GPU call -- which is
+    the opposite of what the batch-shape measurement says to do.
+
+    Nothing read them either; the tier takes its model from --till-model. And
+    the ONNX has a dynamic input shape, so a camera asking for imgsz 512
+    would have run cleanly and simply detected worse than the 640 it was
+    trained at, with nothing anywhere reporting a problem.
+
+    What differs between counters is the zone, till_conf and till_fps.
+    """
+    for key, value in (("till_model_path", "/models/other.onnx"), ("till_imgsz", 512)):
+        data = _load()
+        cam = next(c for c in data["cameras"] if c["camera_id"] == "counter_1")
+        cam["pipelines"][0]["params"][key] = value
+        try:
+            validate_manifest(data)
+        except ManifestError as e:
+            assert key in str(e) and "unknown key" in str(e), str(e)
+        else:
+            raise AssertionError(f"{key} was accepted but nothing per-camera reads it")
+
+    # The knobs that ARE per camera stay per camera.
+    data = _load()
+    cam = next(c for c in data["cameras"] if c["camera_id"] == "counter_1")
+    cam["pipelines"][0]["params"].update({"till_conf": 0.6, "till_fps": 2})
+    assert not [w for w in validate_manifest(data) if "till" in w]
