@@ -1,0 +1,60 @@
+{
+  // The workspace holds ~19,000 files; 174 of them are in git. The rest are
+  // gitignored bulk -- dev/pdf/node_modules (11,279), data/datasets (6,045),
+  // bench artefacts, model weights. Left unexcluded, the file watcher tracks
+  // all of them, which is what puts a "10K+" badge on the activity bar and
+  // makes search and the Source Control refresh slow.
+  //
+  // watcherExclude is the one that matters: it stops the OS-level watch.
+  // files.exclude only hides entries from the explorer tree.
+  "files.watcherExclude": {
+    "**/.git/objects/**": true,
+    "**/.git/subtree-cache/**": true,
+    "**/node_modules/**": true,
+    "**/__pycache__/**": true,
+    "**/dev/pdf/**": true,
+    "**/dev/outputs/**": true,
+    "**/dev/uae-main/**": true,
+    "**/dev/models_fp16/**": true,
+    "**/data/datasets/**": true,
+    "**/data/videos/**": true,
+    "**/backend/models/**": true,
+    "**/backend/data/**": true
+  },
+
+  // Keep these out of Cmd+P and search results. They are inputs and artefacts,
+  // never things to edit -- and a grep that returns 6,000 dataset files buries
+  // the one hit in backend/src that was being looked for.
+  "search.exclude": {
+    "**/dev/pdf": true,
+    "**/dev/outputs": true,
+    "**/dev/uae-main": true,
+    "**/dev/models_fp16": true,
+    "**/data/datasets": true,
+    "**/backend/models": true,
+    "**/__pycache__": true
+  },
+
+  // Explorer only. Deliberately narrower than the two lists above: dev/outputs
+  // and data/videos stay visible because they get opened by hand (bench
+  // results, the clips a manifest points at), they just should not be watched
+  // or searched.
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/.pytest_cache": true,
+    "**/*.pyc": true,
+    "**/dev/pdf/node_modules": true
+  },
+
+  // Ignored files are not changes. Without this the Source Control view can
+  // keep showing a stale untracked list -- which is exactly what happened when
+  // outputs/ moved to dev/outputs/ and the old, un-ignored path stayed cached.
+  "git.untrackedChanges": "separate",
+  "git.ignoreLimitWarning": true,
+
+  "python.analysis.exclude": [
+    "**/dev/pdf/**",
+    "**/dev/outputs/**",
+    "**/data/datasets/**"
+  ]
+}
