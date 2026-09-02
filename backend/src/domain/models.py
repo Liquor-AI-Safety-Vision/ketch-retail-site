@@ -97,6 +97,12 @@ class CameraPipelineBindingSpec:
 class CameraStreamSpec:
     company_id: Optional[str]
     store_id: str
+    #: The store's human-readable name, for stores.display_name. Carried on
+    #: every camera spec rather than passed apart because seed_store_topology
+    #: only ever receives the merged spec list -- it has no manifest to look
+    #: back at. Falls back to store_id, which is what the column held for
+    #: every row written before this field existed.
+    store_display_name: str
     store_timezone: str
     camera_id: str
     display_name: str

@@ -37,7 +37,8 @@ def _spec(**overrides):
     from backend.src.domain.models import CameraStreamSpec
 
     base = dict(
-        company_id="test_co", store_id="store_A", store_timezone="Asia/Ho_Chi_Minh",
+        company_id="test_co", store_id="store_A", store_display_name="Store A",
+        store_timezone="Asia/Ho_Chi_Minh",
         camera_id="counter_1", display_name="Counter 1", camera_type="counter",
         source_kind="rtsp", source_uri=RTSP_URI, source_path=RTSP_URI,
         strategy="trim", start_s=0.0, target_duration_s=10.0, target_fps=5.0,

@@ -26,15 +26,18 @@ def seed_store_topology_pg(dsn: str, specs: list) -> None:
         with conn.cursor() as cur:
             cur.execute(schema_path("postgres_schema.sql").read_text())
 
-            stores_seen: dict[str, str] = {}
+            stores_seen: dict[str, tuple[str, str]] = {}
             for spec in specs:
-                stores_seen[spec.store_id] = spec.store_timezone
-            for store_id, timezone in stores_seen.items():
+                stores_seen[spec.store_id] = (spec.store_display_name, spec.store_timezone)
+            for store_id, (display_name, timezone) in stores_seen.items():
                 cur.execute(
+                    # Same fix as the SQLite seeder: the manifest's display_name,
+                    # and refreshed on conflict so correcting it takes effect.
                     "INSERT INTO stores (store_id, display_name, timezone) "
                     "VALUES (%s, %s, %s) "
-                    "ON CONFLICT (store_id) DO UPDATE SET timezone = excluded.timezone",
-                    (store_id, store_id, timezone),
+                    "ON CONFLICT (store_id) DO UPDATE SET "
+                    "display_name = excluded.display_name, timezone = excluded.timezone",
+                    (store_id, display_name, timezone),
                 )
             for spec in specs:
                 cur.execute(

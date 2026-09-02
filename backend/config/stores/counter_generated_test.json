@@ -3,22 +3,13 @@
   "store_id": "counter_generated_test",
   "display_name": "Counter Generated Test Clips",
   "timezone": "America/New_York",
-  "mode": "local_dev",
   "runtime": {
     "default_target_fps": 5,
     "target_duration_s": 180,
-    "drop_if_lagging": true,
     "simulation_clock": {
       "enabled": true,
       "started_at_local": "2026-08-23T20:30:00",
       "playback_speed": 1.0
-    }
-  },
-  "policies": {
-    "identity_gallery_scope": "store",
-    "default_alert_clip": {
-      "pre_s": 15,
-      "post_s": 15
     }
   },
   "cameras": [
@@ -42,8 +33,7 @@
       "perception": {
         "person_detector": {
           "device": "cpu",
-          "conf_thres": 0.5,
-          "nms_thres": 0.7
+          "conf_thres": 0.5
         },
         "person_tracker": {
           "device": "cpu"
@@ -87,8 +77,7 @@
       "perception": {
         "person_detector": {
           "device": "cpu",
-          "conf_thres": 0.5,
-          "nms_thres": 0.7
+          "conf_thres": 0.5
         },
         "person_tracker": {
           "device": "cpu"
@@ -132,8 +121,7 @@
       "perception": {
         "person_detector": {
           "device": "cpu",
-          "conf_thres": 0.5,
-          "nms_thres": 0.7
+          "conf_thres": 0.5
         },
         "person_tracker": {
           "device": "cpu"
@@ -177,8 +165,7 @@
       "perception": {
         "person_detector": {
           "device": "cpu",
-          "conf_thres": 0.5,
-          "nms_thres": 0.7
+          "conf_thres": 0.5
         },
         "person_tracker": {
           "device": "cpu"

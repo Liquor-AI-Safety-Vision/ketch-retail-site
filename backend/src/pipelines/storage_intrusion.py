@@ -30,13 +30,13 @@ from backend.src.common.paths import model_path
 def _tracker_overrides(spec) -> dict:
     """Per-camera tracker tuning out of the manifest.
 
-    `device` and `reid_model` live in the same block but are not tracker
+    `device` and `reid_model_path` live in the same block but are not tracker
     settings -- one selects a provider, the other names a file -- so they are
     dropped here rather than reaching camera_config(), which refuses names it
     does not recognise.
     """
     block = dict(spec.perception_profile.get("person_tracker", {}))
-    for not_a_threshold in ("device", "reid_model"):
+    for not_a_threshold in ("device", "reid_model_path"):
         block.pop(not_a_threshold, None)
     return block
 
@@ -233,9 +233,38 @@ class StorageIntrusionPipeline:
         conf = float(self.spec.perception_profile.get("person_detector", {}).get("conf_thres", 0.45))
         cfg = warehouse.Config(fps=self.spec.target_fps)
         cfg.person_conf = conf
+        # Entry was the only one of these a manifest could reach. Exit was
+        # fixed at 4.0 s -- a number warehouse.Config's own comment sources
+        # from one clip, where a person in a doorway crossed the boundary
+        # three times in 15 s -- and exit is the side that decides whether a
+        # person leaving is seen to leave at all. A doorway at the frame edge,
+        # a busier aisle, or a camera further back all move it, and none of
+        # them are properties of this system.
         if "entry_confirm_seconds" in self.params:
             cfg.entry_confirmation_s = float(self.params["entry_confirm_seconds"])
-            cfg.__post_init__()
+        if "exit_confirm_seconds" in self.params:
+            cfg.exit_confirmation_s = float(self.params["exit_confirm_seconds"])
+        if "presence_confirm_frames" in self.params:
+            cfg.presence_confirmation_frames = int(self.params["presence_confirm_frames"])
+        if "exit_on_loss_min_frames" in self.params:
+            cfg.exit_on_loss_min_frames = int(self.params["exit_on_loss_min_frames"])
+        if "anchor" in self.params:
+            anchor = str(self.params["anchor"])
+            # Checked here rather than trusted: ZoneMonitor compares
+            # cfg.anchor against "bottom_center" and takes the keypoint path
+            # for anything else, so a typo does not fail -- it silently
+            # selects the other anchor and moves every zone decision on this
+            # camera with nothing to say it happened.
+            if anchor not in warehouse.ANCHOR_MODES:
+                raise ValueError(
+                    f"{self.spec.camera_id}: anchor={anchor!r} is not one of "
+                    f"{sorted(warehouse.ANCHOR_MODES)}. An unrecognised value would "
+                    f"quietly select the keypoint anchor and shift every zone "
+                    f"crossing on this camera.")
+            cfg.anchor = anchor
+        # Once, after both confirmation windows are settled: __post_init__ is
+        # what turns them into entry_frames/exit_frames.
+        cfg.__post_init__()
         if "min_box_h_frac" in self.zone_cfg:
             cfg.min_box_h_frac = float(self.zone_cfg["min_box_h_frac"])
 
@@ -287,34 +316,47 @@ class StorageIntrusionPipeline:
 
         face_cfg = self.spec.perception_profile.get("face_identity", {})
         if face_cfg.get("enabled", False):
+            # Read once, so the two construction paths below cannot disagree
+            # about a threshold. They did: the direct path passed only
+            # match_threshold and match_margin, so face_conf, crop_expand and
+            # iou_thres were honoured under the shared registry and silently
+            # dropped without it -- the same manifest, two behaviours.
+            face_model = face_cfg.get("model_path", model_path("yolov6s_face.onnx"))
+            arcface_model = face_cfg.get(
+                "arcface_model_path", model_path("ms1mv3_arcface_r18.onnx"))
+            face_conf = float(face_cfg.get("face_conf", 0.20))
+            crop_expand = float(face_cfg.get("crop_expand", 0.12))
+            iou_thres = float(face_cfg.get("iou_thres", 0.45))
+            match_threshold = float(face_cfg.get("match_threshold", 0.30))
+            match_margin = float(face_cfg.get("match_margin", 0.10))
+
             if self.shared_inference is not None:
                 with self.timing.track("bootstrap::face"):
                     self.face_identifier = SharedFaceIdentifier(
-                        face_detector=self.shared_inference.get_face_detector(
-                            model_path("yolov6s_face.onnx")
-                        ),
-                        arcface=self.shared_inference.get_arcface(
-                            model_path("ms1mv3_arcface_r18.onnx")
-                        ),
+                        face_detector=self.shared_inference.get_face_detector(face_model),
+                        arcface=self.shared_inference.get_arcface(arcface_model),
                         gallery_db_path=self.gallery_db_path,
-                        face_conf=float(face_cfg.get("face_conf", 0.20)),
-                        crop_expand=float(face_cfg.get("crop_expand", 0.12)),
-                        iou=float(face_cfg.get("iou_thres", 0.45)),
-                        match_threshold=float(face_cfg.get("match_threshold", 0.30)),
-                        match_margin=float(face_cfg.get("match_margin", 0.10)),
+                        face_conf=face_conf,
+                        crop_expand=crop_expand,
+                        iou=iou_thres,
+                        match_threshold=match_threshold,
+                        match_margin=match_margin,
                     )
             else:
                 from backend.src.perception.face_identity import FaceIdentifier  # noqa: E402
 
                 providers = ["CPUExecutionProvider"] if self.cpu_only else None
                 self.face_identifier = FaceIdentifier(
-                    model_path("yolov6s_face.onnx"),
-                    model_path("ms1mv3_arcface_r18.onnx"),
+                    face_model,
+                    arcface_model,
                     self.gallery_db_path,
                     providers=providers,
                     prefer_coreml=not self.cpu_only,
-                    match_threshold=float(face_cfg.get("match_threshold", 0.30)),
-                    match_margin=float(face_cfg.get("match_margin", 0.10)),
+                    face_conf=face_conf,
+                    crop_expand=crop_expand,
+                    iou=iou_thres,
+                    match_threshold=match_threshold,
+                    match_margin=match_margin,
                 )
         if self.face_identifier is not None:
             self._check_gallery_scope()

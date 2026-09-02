@@ -139,12 +139,12 @@ class PersonCropFaceExtractor:
     """Face detector scoped to one person crop, not the whole frame."""
 
     def __init__(self, face_model_path, face_conf=0.20, crop_expand=0.12,
-                 min_face_score=0.20, providers=None, prefer_coreml=True):
+                 min_face_score=0.20, iou=0.45, providers=None, prefer_coreml=True):
         self.face_conf = face_conf
         self.crop_expand = crop_expand
         self.min_face_score = min_face_score
         self.detector = FaceDetector(
-            face_model_path, conf=face_conf, iou=0.45,
+            face_model_path, conf=face_conf, iou=iou,
             providers=providers, prefer_coreml=prefer_coreml)
 
     def detect(self, frame_bgr, person_box_xyxy):
@@ -355,11 +355,15 @@ class FaceGallery:
 
 class FaceIdentifier:
     def __init__(self, face_model_path, embed_model_path, gallery_db_path,
-                 face_conf=0.20, crop_expand=0.12, match_threshold=0.30,
+                 face_conf=0.20, crop_expand=0.12, iou=0.45, match_threshold=0.30,
                  match_margin=0.10, providers=None, prefer_coreml=True):
+        # iou reaches the face detector's NMS. It used to be unreachable --
+        # hardcoded at 0.45 inside PersonCropFaceExtractor -- while
+        # SharedFaceIdentifier took it as an argument, so face_identity.iou_thres
+        # in a manifest applied under one construction path and not the other.
         self.extractor = PersonCropFaceExtractor(
             face_model_path, face_conf=face_conf, crop_expand=crop_expand,
-            min_face_score=face_conf, providers=providers,
+            min_face_score=face_conf, iou=iou, providers=providers,
             prefer_coreml=prefer_coreml)
         self.embedder = ArcFaceEmbedder(
             embed_model_path, providers=providers, prefer_coreml=prefer_coreml)

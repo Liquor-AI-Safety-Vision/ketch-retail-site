@@ -31,6 +31,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from backend.src.pipelines import fsm_tuning
+
 NUMBER = (int, float)
 
 
@@ -43,7 +45,12 @@ def _tracker_keys():
     """
     from backend.src.perception.uae_tracker import Config, TRACKER_ALIASES
 
-    keys = {"device": str, "reid_model": str}
+    # reid_model_path, not reid_model: the pipelines read
+    # person_tracker.get("reid_model_path"), and this schema used to declare
+    # the other spelling. So the only name that worked was refused as an
+    # unknown key, while the accepted name was read by nobody -- exactly the
+    # silent-default failure this module exists to prevent, sitting inside it.
+    keys = {"device": str, "reid_model_path": str}
     for attr, value in vars(Config).items():
         if attr.isupper():
             keys[attr.lower()] = bool if isinstance(value, bool) else (
@@ -88,6 +95,18 @@ _ACCESS_WINDOW = Section(
     required=frozenset({"days", "start", "end"}),
 )
 
+# The till FSM's thresholds, read from the one table the pipeline also reads
+# (backend/src/pipelines/fsm_tuning.py) rather than typed out a second time --
+# a key listed here but no longer honoured there is exactly the correctly
+# spelled, silently ignored setting this module exists to catch.
+_FSM = Section(
+    keys={
+        **{k: bool for k in fsm_tuning.FLAGS},
+        **{k: NUMBER for k in fsm_tuning.TIMING_FRAMES_AT_10FPS},
+        **{k: NUMBER for k in fsm_tuning.GEOMETRY},
+    }
+)
+
 # Per-pipeline params. Anything not listed for the pipeline a camera binds is
 # a typo -- that is the whole point of keying this by pipeline_id.
 PIPELINE_PARAMS: dict[str, Section] = {
@@ -101,15 +120,22 @@ PIPELINE_PARAMS: dict[str, Section] = {
             "till_fps": NUMBER,
             "till_imgsz": int,
             "till_model_path": str,
-            "any_hand": bool,
-            "wrist_conf_th": NUMBER,
+            "fsm": dict,
             "alert_clip": dict,
         },
-        children={"alert_clip": _ALERT_CLIP},
+        children={"alert_clip": _ALERT_CLIP, "fsm": _FSM},
     ),
     "storage_intrusion_v1": Section(
         keys={
+            # warehouse.Config's zone thresholds. Entry was the only one a
+            # manifest could reach; exit, presence and anchor were fixed at
+            # values measured on one storage clip, and exit is the side that
+            # decides whether someone leaving is seen to leave.
             "entry_confirm_seconds": NUMBER,
+            "exit_confirm_seconds": NUMBER,
+            "presence_confirm_frames": int,
+            "exit_on_loss_min_frames": int,
+            "anchor": str,
             "zone_config_path": str,
             "zone_asset_key": str,
             "face_capture_window": dict,
@@ -119,17 +145,14 @@ PIPELINE_PARAMS: dict[str, Section] = {
         required=frozenset({"zone_config_path", "zone_asset_key"}),
         children={
             "alert_clip": _ALERT_CLIP,
-            "face_capture_window": Section(
-                keys={"end_after_inside_s": NUMBER, "start_status": str},
-                inert=frozenset({"start_status"}),
-            ),
+            "face_capture_window": Section(keys={"end_after_inside_s": NUMBER}),
             "access_schedule": Section(keys={"allowed_windows": list}),
         },
     ),
-    "whole_store_tracking_v1": Section(
-        keys={"emit_customer_tracks": bool},
-        inert=frozenset({"emit_customer_tracks"}),
-    ),
+    # No params. emit_customer_tracks was shipped on every whole_store camera
+    # and described behaviour that does not exist; it is gone rather than
+    # warned about, so writing it again is an error naming an unknown key.
+    "whole_store_tracking_v1": Section(keys={}),
 }
 PIPELINE_PARAMS["cold_storage_intrusion_v1"] = PIPELINE_PARAMS["storage_intrusion_v1"]
 
@@ -168,13 +191,16 @@ CAMERA = Section(
         "perception": Section(
             keys={"person_detector": dict, "person_tracker": dict, "face_identity": dict},
             children={
+                # nms_thres is gone rather than warned about: the pose head is
+                # NMS-free (stream_track.py: "(300, 57) NMS-free"), so there is
+                # no NMS anywhere to give a threshold to and no future version
+                # in which the key means something. An unknown-key error says
+                # that; a warning invites the next person to try wiring it.
                 "person_detector": Section(
-                    keys={"device": str, "conf_thres": NUMBER, "nms_thres": NUMBER,
-                          "pose_model": str},
-                    # nms_thres is inert for a reason no wiring can fix: the
-                    # pose head is NMS-free (stream_track.py: "(300, 57)
-                    # NMS-free"), so there is no NMS to give a threshold to.
-                    inert=frozenset({"device", "nms_thres"}),
+                    # model_path is what the pipelines actually read; the
+                    # schema used to say "pose_model", which nothing consumed.
+                    keys={"device": str, "conf_thres": NUMBER, "model_path": str},
+                    inert=frozenset({"device"}),
                 ),
                 # Tracker tuning is per camera and validated against the real
                 # Config attributes, so a name the tracker does not have fails
@@ -188,6 +214,10 @@ CAMERA = Section(
                         "enabled": bool, "device": str, "match_threshold": NUMBER,
                         "match_margin": NUMBER, "face_conf": NUMBER,
                         "crop_expand": NUMBER, "iou_thres": NUMBER,
+                        # The face and ArcFace models were the only two the
+                        # pipeline called model_path() for unconditionally,
+                        # while pose, reid and till all took an override.
+                        "model_path": str, "arcface_model_path": str,
                     },
                     inert=frozenset({"device"}),
                 ),
@@ -202,26 +232,41 @@ CAMERA = Section(
 CAMERA.children["source"] = CAMERA.children["stream"]
 
 
+# Four store-level keys were removed rather than marked inert, because each
+# one named a behaviour the system does not have and would have been believed:
+#
+#   mode                    a label nothing branched on
+#   drop_if_lagging         there is no drop path to enable. The ring blocks
+#                           (that is its admission control) and the RTSP source
+#                           already decimates unconditionally, because a camera
+#                           cannot be back-pressured
+#   identity_gallery_scope  every call site passes store_id AND company_id, so
+#                           the scope is always the narrowest. "company" would
+#                           have read as configured and changed nothing -- and
+#                           the 4-store gallery test depends on store scoping
+#   default_alert_clip      the real default is the literal 15.0 in each
+#                           pipeline; alert_clip per pipeline binding is where
+#                           clip length is actually set, and per binding is the
+#                           right grain (a till alert and a storage alert want
+#                           different lengths on the same camera)
+#
+# display_name is NOT among them: it reaches stores.display_name, which is a
+# NOT NULL column every dashboard reads.
 MANIFEST = Section(
     keys={
         "company_id": str, "store_id": str, "display_name": str, "timezone": str,
-        "mode": str, "runtime": dict, "policies": dict, "cameras": list,
+        "runtime": dict, "cameras": list,
         # Legacy spellings read as fallbacks by local_config.
         "target_fps": NUMBER, "target_runtime_s": NUMBER,
     },
     required=frozenset({"store_id", "timezone", "cameras"}),
-    inert=frozenset({"mode"}),
     children={
         "runtime": Section(
             keys={
                 "default_target_fps": NUMBER, "target_duration_s": NUMBER,
-                "drop_if_lagging": bool, "simulation_clock": dict,
+                "simulation_clock": dict,
             },
             children={"simulation_clock": _SIMULATION_CLOCK},
-        ),
-        "policies": Section(
-            keys={"identity_gallery_scope": str, "default_alert_clip": dict},
-            children={"default_alert_clip": _ALERT_CLIP},
         ),
     },
 )

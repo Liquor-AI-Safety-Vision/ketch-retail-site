@@ -66,6 +66,14 @@ class Config:
         self.exit_frames = max(1, round(self.exit_confirmation_s * self.fps))
 
 
+#: The anchor modes ZoneMonitor actually distinguishes. It tests
+#: `cfg.anchor == "bottom_center"` and falls through to the keypoint path for
+#: everything else, so an unrecognised string does not fail -- it selects the
+#: other mode. Named here so a manifest value can be checked against the real
+#: set instead of being trusted.
+ANCHOR_MODES = frozenset({"pelvis", "bottom_center"})
+
+
 def anchor_point(ltrb, kpts, mode):
     """One-shot anchor, for callers with no per-track state (the presence scan)."""
     if mode == "bottom_center":

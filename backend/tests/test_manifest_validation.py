@@ -131,16 +131,103 @@ def test_all_errors_are_reported_at_once():
 def test_inert_keys_warn_but_do_not_fail():
     """Correctly spelled, shipped, read by nobody -- a warning, not an error.
 
-    Deleting them is a separate decision from detecting them, and failing on
-    them would break every manifest in the repo at once.
+    Only `device` is left in this state, and only because it is deliberate:
+    it is placement for the multi-GPU/multi-node shape this is heading toward.
+    Every other inert key has since been deleted outright, because a warning
+    on a key that can never mean anything just invites someone to wire it.
     """
     warnings = validate_manifest(_load())
     joined = "\n".join(warnings)
-    for dead in ("runtime.device", "perception.person_detector.nms_thres"):
-        assert dead in joined, f"{dead} configures nothing and should be named"
-    # match_thres is gone from the manifests entirely, so it cannot appear.
-
+    assert "runtime.device" in joined, "device configures nothing and should be named"
     assert "person_tracker.match_thres" not in joined
+
+
+def test_keys_that_named_behaviour_the_system_lacks_are_errors_not_warnings():
+    """Deleted from the schema, not demoted to inert.
+
+    Each of these was correctly spelled and present in all seven manifests,
+    and each described something the system does not do. A warning would keep
+    inviting the next person to wire it; an unknown-key error says it is not
+    a setting at all. nms_thres is the clearest case -- the pose head is
+    NMS-free, so there is no NMS anywhere to give a threshold to.
+    """
+    gone = {
+        "manifest.runtime": ("drop_if_lagging", True),
+        "manifest": ("mode", "local_dev"),
+        "camera.perception.person_detector": ("nms_thres", 0.7),
+    }
+    for where, (key, value) in gone.items():
+        data = _load()
+        if where == "manifest":
+            data[key] = value
+        elif where == "manifest.runtime":
+            data["runtime"][key] = value
+        else:
+            data["cameras"][0]["perception"]["person_detector"][key] = value
+        try:
+            validate_manifest(data)
+        except ManifestError as e:
+            assert key in str(e) and "unknown key" in str(e), str(e)
+        else:
+            raise AssertionError(f"{where}.{key} was accepted")
+
+    # policies had exactly two members; the whole block goes with them.
+    data = _load()
+    data["policies"] = {"identity_gallery_scope": "company"}
+    try:
+        validate_manifest(data)
+    except ManifestError as e:
+        assert "policies" in str(e)
+    else:
+        raise AssertionError("policies was accepted")
+
+
+def test_the_model_key_the_pipelines_read_is_the_key_the_schema_accepts():
+    """The validator used to refuse the only spelling that worked.
+
+    The pipelines read person_detector.model_path and
+    person_tracker.reid_model_path. The schema declared pose_model and
+    reid_model, so writing the working name was an "unknown key" error while
+    the accepted name was consumed by nobody -- the exact silent-default
+    failure this module exists to prevent, sitting inside it.
+    """
+    data = _load()
+    cam = data["cameras"][0]
+    cam["perception"]["person_detector"]["model_path"] = "/models/other-pose.onnx"
+    cam["perception"]["person_tracker"]["reid_model_path"] = "/models/other-reid.onnx"
+    warnings = validate_manifest(data)
+    assert not [w for w in warnings if "model" in w], \
+        "a model path that the pipelines read was reported as configuring nothing"
+
+    for dead_spelling in ("pose_model", "reid_model"):
+        data = _load()
+        block = ("person_detector" if dead_spelling == "pose_model" else "person_tracker")
+        data["cameras"][0]["perception"][block][dead_spelling] = "/x.onnx"
+        try:
+            validate_manifest(data)
+        except ManifestError as e:
+            assert dead_spelling in str(e)
+        else:
+            raise AssertionError(f"{dead_spelling} was accepted but nothing reads it")
+
+
+def test_a_reid_model_path_reaches_the_bootstrap_and_not_the_tracker():
+    """It lives in person_tracker but is a filename, not a tracker setting.
+
+    _tracker_overrides has to drop it, or camera_config() looks for a
+    REID_MODEL_PATH attribute on Config, does not find one, and raises -- so
+    the one key that selects a ReID model would crash the camera that set it.
+    """
+    from backend.src.pipelines.storage_intrusion import _tracker_overrides
+
+    class _Spec:
+        perception_profile = {"person_tracker": {
+            "device": "cuda:1",
+            "reid_model_path": "/models/other-reid.onnx",
+            "step_a_max_cost": 0.3,
+        }}
+
+    assert _tracker_overrides(_Spec()) == {"step_a_max_cost": 0.3}
 
 
 def test_inert_warnings_are_grouped_not_repeated_per_camera():

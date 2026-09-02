@@ -24,7 +24,8 @@ def _spec(camera_id: str, store_id: str = "store_A"):
     from backend.src.domain.models import CameraStreamSpec
 
     return CameraStreamSpec(
-        company_id="test_co", store_id=store_id, store_timezone="Asia/Ho_Chi_Minh",
+        company_id="test_co", store_id=store_id, store_display_name=f"Store {store_id}",
+        store_timezone="Asia/Ho_Chi_Minh",
         camera_id=camera_id, display_name=camera_id, camera_type="storage",
         source_kind="file", source_uri=f"videos/{camera_id}.mp4",
         source_path=f"videos/{camera_id}.mp4", strategy="trim", start_s=0.0,

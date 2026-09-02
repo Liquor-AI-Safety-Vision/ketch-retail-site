@@ -98,10 +98,26 @@ def camera_specs_from_manifest(path: str | Path) -> list[CameraStreamSpec]:
                 if key in params:
                     params[key] = resolve_repo_path(params[key])
             binding.params = params
+        # Model overrides live under perception, not params, and were not
+        # being resolved -- so a camera pointing at ${BACKEND_ROOT}/models/...
+        # would hand onnxruntime that literal string and fail at bootstrap,
+        # on a tier process, long after the manifest was read.
+        for block, keys in (("person_detector", ("model_path",)),
+                            ("person_tracker", ("reid_model_path",)),
+                            ("face_identity", ("model_path", "arcface_model_path"))):
+            section = perception_profile.get(block)
+            if not isinstance(section, dict):
+                continue
+            section = dict(section)
+            for key in keys:
+                if key in section:
+                    section[key] = resolve_repo_path(section[key])
+            perception_profile[block] = section
         specs.append(
             CameraStreamSpec(
                 company_id=data.get("company_id"),
                 store_id=data["store_id"],
+                store_display_name=data.get("display_name") or data["store_id"],
                 store_timezone=data["timezone"],
                 camera_id=camera["camera_id"],
                 display_name=camera["display_name"],

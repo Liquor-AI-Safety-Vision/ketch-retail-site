@@ -51,15 +51,21 @@ def seed_store_topology(db_path: str | Path, specs: list) -> None:
             conn.execute("PRAGMA journal_mode=WAL")
             conn.executescript(schema_path("local_dev_schema.sql").read_text())
 
-            stores_seen: dict[str, str] = {}
+            stores_seen: dict[str, tuple[str, str]] = {}
             for spec in specs:
-                stores_seen[spec.store_id] = spec.store_timezone
-            for store_id, timezone in stores_seen.items():
+                stores_seen[spec.store_id] = (spec.store_display_name, spec.store_timezone)
+            for store_id, (display_name, timezone) in stores_seen.items():
                 conn.execute(
+                    # display_name is the manifest's, not the store_id repeated.
+                    # It used to be the latter, so every dashboard reading this
+                    # table showed "store_1" where the manifest said "Store 1"
+                    # -- and the ON CONFLICT clause did not refresh it either,
+                    # so correcting the manifest changed nothing on a restart.
                     "INSERT INTO stores (store_id, display_name, timezone) "
                     "VALUES (?, ?, ?) "
-                    "ON CONFLICT (store_id) DO UPDATE SET timezone = excluded.timezone",
-                    (store_id, store_id, timezone),
+                    "ON CONFLICT (store_id) DO UPDATE SET "
+                    "display_name = excluded.display_name, timezone = excluded.timezone",
+                    (store_id, display_name, timezone),
                 )
             for spec in specs:
                 conn.execute(

@@ -3,22 +3,13 @@
   "store_id": "local_dev_store",
   "display_name": "Local Development Store",
   "timezone": "America/New_York",
-  "mode": "local_dev",
   "runtime": {
     "default_target_fps": 5,
     "target_duration_s": 180,
-    "drop_if_lagging": true,
     "simulation_clock": {
       "enabled": true,
       "started_at_local": "2026-08-23T20:30:00",
       "playback_speed": 1.0
-    }
-  },
-  "policies": {
-    "identity_gallery_scope": "store",
-    "default_alert_clip": {
-      "pre_s": 15,
-      "post_s": 15
     }
   },
   "cameras": [
@@ -42,8 +33,7 @@
       "perception": {
         "person_detector": {
           "device": "cpu",
-          "conf_thres": 0.5,
-          "nms_thres": 0.7
+          "conf_thres": 0.5
         },
         "person_tracker": {
           "device": "cpu"
@@ -88,8 +78,7 @@
       "perception": {
         "person_detector": {
           "device": "cpu",
-          "conf_thres": 0.5,
-          "nms_thres": 0.7
+          "conf_thres": 0.5
         },
         "person_tracker": {
           "device": "cpu"
@@ -110,7 +99,6 @@
             "zone_config_path": "${BACKEND_ROOT}/config/zones/storage_zones.json",
             "zone_asset_key": "storage_1",
             "face_capture_window": {
-              "start_status": "pending_in",
               "end_after_inside_s": 1.0
             },
             "alert_clip": {
@@ -171,8 +159,7 @@
       "perception": {
         "person_detector": {
           "device": "cpu",
-          "conf_thres": 0.5,
-          "nms_thres": 0.7
+          "conf_thres": 0.5
         },
         "person_tracker": {
           "device": "cpu"
@@ -193,7 +180,6 @@
             "zone_config_path": "${BACKEND_ROOT}/config/zones/storage_zones.json",
             "zone_asset_key": "storage_2",
             "face_capture_window": {
-              "start_status": "pending_in",
               "end_after_inside_s": 1.0
             },
             "alert_clip": {
@@ -254,8 +240,7 @@
       "perception": {
         "person_detector": {
           "device": "cpu",
-          "conf_thres": 0.5,
-          "nms_thres": 0.7
+          "conf_thres": 0.5
         },
         "person_tracker": {
           "device": "cpu"
@@ -265,9 +250,7 @@
         {
           "pipeline_id": "whole_store_tracking_v1",
           "enabled": true,
-          "params": {
-            "emit_customer_tracks": true
-          }
+          "params": {}
         }
       ]
     }

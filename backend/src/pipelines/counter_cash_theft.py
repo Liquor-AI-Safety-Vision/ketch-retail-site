@@ -21,6 +21,7 @@ from backend.src.perception.uae_tracker import Detection, Tracker, camera_config
 from backend.src.domain.models import CameraPipelineBindingSpec, CameraStreamSpec, FrameEnvelope
 from backend.src.infra.local_media_store import LocalMediaStore
 from backend.src.infra.sqlite_alert_store import SqliteAlertStore
+from backend.src.pipelines import fsm_tuning
 from backend.src.pipelines.alert_clip_buffer import AlertClipBuffer, FinalizedAlertClip
 from backend.src.pipelines.till_schedule import compute_till_schedule
 from backend.src.pipelines.track_quality import record_track_quality
@@ -31,13 +32,13 @@ from backend.src.common.paths import model_path, zones_dir
 def _tracker_overrides(spec) -> dict:
     """Per-camera tracker tuning out of the manifest.
 
-    `device` and `reid_model` live in the same block but are not tracker
+    `device` and `reid_model_path` live in the same block but are not tracker
     settings -- one selects a provider, the other names a file -- so they are
     dropped here rather than reaching camera_config(), which refuses names it
     does not recognise.
     """
     block = dict(spec.perception_profile.get("person_tracker", {}))
-    for not_a_threshold in ("device", "reid_model"):
+    for not_a_threshold in ("device", "reid_model_path"):
         block.pop(not_a_threshold, None)
     return block
 
@@ -156,21 +157,41 @@ class CounterCashTheftPipeline:
         self.timing = TimingCollector()
 
     def _configure_fsm_globals(self):
-        scale = lambda frames_10fps: max(1, int(round(frames_10fps * self.spec.target_fps / 10.0)))
-        values = {
-            "FPS": float(self.spec.target_fps),
-            "HAND_INSIDE_CONFIRM": scale(3),
-            "HAND_EXIT_CONFIRM": scale(3),
-            "POSE_GRACE": scale(5),
-            "DWELL_CONFIRM": scale(5),
-            "STATE_TIMEOUT": scale(50),
-            "POST_EVENT": scale(30),
-            "TRAJ_WINDOW": scale(25),
-            "TRAJ_LOOKBACK": max(1, scale(5)),
-            "ANY_HAND": bool(self.params.get("any_hand", False)),
-        }
-        if "wrist_conf_th" in self.params:
-            values["WRIST_CONF_TH"] = float(self.params["wrist_conf_th"])
+        fsm = dict(self.params.get("fsm", {}))
+        fps = self.spec.target_fps
+        # The default arithmetic is left exactly as it was -- frames_10fps *
+        # fps / 10 -- so every recorded benchmark still describes this code.
+        # An override takes the seconds path instead; at the default seconds
+        # the two agree, but they are not written as the same expression and
+        # nothing here relies on them rounding identically.
+        scale = lambda frames_10fps: max(1, int(round(frames_10fps * fps / 10.0)))
+
+        values = {"FPS": float(fps)}
+        for key, const in fsm_tuning.FLAGS.items():
+            values[const] = bool(fsm.get(key, getattr(self.F, const)))
+        for key, (const, frames_10fps) in fsm_tuning.TIMING_FRAMES_AT_10FPS.items():
+            values[const] = (
+                max(1, int(round(float(fsm[key]) * fps))) if key in fsm
+                else scale(frames_10fps)
+            )
+        for key, const in fsm_tuning.GEOMETRY.items():
+            if key in fsm:
+                values[const] = float(fsm[key])
+
+        # DRAWER_IN/DRAWER_OUT are a hysteresis pair: entry at or under
+        # DRAWER_IN, exit at or over DRAWER_OUT, and the gap between them is
+        # what stops a wrist resting on the boundary from chattering between
+        # states forever. Inverted or equal, the FSM does not fail -- it
+        # oscillates, emitting a stream of entries and exits that look like a
+        # very busy employee.
+        drawer_in = values.get("DRAWER_IN", self.F.DRAWER_IN)
+        drawer_out = values.get("DRAWER_OUT", self.F.DRAWER_OUT)
+        if drawer_in >= drawer_out:
+            raise ValueError(
+                f"{self.spec.camera_id}: fsm.drawer_in ({drawer_in}) must be below "
+                f"fsm.drawer_out ({drawer_out}). They are a hysteresis pair -- with "
+                f"no gap the drawer state chatters on every frame a wrist hovers at "
+                f"the boundary, and every chatter is an event.")
 
         # Writes into this camera's own module copy, so no lock and no owner
         # check: there is nobody else to collide with. Cameras that need

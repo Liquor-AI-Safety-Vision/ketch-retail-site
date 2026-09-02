@@ -112,3 +112,91 @@ def test_no_windows_configured_allows_nothing():
 
 def test_missing_timestamp_is_not_allowed():
     assert not _in_allowed_window(None, NIGHT)
+
+
+def test_the_zone_thresholds_are_reachable_from_a_manifest():
+    """Entry was configurable; exit, presence and anchor were not.
+
+    warehouse.Config's own comment sources exit_confirmation_s = 4.0 from one
+    clip, where a person in a doorway crossed the boundary three times in
+    15 s. Exit is the side that decides whether someone leaving is seen to
+    leave at all -- a doorway at the frame edge, a busier aisle or a camera
+    further back all move it, and none of those are properties of the system.
+    """
+    from backend.src.perception import warehouse
+
+    cfg = warehouse.Config(fps=5.0)
+    assert (cfg.exit_confirmation_s, cfg.presence_confirmation_frames) == (4.0, 5)
+    assert cfg.exit_on_loss_min_frames == 3 and cfg.anchor == "pelvis"
+
+    params = {
+        "entry_confirm_seconds": 2.0, "exit_confirm_seconds": 8.0,
+        "presence_confirm_frames": 9, "exit_on_loss_min_frames": 6,
+        "anchor": "bottom_center",
+    }
+    tuned = _apply_zone_params(params, fps=5.0)
+    assert tuned.entry_confirmation_s == 2.0 and tuned.exit_confirmation_s == 8.0
+    assert tuned.presence_confirmation_frames == 9
+    assert tuned.exit_on_loss_min_frames == 6
+    assert tuned.anchor == "bottom_center"
+    # __post_init__ has to run after BOTH windows are set, or the frame counts
+    # still describe the defaults while the seconds say otherwise.
+    assert tuned.entry_frames == 10 and tuned.exit_frames == 40
+
+
+def test_an_unrecognised_anchor_is_refused_not_silently_swapped():
+    """ZoneMonitor tests `cfg.anchor == "bottom_center"` and takes the keypoint
+    path for anything else, so a typo does not fail -- it selects the other
+    anchor and moves every zone crossing on that camera with nothing said."""
+    try:
+        _apply_zone_params({"anchor": "botom_center"}, fps=5.0)
+    except ValueError as e:
+        assert "botom_center" in str(e)
+    else:
+        raise AssertionError("an unrecognised anchor was accepted")
+
+
+def _apply_zone_params(params, fps):
+    """Run StorageIntrusionPipeline's zone-config block on its own.
+
+    Building the real pipeline needs a manifest, zone file, alert store and
+    media store; the block under test reads self.params and self.spec.
+    """
+    import types
+    from backend.src.perception import warehouse
+    from backend.src.pipelines.storage_intrusion import StorageIntrusionPipeline
+
+    holder = types.SimpleNamespace(
+        params=params,
+        spec=types.SimpleNamespace(
+            target_fps=fps, camera_id="storage_1",
+            perception_profile={"person_detector": {"conf_thres": 0.45}}),
+        zone_cfg={},
+        timing=_NullTiming(),
+        _business_ready=False,
+    )
+    captured = {}
+
+    class _Monitor:
+        def __init__(self, zone_norm, w, h, cfg):
+            captured["cfg"] = cfg
+
+    real_monitor, real_tracker = warehouse.ZoneMonitor, None
+    warehouse.ZoneMonitor = _Monitor
+    try:
+        holder.zone_cfg = {"zone_norm": [[0, 0], [1, 0], [1, 1]]}
+        StorageIntrusionPipeline._bootstrap_business(
+            holder, types.SimpleNamespace(image_bgr=_Frame()))
+    finally:
+        warehouse.ZoneMonitor = real_monitor
+    return captured["cfg"]
+
+
+class _Frame:
+    shape = (1080, 1920, 3)
+
+
+class _NullTiming:
+    def track(self, _name):
+        import contextlib
+        return contextlib.nullcontext()

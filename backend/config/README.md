@@ -17,16 +17,20 @@ Mục tiêu:
 Thiết kế config hiện tại được chia theo 4 tầng:
 - `runtime` cấp store: tham số chạy chung, `default_target_fps`, `simulation_clock`
 - `camera.stream`: nguồn vào của từng camera, hỗ trợ cả `video_file` và `rtsp`
-- `camera.perception`: threshold/device/module config cho detector, tracker, face identity
+- `camera.perception`: threshold/device/model path cho detector, tracker, face identity
 - `camera.pipelines[]`: binding pipeline và business params riêng từng luồng
+
+**Không có file config riêng cho từng camera.** Một store là một file JSON; sửa
+camera nào thì mở đúng file store đó và sửa trong `cameras[]` của nó. Một hay hai
+mươi camera cũng vậy.
 
 ## Ngưỡng là của từng camera, không phải của hệ thống
 
-`match_threshold`, `match_margin`, `conf_thres`, `nms_thres`, `match_thres` — mọi
-ngưỡng khai trong `camera.perception` đều **độc lập theo từng camera**, không có
-giá trị "chuẩn toàn hệ thống" nào để đối chiếu. Hai camera cùng loại đặt khác nhau
-là **bình thường**, không phải lệch cấu hình: góc đặt, ánh sáng, khoảng cách tới
-mặt người khác nhau thì ngưỡng hợp lý cũng khác.
+`match_threshold`, `match_margin`, `conf_thres`, các ngưỡng `person_tracker.*`,
+khối `fsm` của camera quầy, và các ngưỡng vùng của camera kho — **tất cả đều độc
+lập theo từng camera**, không có giá trị "chuẩn toàn hệ thống" nào để đối chiếu.
+Hai camera cùng loại đặt khác nhau là **bình thường**, không phải lệch cấu hình:
+góc đặt, độ cao, ánh sáng, khoảng cách khác nhau thì ngưỡng hợp lý cũng khác.
 
 Hiện `store_1..4` dùng `match_threshold: 0.25`, còn `local_dev_store*` dùng `0.30`.
 Cả hai đều đúng chủ trương — **đừng "chuẩn hoá" chúng về một số.**
@@ -37,13 +41,59 @@ quyết định nghiệp vụ của từng camera, không phải tinh chỉnh k�
 
 ### Ngưỡng nào đã nối tới đâu
 
+### `camera.perception` — nhận thức
+
 | khoá | tới |
 | --- | --- |
 | `person_detector.conf_thres` | ngưỡng detect người |
+| `person_detector.model_path` | file pose model của riêng camera này |
 | `person_tracker.<tên_config>` | bất kỳ trường nào của `uae_tracker.Config`, viết thường — ví dụ `step_a_max_cost` |
+| `person_tracker.reid_model_path` | file ReID model |
 | `face_identity.face_conf` | ngưỡng **detect** khuôn mặt |
 | `face_identity.match_threshold` / `match_margin` | ngưỡng **match** khuôn mặt |
 | `face_identity.crop_expand` / `iou_thres` | cắt và NMS của face detector |
+| `face_identity.model_path` / `arcface_model_path` | file model detect mặt và ArcFace |
+
+Đường dẫn model chấp nhận `${BACKEND_ROOT}` / `${DATA_ROOT}`.
+
+### `pipelines[].params` — nghiệp vụ
+
+Camera **quầy** (`counter_cash_theft_v1`), khối `fsm`:
+
+| nhóm | khoá | mặc định |
+| --- | --- | --- |
+| hình học (đơn vị: độ dài thân người) | `drawer_in` / `drawer_out` | 0.80 / 0.90 |
+| | `deep_in` / `withdraw_delta` | 0.35 / 0.25 |
+| | `pocket_radius` / `hand_follow_gate` | 0.30 / 0.60 |
+| | `drawer_roi_expand` / `wrist_conf_th` | 0.25 / 0.30 |
+| thời gian (**giây**) | `hand_inside_confirm_s` / `hand_exit_confirm_s` | 0.3 / 0.3 |
+| | `pose_grace_s` / `dwell_confirm_s` | 0.5 / 0.5 |
+| | `state_timeout_s` / `post_event_s` | 5.0 / 3.0 |
+| | `traj_window_s` / `traj_lookback_s` | 2.5 / 0.5 |
+| cờ | `any_hand` | false |
+
+Nhóm hình học **không sống sót qua thay đổi góc camera**. Chúng chuẩn hoá theo độ
+dài thân người nên chịu được khoảng cách, nhưng một quầy quay từ 3 m chéo xuống
+không đặt cổ tay ở cùng khoảng cách chuẩn hoá tới tâm ngăn kéo như quầy quay ngang
+từ 2 m. Số hiện tại đo trên **một clip**. `drawer_in` phải **nhỏ hơn** `drawer_out`
+— đó là cặp trễ (hysteresis), khai ngược sẽ báo lỗi ngay.
+
+Thời gian khai bằng **giây**, không phải frame. Trong code chúng là "frame ở 10fps"
+vì đó là chỗ đo ra, không phải tốc độ camera nào chạy thật.
+
+Camera **kho** (`storage_intrusion_v1` / `cold_storage_intrusion_v1`):
+
+| khoá | mặc định | tác dụng |
+| --- | --- | --- |
+| `entry_confirm_seconds` | 1.0 | giây trong vùng mới tính là vào |
+| `exit_confirm_seconds` | 4.0 | giây ngoài vùng mới tính là ra |
+| `presence_confirm_frames` | 5 | frame liên tiếp để xác nhận có mặt |
+| `exit_on_loss_min_frames` | 3 | mất track ở ngoài vùng bao lâu thì tính là đã ra |
+| `anchor` | `pelvis` | điểm đại diện người: `pelvis` hoặc `bottom_center` |
+
+`exit_confirm_seconds` là vế quyết định **người rời đi có được ghi nhận là rời đi
+hay không**. Giá trị 4.0 đo trên một clip kho; cửa ở mép khung hình, lối đi đông
+hơn, hay camera lùi xa đều làm nó lệch.
 
 Tracker nhận một lớp `Config` **con** riêng cho từng camera, không sửa `Config`
 gốc — trong split tier nhiều camera là thread trong cùng một process, ghi đè lên
@@ -67,16 +117,33 @@ con số mọi vòng benchmark đã dùng. Muốn chỉnh theo camera thì khai 
 
 Tên đó không mơ hồ, và sai tên thì báo lỗi ngay.
 
-### Hai khoá chưa tới đâu, và vì sao
+### Một khoá chưa tới đâu, và vì sao
 
-`nms_thres` — pose head là **NMS-free** (`stream_track.py`: `(300, 57) NMS-free`),
-không có NMS để đặt ngưỡng. Không phải "chưa nối" mà là không có chỗ nối.
-
-`device` — giữ lại có chủ đích, đón trước multi-GPU/multi-node (`cuda:0`,
+`device` — **giữ lại có chủ đích**, đón trước multi-GPU/multi-node (`cuda:0`,
 `cuda:1`). Hiện chưa đọc vì kiến trúc split nạp model **một lần cho cả tier** và
 dùng chung 16 camera; đặt provider khác nhau theo camera cần nhiều bộ session,
 tức thêm CUDA context — đã đo là 19ms ở 2 context, 45ms ở 4. Việc này thuộc bước
-scale ra nhiều node, không phải sửa cấu hình.
+scale ra nhiều node, không phải sửa cấu hình. Đây là khoá **duy nhất** validator
+còn cảnh báo "configures nothing".
+
+### Bảy khoá đã bị xoá hẳn (viết lại sẽ báo lỗi)
+
+Khác với `device`, mỗi khoá dưới đây mô tả một hành vi hệ thống **không có** và
+sẽ bị tin là có. Nên chúng bị gỡ khỏi schema chứ không hạ xuống mức cảnh báo —
+cảnh báo chỉ mời người sau đi nối chúng.
+
+| khoá | vì sao không nối |
+| --- | --- |
+| `runtime.drop_if_lagging` | không có nhánh drop nào để bật. Ring **chặn** (đó là cơ chế điều tiết của nó), còn nguồn RTSP **luôn** decimate vì camera không chờ được |
+| `policies.identity_gallery_scope` | mọi call site đều truyền cả `store_id` lẫn `company_id`, nên scope luôn hẹp nhất. Đặt `"company"` sẽ trông như đã cấu hình mà không đổi gì — và bài test gallery 4 store dựa vào việc lọc theo store |
+| `policies.default_alert_clip` | mặc định thật là số `15.0` trong pipeline. `alert_clip` theo **từng binding** mới là chỗ đặt, và đó mới là mức đúng: alert quầy và alert kho trên cùng camera muốn độ dài khác nhau |
+| `mode` | nhãn không nhánh nào rẽ theo |
+| `perception.person_detector.nms_thres` | pose head là **NMS-free** (`stream_track.py`: `(300, 57) NMS-free`). Không phải "chưa nối" mà là **không tồn tại chỗ để nối** |
+| `params.emit_customer_tracks` | mô tả hành vi không có |
+| `params.face_capture_window.start_status` | không code nào đọc |
+
+`display_name` cấp store thì **ngược lại** — nó đi vào cột `stores.display_name`
+(`NOT NULL`, mọi dashboard đọc). Trước đây bị bỏ qua và cột ghi đại `store_id`.
 
 ## `pipeline_id` phải nằm trong registry
 

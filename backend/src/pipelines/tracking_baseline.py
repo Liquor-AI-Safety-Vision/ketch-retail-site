@@ -19,13 +19,13 @@ from backend.src.common.paths import model_path
 def _tracker_overrides(spec) -> dict:
     """Per-camera tracker tuning out of the manifest.
 
-    `device` and `reid_model` live in the same block but are not tracker
+    `device` and `reid_model_path` live in the same block but are not tracker
     settings -- one selects a provider, the other names a file -- so they are
     dropped here rather than reaching camera_config(), which refuses names it
     does not recognise.
     """
     block = dict(spec.perception_profile.get("person_tracker", {}))
-    for not_a_threshold in ("device", "reid_model"):
+    for not_a_threshold in ("device", "reid_model_path"):
         block.pop(not_a_threshold, None)
     return block
 
