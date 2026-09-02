@@ -123,6 +123,20 @@ class VirtualVideoStreamSource:
             raise ValueError("target_duration_s must be > 0")
         if self.info.native_fps <= 0:
             raise ValueError("source video has invalid fps")
+        # Asking for more frames per second than the file holds does not fail
+        # and does not warn: source_step falls below 1, every source frame
+        # passes the test, and the stream emits native_fps while every
+        # threshold downstream has already been sized for target_fps. A 5 fps
+        # clip read at target_fps=10 delivers 5 fps with confirm windows
+        # computed for 10 -- so every window covers twice the wall-clock time
+        # it was meant to, and nothing anywhere says so.
+        if self.plan.target_fps > self.info.native_fps:
+            raise ValueError(
+                f"camera={self.spec.camera_id} target_fps={self.plan.target_fps:g} exceeds "
+                f"the source's {self.info.native_fps:g} fps. The stream would emit "
+                f"{self.info.native_fps:g} fps while the tracker, the FSM and every "
+                f"confirm window are sized for {self.plan.target_fps:g} -- each one then "
+                f"covers more wall-clock time than intended, silently. Lower target_fps.")
         if self.plan.strategy not in {"trim", "loop_to_duration"}:
             raise ValueError(f"unsupported strategy: {self.plan.strategy}")
         if self.plan.start_s < 0:

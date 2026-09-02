@@ -182,6 +182,13 @@ CAMERA = Section(
                         "transport": str, "open_timeout_ms": int, "read_timeout_ms": int,
                         "max_reconnects": int, "reconnect_backoff_s": NUMBER,
                         "reconnect_backoff_max_s": NUMBER,
+                        # RtspStreamSource has always read this
+                        # (options.get("native_fps")) and the schema has never
+                        # allowed it, so the one way to correct a camera that
+                        # does not report its frame rate was an unknown-key
+                        # error. The decimation ratio native/target rides on
+                        # this number.
+                        "native_fps": NUMBER,
                     }
                 ),
             },

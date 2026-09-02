@@ -27,6 +27,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
+BACKEND = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
@@ -173,3 +174,117 @@ def test_an_unknown_transport_is_rejected_at_construction():
 
     with pytest.raises(ValueError, match="transport"):
         RtspStreamSource(_spec(raw_config={"stream": {"rtsp": {"transport": "sctp"}}}))
+
+
+def _probed(reported_fps: float, target_fps: float, rtsp_options=None):
+    """Build an RtspStreamSource with _probe stubbed to a known frame rate.
+
+    The real _probe opens the stream. Every frame-rate rule below is about
+    what happens once the rate is known, so the network part is replaced and
+    the rest of __init__ -- including the check under test -- runs for real.
+    """
+    from backend.src.domain.models import StreamSourceInfo
+    from backend.src.runtime import rtsp_stream
+
+    raw = {"stream": {"rtsp": dict(rtsp_options or {})}}
+    spec = _spec(target_fps=target_fps, raw_config=raw)
+
+    real_probe = rtsp_stream.RtspStreamSource._probe
+
+    def fake_probe(self):
+        native = reported_fps
+        self.native_fps_source = "reported"
+        if native <= 0:
+            if self.native_fps_hint:
+                native = self.native_fps_hint
+                self.native_fps_source = "manifest hint"
+            else:
+                native = rtsp_stream.DEFAULT_NATIVE_FPS
+                self.native_fps_source = "built-in default"
+        return StreamSourceInfo(path="rtsp://redacted", native_fps=native,
+                                frame_count=0, duration_s=0.0, width=1920, height=1080)
+
+    rtsp_stream.RtspStreamSource._probe = fake_probe
+    try:
+        return rtsp_stream.RtspStreamSource(spec)
+    finally:
+        rtsp_stream.RtspStreamSource._probe = real_probe
+
+
+def test_asking_a_camera_for_more_fps_than_it_sends_is_refused():
+    """The failure it replaces is silent, which is why it has to be loud.
+
+    source_step = native/target falls below 1, so every grabbed frame passes
+    the decimation test and the lane emits native_fps -- while the tracker,
+    the FSM and every confirm window have already been sized for target_fps.
+    Each window then covers more wall-clock time than intended and no metric
+    disagrees.
+    """
+    try:
+        _probed(reported_fps=5.0, target_fps=10.0)
+    except ValueError as e:
+        assert "target_fps=10" in str(e) and "5 fps" in str(e)
+        assert "reported" in str(e), "the message should say where the rate came from"
+    else:
+        raise AssertionError("target_fps above the camera's reported rate was accepted")
+
+
+def test_equal_and_lower_target_fps_are_fine():
+    assert _probed(reported_fps=15.0, target_fps=15.0).info.native_fps == 15.0
+    assert _probed(reported_fps=25.0, target_fps=5.0).info.native_fps == 25.0
+
+
+def test_an_assumed_frame_rate_warns_instead_of_refusing():
+    """Refusing on a guess would take a working camera down over a header field.
+
+    Many RTSP cameras report no frame rate at all, so native_fps falls back to
+    a constant. That constant being lower than target_fps is not evidence the
+    manifest is wrong -- it is evidence we do not know the rate.
+    """
+    src = _probed(reported_fps=0.0, target_fps=20.0)   # must not raise
+    assert src.native_fps_source == "built-in default"
+    assert src.info.native_fps == 15.0
+
+
+def test_the_manifest_can_supply_the_rate_the_camera_will_not():
+    """stream.rtsp.native_fps was read by the source and refused by the schema.
+
+    RtspStreamSource has always done options.get("native_fps"); the manifest
+    schema never listed it, so the one way to correct a camera that reports
+    nothing was an unknown-key error at load time.
+    """
+    import json
+
+    from backend.src.infra.manifest_schema import validate_manifest
+
+    src = _probed(reported_fps=0.0, target_fps=5.0, rtsp_options={"native_fps": 25.0})
+    assert src.info.native_fps == 25.0
+    assert src.native_fps_source == "manifest hint"
+
+    data = json.loads((BACKEND / "config" / "stores" / "store_1.json").read_text())
+    cam = data["cameras"][0]
+    cam["stream"] = {"input_mode": "rtsp", "uri": "rtsp://host/cam",
+                     "rtsp": {"transport": "tcp", "native_fps": 25}}
+    warnings = validate_manifest(data)
+    assert not [w for w in warnings if "native_fps" in w]
+
+
+def test_a_video_file_shorter_on_fps_than_the_manifest_asks_is_refused():
+    """Same rule on the file path, where native_fps is always a measurement."""
+    from backend.src.domain.models import StreamSourceInfo
+    from backend.src.runtime import virtual_video_stream as vvs
+
+    spec = _spec(source_kind="video_file", source_uri="clip.mp4",
+                 source_path="clip.mp4", target_fps=10.0)
+    real_probe = vvs.VirtualVideoStreamSource._probe
+    vvs.VirtualVideoStreamSource._probe = lambda self: StreamSourceInfo(
+        path="clip.mp4", native_fps=5.0, frame_count=40, duration_s=8.0,
+        width=960, height=544)
+    try:
+        vvs.VirtualVideoStreamSource(spec)
+    except ValueError as e:
+        assert "target_fps=10" in str(e) and "5 fps" in str(e)
+    else:
+        raise AssertionError("target_fps above the file's own fps was accepted")
+    finally:
+        vvs.VirtualVideoStreamSource._probe = real_probe

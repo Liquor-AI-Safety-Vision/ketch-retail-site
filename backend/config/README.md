@@ -41,6 +41,42 @@ quyết định nghiệp vụ của từng camera, không phải tinh chỉnh k�
 
 ### Ngưỡng nào đã nối tới đâu
 
+### `runtime.target_fps` điều khiển tất cả
+
+Một số duy nhất, khai ở `cameras[].runtime.target_fps` (không khai thì lấy
+`runtime.default_target_fps` cấp store). Nó đi vào `CameraStreamSpec.target_fps`
+rồi chi phối **cả nguồn lẫn nghiệp vụ**:
+
+| nơi dùng | quy đổi |
+| --- | --- |
+| nguồn (video **và** rtsp) | `source_step = native_fps / target_fps` — quyết định lấy frame nào |
+| tracker | `max(1, round(giây × fps))` cho `MAX_AGE_S`, `N_FEAT_S`, `PERSON_GRACE_S`, `HAND_TRAJ_S`… |
+| FSM quầy | 8 hằng thời gian, `frames_10fps × fps / 10` |
+| zone kho | `warehouse.Config(fps=)` → `entry_frames`, `exit_frames` |
+| till | `compute_till_schedule(fps, till_confirm_frames, till_fps)` |
+| clip cảnh báo | `AlertClipBuffer(fps, pre_s, post_s)` |
+| `customer_recent_window_s` | `round(giây × fps)` |
+| đồng hồ giả lập | `elapsed_s = frame_idx / fps` |
+
+Không chỗ nào hardcode fps. Đổi `target_fps` là mọi cửa sổ tự đổi theo.
+
+**`target_fps` không được vượt tốc độ nguồn.** Nếu vượt, `source_step` tụt xuống
+dưới 1, mọi frame nguồn đều lọt qua, luồng phát ra `native_fps` trong khi mọi ngưỡng
+đã tính theo `target_fps` — tức mỗi cửa sổ xác nhận phủ nhiều thời gian thực hơn ý
+định, và **không có chỉ số nào bất thường**. Nay:
+
+- **video file** — báo lỗi ngay lúc mở. `native_fps` đọc từ file là số đo chắc chắn.
+- **rtsp, camera có báo fps** — báo lỗi ngay.
+- **rtsp, camera không báo fps** — **chỉ cảnh báo**, vì lúc đó `native_fps` là số
+  đoán (`stream.rtsp.native_fps` nếu có, không thì hằng 15.0). Từ chối dựa trên một
+  con số đoán sẽ hạ một camera đang chạy tốt chỉ vì OpenCV không đọc được header.
+
+Camera RTSP thật rất hay không báo fps. Khi đó khai tay:
+
+```json
+"stream": { "input_mode": "rtsp", "uri": "rtsp://...", "rtsp": { "native_fps": 25 } }
+```
+
 ### `camera.perception` — nhận thức
 
 | khoá | tới |

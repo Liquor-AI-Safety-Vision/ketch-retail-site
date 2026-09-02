@@ -16,6 +16,7 @@ Measurements behind the design are in docs/RTSP_MIGRATION.md.
 """
 from __future__ import annotations
 
+import logging
 import time
 from datetime import timezone
 
@@ -43,6 +44,8 @@ DEFAULT_NATIVE_FPS = 15.0
 # connection and then says nothing, which is exactly how a hung NVR behaves.
 DEFAULT_OPEN_TIMEOUT_MS = 8000
 DEFAULT_READ_TIMEOUT_MS = 8000
+
+logger = logging.getLogger(__name__)
 
 
 class RtspStreamSource:
@@ -90,6 +93,7 @@ class RtspStreamSource:
         )
         self._validate()
         self.info = self._probe()
+        self._validate_frame_rate()
 
     @property
     def safe_uri(self) -> str:
@@ -112,6 +116,35 @@ class RtspStreamSource:
             raise ValueError(
                 f"camera={self.spec.camera_id} strategy=loop_to_duration is meaningless "
                 "for a live camera; there is no clip to replay")
+
+    def _validate_frame_rate(self) -> None:
+        """Refuse target_fps above the camera's rate -- but only if it is known.
+
+        The failure being guarded is silent: source_step = native/target falls
+        below 1, every grabbed frame passes the decimation test, and the lane
+        emits native_fps while the tracker, the FSM and every confirm window
+        have already been sized for target_fps. Each window then covers more
+        wall-clock time than it was meant to, and no metric anywhere disagrees.
+
+        Split by where native_fps came from, because the consequence of being
+        wrong differs. Reported by the camera: refuse, the manifest is asking
+        for frames that do not exist. Assumed: warn, because refusing on a
+        guess would take a working camera offline over a header field OpenCV
+        could not read -- and the assumption may well be the wrong one.
+        """
+        if self.plan.target_fps <= self.info.native_fps:
+            return
+        detail = (
+            f"camera={self.spec.camera_id} target_fps={self.plan.target_fps:g} exceeds the "
+            f"camera's {self.info.native_fps:g} fps ({self.native_fps_source}). The lane "
+            f"would emit {self.info.native_fps:g} fps while the tracker, the FSM and every "
+            f"confirm window are sized for {self.plan.target_fps:g}, so each covers more "
+            f"wall-clock time than intended.")
+        if self.native_fps_source == "reported":
+            raise ValueError(detail + " Lower target_fps.")
+        logger.warning(
+            "%s Not refused because %s is an assumption, not a measurement -- set "
+            "stream.rtsp.native_fps if it is wrong.", detail, self.info.native_fps)
 
     def _open_capture(self, *, for_probe: bool = False):
         started = time.perf_counter()
@@ -155,8 +188,25 @@ class RtspStreamSource:
         cap.release()
 
         native_fps = reported_fps
+        # Where the number came from decides how much can be concluded from
+        # it. A camera that reports its own rate is authoritative; a fallback
+        # is a guess, and refusing a run on a guess would take down a working
+        # camera because OpenCV could not read a header field.
+        self.native_fps_source = "reported"
         if native_fps <= 0:
-            native_fps = self.native_fps_hint or DEFAULT_NATIVE_FPS
+            if self.native_fps_hint:
+                native_fps = self.native_fps_hint
+                self.native_fps_source = "manifest hint"
+            else:
+                native_fps = DEFAULT_NATIVE_FPS
+                self.native_fps_source = "built-in default"
+            logger.warning(
+                "%s: the camera did not report a frame rate; assuming %g fps (%s). "
+                "The decimation ratio native_fps/target_fps is derived from this, so a "
+                "wrong assumption means the pipeline does not run at target_fps=%g. "
+                "Set stream.rtsp.native_fps in the manifest to the camera's real rate.",
+                self.spec.camera_id, native_fps, self.native_fps_source,
+                self.plan.target_fps)
         return StreamSourceInfo(
             path=self.safe_uri,
             native_fps=native_fps,
