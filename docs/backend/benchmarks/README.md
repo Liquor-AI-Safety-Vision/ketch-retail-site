@@ -16,6 +16,7 @@ gắn với ngày chạy, lệnh chạy, commit hash, cấu hình phần cứng 
 | `2026-08-27-edge-gpu-4060ti-vs-4070.md` | chọn GPU edge |
 | `2026-08-25-split-16cam-l40s.md` | split architecture, nơi topology 8/2×8/4 được chốt |
 | `2026-08-26-till-thread-pool-oversizing.md` | cú tối ưu lớn nhất (5×), và cái thước đo hỏng làm lạc hướng 4 vòng |
+| `2026-09-02-fsm-at-5fps.md` | FSM quầy tune ở 10fps có còn bắt trộm ở 5fps không — 12/12 qua 4 pha lấy mẫu |
 | `2026-08-24-rejected-request-reply-proxy.md` | hai hướng đã thử và bị bác bỏ bằng số đo |
 | `2026-08-27-till-nano-rejected.md` | model till nhẹ hơn, bị bác bỏ vì bỏ sót 55% |
 | `2026-08-24-hybrid-16cam-l40s.md` | **nguồn của 3 quyết định split đang dùng**: CUDA EP trả giá khi batch shape đổi → `pose_pad_batch`; số CUDA context quyết định `infer` → 2 inferer; batch thật không giúp khi GPU bão hoà. Kèm danh sách hướng đã bác bỏ |
