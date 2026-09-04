@@ -1,22 +1,17 @@
 import VideocamOutlinedIcon from '@mui/icons-material/VideocamOutlined';
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded';
-import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import GridViewOutlinedIcon from '@mui/icons-material/GridViewOutlined';
-import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import DarkModeOutlinedIcon from '@mui/icons-material/DarkModeOutlined';
 import LightModeOutlinedIcon from '@mui/icons-material/LightModeOutlined';
 import LiquorOutlinedIcon from '@mui/icons-material/LiquorOutlined';
 import MenuIcon from '@mui/icons-material/Menu';
 import MoreHorizRoundedIcon from '@mui/icons-material/MoreHorizRounded';
 import NotificationsActiveOutlinedIcon from '@mui/icons-material/NotificationsActiveOutlined';
-import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
-import { AppBar, Avatar, Box, Collapse, Divider, Drawer, IconButton, List, ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem, Toolbar, Typography, useMediaQuery } from '@mui/material';
+import { AppBar, Avatar, Box, Divider, Drawer, IconButton, List, ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem, Toolbar, Typography, useMediaQuery } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
-import { useQuery } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
-import type { Alert } from '../lib/types';
 import { useColorMode } from '../../theme/ColorModeProvider';
 import { DashboardFooter } from './DashboardFooter';
 
@@ -27,10 +22,6 @@ const navigation = [
   { label: 'Alert', to: '/alerts', icon: <NotificationsActiveOutlinedIcon fontSize="small" /> },
   { label: 'Camera', to: '/cameras', icon: <VideocamOutlinedIcon fontSize="small" /> },
 ];
-
-function hasVideoEvidence(alert: Alert) {
-  return alert.hasVideoEvidence || (typeof alert.metadata?.videoUrl === 'string' && alert.metadata.videoUrl.length > 0);
-}
 
 export function AppShell() {
   const theme = useTheme();
@@ -47,36 +38,9 @@ export function AppShell() {
   const isDesktop = useMediaQuery(theme.breakpoints.up('md'));
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [accountMenuAnchor, setAccountMenuAnchor] = useState<HTMLElement | null>(null);
-  const { user, store, api, isDemo, logout } = useAuth();
+  const { user, store, isDemo, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const isAlertPage = location.pathname.startsWith('/alerts');
-  const alertSection = new URLSearchParams(location.search).get('section') === 'confirmed' ? 'confirmed' : 'attention';
-
-  const { data: alertNavCounts = { attention: 0, confirmed: 0 }, refetch: refetchAlertNavCounts } = useQuery({
-    queryKey: ['alert-navigation-counts-v2', store?.id],
-    queryFn: async () => {
-      const [attentionResult, confirmedResult] = await Promise.all([
-        api.getAlerts(store!.id, { status: 'NEW', limit: 100 }),
-        api.getAlerts(store!.id, { status: 'RESOLVED', limit: 100 }),
-      ]);
-      const attentionAlerts = attentionResult.items;
-      const confirmedAlerts = confirmedResult.items;
-      return {
-        attention: attentionAlerts.filter(hasVideoEvidence).length,
-        confirmed: confirmedAlerts.filter(hasVideoEvidence).length,
-      };
-    },
-    enabled: Boolean(store),
-    staleTime: 15_000,
-    refetchInterval: 30_000,
-  });
-
-  useEffect(() => {
-    const handleAlertsChanged = () => { void refetchAlertNavCounts(); };
-    window.addEventListener('alerts:changed', handleAlertsChanged);
-    return () => window.removeEventListener('alerts:changed', handleAlertsChanged);
-  }, [refetchAlertNavCounts]);
 
   const drawer = (
     <Box
@@ -147,58 +111,6 @@ export function AppShell() {
       <List component="nav" aria-label="Main navigation" disablePadding sx={{ px: 1.25 }}>
         {navigation.map((item) => {
           const isActive = location.pathname.startsWith(item.to) || (item.to === '/dashboard' && location.pathname === '/');
-          if (item.to === '/alerts') {
-            return (
-              <Box key={item.to} sx={{ mb: 0.45 }}>
-                <ListItemButton
-                  component={NavLink}
-                  to="/alerts?section=attention"
-                  onClick={() => setIsMobileOpen(false)}
-                  sx={{
-                    minHeight: 46,
-                    borderRadius: 1.25,
-                    px: 1.25,
-                    color: isActive ? shellColors.activeText : shellColors.muted,
-                    bgcolor: isActive ? shellColors.active : 'transparent',
-                    transition: 'background-color 180ms ease, color 180ms ease, transform 180ms ease',
-                    '&:hover': { bgcolor: isActive ? shellColors.active : shellColors.hover, color: shellColors.activeText },
-                    '&:active': { transform: 'translateY(1px)' },
-                    '&.Mui-focusVisible': { outline: `2px solid ${theme.palette.primary.main}`, outlineOffset: 1 },
-                  }}
-                >
-                  <ListItemIcon sx={{ minWidth: 34, color: isActive ? 'primary.main' : 'inherit' }}>
-                    {item.icon}
-                  </ListItemIcon>
-                  <ListItemText primary={item.label} primaryTypographyProps={{ fontSize: 14, fontWeight: isActive ? 650 : 500, letterSpacing: '-0.01em' }} />
-                  <KeyboardArrowDownIcon
-                    fontSize="small"
-                    sx={{ color: isActive ? 'primary.main' : shellColors.faint, transform: isAlertPage ? 'rotate(0deg)' : 'rotate(-90deg)', transition: 'transform 180ms ease' }}
-                  />
-                </ListItemButton>
-
-                <Collapse in={isAlertPage} timeout={180} unmountOnExit>
-                  <List component="div" disablePadding sx={{ position: 'relative', mt: 0.35, mb: 0.75, ml: 2.6, pl: 1.15, '&::before': { content: '""', position: 'absolute', left: 0, top: 4, bottom: 4, width: '1px', bgcolor: 'divider' } }}>
-                    <AlertSubmenuItem
-                      to="/alerts?section=attention"
-                      label="Needs attention"
-                      count={alertNavCounts.attention}
-                      selected={alertSection === 'attention'}
-                      icon={<RadioButtonUncheckedIcon sx={{ fontSize: 11 }} />}
-                      onClick={() => setIsMobileOpen(false)}
-                    />
-                    <AlertSubmenuItem
-                      to="/alerts?section=confirmed"
-                      label="Confirmed"
-                      count={alertNavCounts.confirmed}
-                      selected={alertSection === 'confirmed'}
-                      icon={<CheckCircleOutlineIcon sx={{ fontSize: 14 }} />}
-                      onClick={() => setIsMobileOpen(false)}
-                    />
-                  </List>
-                </Collapse>
-              </Box>
-            );
-          }
           return (
             <ListItemButton
               component={NavLink}
@@ -389,36 +301,5 @@ export function AppShell() {
         <DashboardFooter />
       </Box>
     </Box>
-  );
-}
-
-function AlertSubmenuItem({ to, label, count, selected, icon, onClick }: { to: string; label: string; count: number; selected: boolean; icon: React.ReactNode; onClick: () => void }) {
-  const theme = useTheme();
-  const dark = theme.palette.mode === 'dark';
-
-  return (
-    <ListItemButton
-      component={NavLink}
-      to={to}
-      onClick={onClick}
-      selected={selected}
-      sx={{
-        minHeight: 36,
-        borderRadius: 1,
-        px: 1,
-        py: 0.4,
-        color: selected ? 'primary.main' : 'text.secondary',
-        '&.Mui-selected': { bgcolor: dark ? 'rgba(216,163,93,.075)' : 'rgba(154,97,40,.09)' },
-        '&.Mui-selected:hover': { bgcolor: dark ? 'rgba(216,163,93,.11)' : 'rgba(154,97,40,.13)' },
-        '&:hover': { color: 'text.primary', bgcolor: 'action.hover' },
-        '&.Mui-focusVisible': { outline: `2px solid ${theme.palette.primary.main}`, outlineOffset: 1 },
-      }}
-    >
-      <ListItemIcon sx={{ minWidth: 25, color: 'inherit' }}>{icon}</ListItemIcon>
-      <ListItemText primary={label} primaryTypographyProps={{ fontSize: 12.5, fontWeight: selected ? 650 : 500 }} />
-      <Typography variant="caption" sx={{ minWidth: 23, px: 0.65, py: 0.05, borderRadius: 0.75, textAlign: 'center', color: selected ? 'primary.main' : 'text.secondary', bgcolor: selected ? (dark ? 'rgba(216,163,93,.12)' : 'rgba(154,97,40,.1)') : 'action.hover', fontVariantNumeric: 'tabular-nums' }}>
-        {count}
-      </Typography>
-    </ListItemButton>
   );
 }
