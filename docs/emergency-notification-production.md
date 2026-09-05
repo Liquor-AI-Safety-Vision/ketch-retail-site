@@ -79,15 +79,31 @@ go test -run '^TestProductionWhatsAppAlertWorkerE2E$' -count=1 -v ./internal/ser
 
 The guarded test creates neither a new alert nor a new delivery. It conditionally activates the existing unused WhatsApp fallback, then requires exactly one successful immutable attempt, a provider-fetched secure video link and a signed `SENT`/`DELIVERED`/`READ` webhook receipt. A rerun observes the already-sent delivery and cannot send another message.
 
-If Meta accepts the request and later reports provider error `131042`, do not immediately resend. This is a WhatsApp Business payment-eligibility failure. In Meta Billing & payments, attach an active payment method directly to the exact WABA, set its currency and required tax/business details, clear any outstanding balance, and wait for Meta to refresh eligibility. Only then may an operator deliberately requeue the same failed controlled delivery for one additional audited attempt.
+If Meta accepts the request and later reports provider error `131042`, do not immediately resend, and do not assume the cause. Meta surfaces `131042` for several distinct eligibility failures, so read the account's own diagnosis before changing anything:
 
-After the payment issue is confirmed fixed, retry that same failed delivery once—without creating another alert or outbox row:
+```powershell
+# read-only; prints no token, WABA id or phone number
+curl -H "Authorization: Bearer $env:WHATSAPP_ACCESS_TOKEN" `
+  "https://graph.facebook.com/v25.0/$env:WHATSAPP_WABA_ID?fields=health_status"
+```
+
+`health_status.entities` names the blocking entity (`WABA`, `BUSINESS` or `APP`) and its error code. Fix the entity Meta names, not the one the error code seems to imply.
+
+**Measured on 06/09/2026:** the blocking entity was `BUSINESS`, error `141010`, *"The Business has not passed business verification."* Everything else was already clear: `account_review_status` `APPROVED`, WABA `status` `ACTIVE`, currency `USD`, phone number `CONNECTED` with `code_verification_status` `VERIFIED`, and template `emergency_security_alert` `APPROVED`. An attached payment method does not lift this: an unverified business stays limited regardless. The 04/09 retry attached payment and failed for that reason, which is why attempt 2 of 2 also returned `131042`.
+
+Resolve business verification in Meta Business settings before any further send. Only then may an operator deliberately requeue the same failed controlled delivery for one additional audited attempt.
+
+Note that the controlled WhatsApp delivery recorded on 30/08 has already used both of its attempts (`attemptCount` 2 of `maxAttempts` 2) and sits at `FAILED`. The retry command below therefore no longer has an attempt budget: requeuing it requires an explicit, audited decision to raise that row's `maxAttempts`, which is a deliberate operator action and not part of the normal runbook.
+
+After business verification passes, retry that same failed delivery once—without creating another alert or outbox row:
 
 ```powershell
 $env:RUN_PRODUCTION_WHATSAPP_ALERT_E2E='1'
 $env:CONFIRM_PRODUCTION_WHATSAPP_SEND='RETRY_ONE_AFTER_BILLING_FIX_TO_1585'
 go test -run '^TestProductionWhatsAppAlertWorkerE2E$' -count=1 -v ./internal/server
 ```
+
+The confirmation sentinel still reads `..._AFTER_BILLING_FIX_...` because it is a fixed string compared in `production_whatsapp_alert_test.go`. Its name predates the measurement above and describes the wrong cause; treat it as an opaque guard value, not as a statement about why the delivery failed.
 
 ## Rollback
 
