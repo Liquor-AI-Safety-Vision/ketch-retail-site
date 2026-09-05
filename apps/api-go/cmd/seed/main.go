@@ -83,7 +83,7 @@ func cctvVideoFixtures() []alertSeed {
 		BoxX, BoxY, BoxWidth, BoxHeight                                              float64
 	}
 	media := []mediaFixture{
-		{"record-counter-153921", "WEAPON_DETECTED", "UNKNOWN", "/demo/cctv-ch14-034329.mp4", "/demo/cctv-ch14-034329.jpg", "/demo/tracks/cctv-ch14-034329.json", "Emergency review: a possible dangerous object was detected in the store", .656318, .233285, .087923, .280522},
+		{"record-counter-153921", "WEAPON_DETECTED", "UNKNOWN", "/demo-source/alerts/weapon/weapon-review-02.mp4", "/demo-source/alerts/weapon/weapon-review-02.jpg", "", "Emergency review: a possible dangerous object was detected in the store", 0, 0, 0, 0},
 		{"record-counter-153921", "CASH_DRAWER_WITHOUT_CUSTOMER", "EMPLOYEE", "/demo/cctv-ch14-031430.mp4", "/demo/cctv-ch14-031430.jpg", "/demo/tracks/cctv-ch14-031430.json", "Counter camera context clip for cash drawer review", .269526, .186044, .070087, .307317},
 		{"record-counter-153921", "SUSPICIOUS_CASH_HANDLING", "EMPLOYEE", "/demo/cctv-ch14-034100.mp4", "/demo/cctv-ch14-034100.jpg", "/demo/tracks/cctv-ch14-034100.json", "Counter camera context clip for cash handling review", .582944, .575873, .160734, .387876},
 		{"record-counter-153921", "POS_VOID_OR_REFUND", "EMPLOYEE", "/demo/cctv-ch14-034329.mp4", "/demo/cctv-ch14-034329.jpg", "/demo/tracks/cctv-ch14-034329.json", "Counter camera context clip for POS activity review", .656318, .233285, .087923, .280522},
@@ -119,6 +119,29 @@ func cctvVideoFixtures() []alertSeed {
 		if context.AlertType == "WEAPON_DETECTED" {
 			severity = "CRITICAL"
 		}
+		// A clip that already has its boxes drawn in carries no tracking JSON, so
+		// the dashboard plays it as-is instead of painting a second overlay on top.
+		bakedIn := context.TrackingURL == ""
+		metadata := map[string]any{
+			"summary":          context.Summary,
+			"sourceSystem":     "cctv-upload-fixture",
+			"sampleOnly":       true,
+			"thumbnailUrl":     context.ThumbnailURL,
+			"videoUrl":         context.VideoURL,
+			"notificationCode": fmt.Sprintf("UI-NOTIF-%04d", index+1),
+			"violationCount":   index%3 + 1,
+		}
+		if bakedIn {
+			metadata["presentationVideoUrl"] = context.VideoURL
+			metadata["presentationThumbnailUrl"] = context.ThumbnailURL
+		} else {
+			metadata["trackingUrl"] = context.TrackingURL
+			metadata["trackingModel"] = "YOLO26n + ByteTrack"
+			metadata["detectionLabel"] = "Person"
+			metadata["detectionBox"] = map[string]any{
+				"x": context.BoxX, "y": context.BoxY, "width": context.BoxWidth, "height": context.BoxHeight,
+			}
+		}
 		fixtures = append(fixtures, alertSeed{
 			EventID:        fmt.Sprintf("pdsi-ui-fixture-%03d", index+1),
 			CameraRef:      context.CameraRef,
@@ -129,21 +152,7 @@ func cctvVideoFixtures() []alertSeed {
 			Confidence:     .66 + float64(index%7)*.04,
 			MinutesAgo:     minutesAgo,
 			ResolutionNote: note,
-			Metadata: map[string]any{
-				"summary":        context.Summary,
-				"sourceSystem":   "cctv-upload-fixture",
-				"sampleOnly":     true,
-				"thumbnailUrl":   context.ThumbnailURL,
-				"videoUrl":       context.VideoURL,
-				"trackingUrl":    context.TrackingURL,
-				"trackingModel":  "YOLO26n + ByteTrack",
-				"detectionLabel": "Person",
-				"detectionBox": map[string]any{
-					"x": context.BoxX, "y": context.BoxY, "width": context.BoxWidth, "height": context.BoxHeight,
-				},
-				"notificationCode": fmt.Sprintf("UI-NOTIF-%04d", index+1),
-				"violationCount":   index%3 + 1,
-			},
+			Metadata:       metadata,
 		})
 	}
 	return fixtures
