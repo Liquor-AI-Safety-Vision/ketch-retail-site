@@ -316,10 +316,15 @@ export function CamerasPage() {
         onClose={() => setSelectedFeedId(null)}
         maxWidth="lg"
         fullWidth
-        PaperProps={{ sx: { overflow: 'hidden', bgcolor: '#050606', backgroundImage: 'none', border: '1px solid #303735' } }}
+        PaperProps={{
+          // MUI forwards a Dialog-level aria-label to the modal root, not to the
+          // element that carries role="dialog", so it is set on the paper here.
+          'aria-label': selectedFeed ? `Live view for ${selectedFeed.displayName}` : undefined,
+          sx: { overflow: 'hidden', bgcolor: '#050606', backgroundImage: 'none', border: '1px solid #303735' },
+        }}
       >
         {selectedFeed && (
-          <Box sx={{ position: 'relative', bgcolor: '#020303', aspectRatio: '16 / 9', maxHeight: 'calc(100vh - 80px)' }}>
+          <Box sx={{ position: 'relative', bgcolor: '#020303', aspectRatio: '16 / 9', maxHeight: 'calc(100vh - 170px)' }}>
             {selectedFeedOnline ? (
               <Box
                 component="video"
@@ -343,20 +348,21 @@ export function CamerasPage() {
                 sx={{ display: 'block', width: '100%', height: '100%', objectFit: 'contain', bgcolor: '#000', filter: 'grayscale(1) brightness(.42)' }}
               />
             )}
-            <Box sx={{ position: 'absolute', inset: 0, pointerEvents: 'none', background: 'linear-gradient(180deg, rgba(0,0,0,.52), transparent 22%, transparent 72%, rgba(0,0,0,.68))' }} />
+            <Box sx={{ position: 'absolute', inset: 0, pointerEvents: 'none', background: 'linear-gradient(180deg, rgba(0,0,0,.52), transparent 22%)' }} />
             <Box sx={{ position: 'absolute', top: 16, left: 18, display: 'flex', alignItems: 'center', gap: 0.8, color: selectedFeedOnline ? '#A8DAB7' : '#C6C9C7', fontSize: 11, fontWeight: 800, letterSpacing: '.12em' }}>
               <FiberManualRecordIcon sx={{ fontSize: 10 }} /> {selectedFeedOnline ? 'LIVE PREVIEW' : 'CAMERA OFFLINE'}
             </Box>
             <IconButton onClick={() => setSelectedFeedId(null)} aria-label="Close live view" sx={{ position: 'absolute', top: 9, right: 10, color: '#FFF', bgcolor: 'rgba(0,0,0,.5)', '&:hover': { bgcolor: 'rgba(0,0,0,.78)' } }}>
               <CloseIcon />
             </IconButton>
-            <Box sx={{ position: 'absolute', left: 18, right: 18, bottom: 15, display: 'flex', justifyContent: 'space-between', alignItems: 'end', gap: 2, pointerEvents: 'none' }}>
-              <Box>
-                <Typography sx={{ color: '#FFF', fontWeight: 700, fontSize: { xs: 15, md: 20 } }}>{selectedFeed.displayName}</Typography>
-                <Typography sx={{ color: 'rgba(255,255,255,.68)', fontSize: 12, mt: 0.25 }}>{selectedFeed.displayLocation}</Typography>
-              </Box>
-              <Typography sx={{ color: 'rgba(255,255,255,.58)', fontFamily: 'monospace', fontSize: 10 }}>{selectedFeedOnline ? 'LIVE CAMERA FEED' : 'CAMERA OFFLINE'}</Typography>
-            </Box>
+          </Box>
+        )}
+        {selectedFeed && (
+          /* The recorded footage already burns the camera name into the
+             bottom-left corner, so the caption sits under the frame instead of
+             on top of it, and repeats only what the footage does not carry. */
+          <Box sx={{ px: 2.25, py: 1.6, bgcolor: '#050606', borderTop: '1px solid #232927' }}>
+            <Typography noWrap sx={{ color: 'rgba(255,255,255,.78)', fontSize: 13 }}>{selectedFeed.displayLocation}</Typography>
           </Box>
         )}
       </Dialog>
