@@ -96,9 +96,9 @@ export default function ContactSection() {
               <input
                 id="email"
                 name="email"
-                  type="email"
-                  autoComplete="email"
-                  spellCheck={false}
+                type="email"
+                autoComplete="email"
+                spellCheck={false}
                 required
                 placeholder="alex@mainliquors.com"
                 className="rounded-md border border-ink/15 bg-cream-200 px-4 py-3 text-sm text-ink placeholder:text-ink-600/40

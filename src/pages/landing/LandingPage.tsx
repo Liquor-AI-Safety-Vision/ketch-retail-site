@@ -18,9 +18,9 @@ const JSON_LD = {
   '@context': 'https://schema.org',
   '@type': 'Service',
   name: 'Ketch Enterprise AI | Retail Loss Prevention',
-  serviceType: 'AI video loss prevention for liquor and convenience stores',
+  serviceType: 'AI video loss prevention for retail stores',
   description:
-    'Computer-vision loss prevention for liquor, convenience, and gas-station stores. Surfaces reviewable, video-backed alerts from existing cameras for owner decisions; video processing is designed to stay on-site.',
+    'Computer-vision loss prevention for retail stores. Surfaces reviewable, video-backed alerts from existing cameras for owner decisions; video processing is designed to stay on-site.',
   areaServed: 'United States',
   provider: { '@type': 'Organization', name: 'Ketch Enterprise AI' },
   offers: { '@type': 'Offer', category: 'Two-month pilot' },
@@ -30,12 +30,14 @@ export default function LandingPage() {
   const pageRef = useRef<HTMLDivElement>(null)
   useLandingMotion(pageRef)
 
+  // Search results truncate around 60 characters for the title and 155 for the
+  // description, so both stay inside those budgets and lead with the terms an
+  // owner would actually search for.
   useSeo({
     lang: 'en',
-    title:
-      'Ketch Enterprise AI | Stop Retail Theft Before It Leaves the Store | Loss Prevention for Liquor & Convenience Stores',
+    title: 'AI Loss Prevention for Retail Stores | Ketch Enterprise AI',
     description:
-      'AI loss prevention for liquor, convenience, and gas-station stores. Surfaces reviewable, video-backed alerts from the cameras you already own for owner review — with video processing designed to stay on-site.',
+      'Turn the cameras a store already has into reviewable, video-backed alerts. The owner makes the decision, and video processing is designed to stay on-site.',
     jsonLd: JSON_LD,
   })
 
