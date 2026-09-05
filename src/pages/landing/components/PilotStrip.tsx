@@ -1,6 +1,5 @@
 import { CalendarCheck, MapPin, Wrench } from '@phosphor-icons/react'
-import { Link } from 'react-router-dom'
-import { Button } from '../../../components/ui'
+import { LinkButton } from '../../../components/ui'
 import { scrollToSection } from '../../../lib/scrollToSection'
 
 const PILOT_DETAILS = [
@@ -35,8 +34,8 @@ export default function PilotStrip() {
             and leave the owner with evidence, not a sales projection.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
-            <a href="#contact" onClick={scrollToSection('contact')}><Button>Book a pilot</Button></a>
-            <Link to="/dashboard"><Button variant="secondary">View dashboard</Button></Link>
+            <LinkButton href="#contact" onClick={scrollToSection('contact')}>Book a pilot</LinkButton>
+            <LinkButton to="/dashboard" variant="secondary">View demo</LinkButton>
           </div>
         </div>
 
@@ -47,7 +46,7 @@ export default function PilotStrip() {
               key={title}
               className="grid grid-cols-[34px_1fr] gap-5 border-b border-ink/10 py-6 last:border-b-0 md:grid-cols-[40px_minmax(180px,0.7fr)_minmax(0,1fr)] md:gap-7"
             >
-              <Icon size={22} weight="duotone" className="text-teal-600" aria-hidden="true" />
+              <Icon size={22} weight="duotone" className="text-teal-700" aria-hidden="true" />
               <h3 className="text-base font-semibold tracking-[-0.02em] text-ink">
                 <span className="mr-2 text-xs text-ink-600/45">0{index + 1}</span>{title}
               </h3>

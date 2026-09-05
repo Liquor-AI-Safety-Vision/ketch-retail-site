@@ -57,7 +57,7 @@ try {
     }));
     assert.equal(await page.evaluate(() => window.edgeBeaconReady), true);
   }
-  await page.getByRole('link', { name: 'View dashboard', exact: true }).first().click();
+  await page.getByRole('link', { name: 'View demo', exact: true }).first().click();
   await page.getByRole('heading', { name: 'Overview', exact: true }).waitFor();
   await page.getByText('Read-only demo', { exact: true }).filter({ visible: true }).waitFor();
   assert.equal(requests.length, 0);

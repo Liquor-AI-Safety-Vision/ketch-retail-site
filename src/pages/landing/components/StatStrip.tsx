@@ -1,6 +1,6 @@
 const SYSTEM_PROFILE = [
   { label: 'Camera input', value: 'Existing CCTV' },
-  { label: 'Processing', value: 'On-prem' },
+  { label: 'Processing design', value: 'On-site*' },
   { label: 'Evidence', value: 'Video-backed' },
   { label: 'Decision', value: 'Owner verified' },
 ]
@@ -20,6 +20,9 @@ export default function StatStrip() {
           </div>
         ))}
       </div>
+      <p className="mx-auto max-w-[1280px] px-5 pb-6 text-[11px] leading-relaxed text-band-muted sm:px-8">
+        *Production design. The public demo on this site runs on hosted infrastructure with sample data.
+      </p>
     </section>
   )
 }

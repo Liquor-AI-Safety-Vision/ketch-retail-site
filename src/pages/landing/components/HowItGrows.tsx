@@ -1,6 +1,11 @@
 import { ArrowsClockwise, CheckCircle, Package, Pulse } from '@phosphor-icons/react'
 import { SectionShell } from '../../../components/ui'
 
+/* Status honesty: the two model layers below are PLANNED work evaluated
+   against pilot footage — they are not part of the base deployment and are
+   labelled that way. The flywheel describes retained evidence and a tuning
+   goal, never an automatic accuracy improvement. */
+
 const ADDONS = [
   {
     Icon: Package,
@@ -20,20 +25,20 @@ const ADDONS = [
 
 const FLYWHEEL_STEPS = [
   {
-    title: 'Camera captures the footage',
-    detail: 'Every monitored area, throughout the day.',
+    title: 'Footage is captured',
+    detail: 'Monitored areas, throughout the day.',
   },
   {
-    title: 'An alert surfaces',
-    detail: 'The relevant event and surrounding video are prepared for review.',
+    title: 'An alert is prepared',
+    detail: 'Event plus surrounding video, ready to review.',
   },
   {
-    title: 'The owner confirms or dismisses',
-    detail: 'A human decision becomes the ground-truth label.',
+    title: 'The owner decides',
+    detail: 'Confirmed or dismissed — the human call.',
   },
   {
-    title: 'Labels improve review quality',
-    detail: 'Confirmed evidence guides what the system should surface next.',
+    title: 'Evidence is retained',
+    detail: 'Labeled examples that can inform future tuning.',
   },
 ]
 
@@ -46,12 +51,12 @@ function FlywheelDiagram() {
   ]
 
   return (
-    <div className="relative h-72 w-72" aria-label="Evidence feedback flywheel">
+    <div className="relative h-72 w-72" role="img" aria-label="Evidence feedback loop diagram">
       <div className="absolute inset-0 flex items-center justify-center">
         <div className="flex h-24 w-24 flex-col items-center justify-center rounded-full border-4 border-teal-600/30 bg-teal-900 shadow-lg">
           <ArrowsClockwise size={20} className="mb-1 text-teal-300 motion-safe:animate-[spin_22s_linear_infinite]" aria-hidden="true" />
           <span className="px-1 text-center text-[10px] font-bold leading-tight text-cream">
-            Smarter<br />over time
+            Owner-labeled<br />evidence
           </span>
         </div>
       </div>
@@ -91,20 +96,32 @@ function EvidenceFrame({
   title,
   src,
   camera,
+  width,
+  height,
 }: {
   label: string
   title: string
   src: string
   camera: string
+  width: number
+  height: number
 }) {
   return (
     <figure className="overflow-hidden rounded-lg border border-ink/12 bg-cream-200">
       <div className="flex items-center justify-between border-b border-ink/10 px-4 py-3">
-        <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-teal-600">{label}</span>
+        <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-teal-700">{label}</span>
         <span className="text-[10px] text-ink-600">{camera}</span>
       </div>
       <div className="relative aspect-video overflow-hidden bg-ink">
-        <img src={src} alt={title} loading="lazy" decoding="async" className="absolute inset-0 h-full w-full object-cover" />
+        <img
+          src={src}
+          alt={title}
+          width={width}
+          height={height}
+          loading="lazy"
+          decoding="async"
+          className="absolute inset-0 h-full w-full object-cover"
+        />
       </div>
       <figcaption className="min-h-[76px] px-4 py-4 text-sm leading-relaxed text-ink-600">{title}</figcaption>
     </figure>
@@ -124,50 +141,54 @@ export default function HowItGrows() {
         </>
       )}
       titleClassName="max-w-none text-[clamp(2rem,3.25vw,2.75rem)]"
-      intro="The base deployment establishes a reliable review workflow first. Additional models are introduced against real store footage and evaluated with owner-confirmed evidence."
+      intro="The base deployment establishes a reliable review workflow first. Anything below marked planned is future work, evaluated against real store footage before it ships."
     >
       <div data-reveal-group className="grid gap-5 md:grid-cols-2">
         <div data-reveal-item>
           <EvidenceFrame
-            label="Base deployment"
+            label="Included today"
             title="Continuous whole-store monitoring using the camera feeds already represented in the dashboard."
             src="/live-cameras/record-whole-store-153158.jpg"
             camera="Whole store / Camera 09"
+            width={960}
+            height={540}
           />
         </div>
         <div data-reveal-item>
           <EvidenceFrame
-            label="Trained review"
-            title="Confirmed footage becomes reference material for surfacing similar movement patterns while the owner keeps the final decision."
+            label="Planned · evaluated in pilot"
+            title="Confirmed footage is kept as reference material, with the goal of surfacing similar movement patterns later. The owner keeps the final decision either way."
             src="/demo-source/alerts/shoplifting/shoplifting-review.jpg"
             camera="Video-backed alert"
+            width={960}
+            height={544}
           />
         </div>
       </div>
 
       <div className="mt-16 grid gap-10 lg:grid-cols-[0.72fr_1.28fr] lg:gap-20">
         <div data-reveal>
-          <p className="text-sm font-semibold text-teal-600">Optional model layers</p>
+          <p className="text-sm font-semibold text-teal-700">Optional model layers</p>
           <h3 className="mt-5 max-w-[14ch] text-2xl font-semibold leading-tight tracking-[-0.035em] text-ink md:text-3xl">
-            Clear capability. Clear boundary.
+            Planned. Post-pilot. Boundary included.
           </h3>
           <p className="mt-4 max-w-[42ch] text-sm leading-relaxed text-ink-600">
-            Each module states what it observes and what it cannot conclude. That boundary is part of the product, not a footnote.
+            These are not part of the base deployment. Each module states what it observes and what it cannot conclude — that boundary is part of the design, not a footnote.
           </p>
         </div>
 
         <div data-reveal-group className="border-y border-ink/12">
           {ADDONS.map(({ Icon, label, title, description, boundary }, index) => (
             <article data-reveal-item key={title} className="grid gap-4 border-b border-ink/10 py-7 last:border-b-0 md:grid-cols-[44px_0.75fr_1.25fr] md:gap-7">
-              <Icon size={23} weight="duotone" className="text-teal-600" aria-hidden="true" />
+              <Icon size={23} weight="duotone" className="text-teal-700" aria-hidden="true" />
               <div>
-                <p className="text-xs font-semibold text-ink-600/70">0{index + 1} / {label}</p>
+                <p className="text-xs font-semibold text-ink-600/70">0{index + 1} / {label} · planned</p>
                 <h4 className="mt-2 text-lg font-semibold tracking-[-0.025em] text-ink">{title}</h4>
               </div>
               <div>
                 <p className="text-sm leading-relaxed text-ink-600">{description}</p>
                 <p className="mt-3 flex items-start gap-2 text-xs leading-relaxed text-ink-600/75">
-                  <CheckCircle size={14} weight="fill" className="mt-0.5 shrink-0 text-teal-600" />
+                  <CheckCircle size={14} weight="fill" className="mt-0.5 shrink-0 text-teal-700" aria-hidden="true" />
                   {boundary}
                 </p>
               </div>
@@ -176,24 +197,25 @@ export default function HowItGrows() {
         </div>
       </div>
 
-      <section className="relative left-1/2 mt-16 w-[100dvw] -translate-x-1/2 overflow-hidden border-y border-band-border bg-band px-5 py-20 text-band-text sm:px-8 md:py-28">
+      <section className="relative left-1/2 mt-16 w-[100dvw] -translate-x-1/2 overflow-hidden border-y border-band-border bg-band px-5 py-14 text-band-text sm:px-8 md:py-20">
         <div className="mx-auto max-w-[1280px]">
           <div data-reveal className="grid max-w-5xl gap-5 md:grid-cols-[minmax(0,0.42fr)_minmax(0,0.58fr)] md:gap-12">
             <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-band-accent">The data flywheel</p>
             <div>
               <h3 className="max-w-none text-[clamp(2rem,3.25vw,2.75rem)] font-semibold leading-[1.08] tracking-[-0.035em]">
-                <span className="block lg:whitespace-nowrap">Every confirm or dismiss</span>
-                <span className="block lg:whitespace-nowrap">makes the next alert</span>
-                <span className="block lg:whitespace-nowrap">more precise.</span>
+                <span className="block lg:whitespace-nowrap">Owner decisions build the</span>
+                <span className="block lg:whitespace-nowrap">evidence base for future tuning.</span>
               </h3>
               <p className="mt-5 max-w-[58ch] text-base leading-relaxed text-band-muted md:text-lg">
-                The owner remains the final decision-maker. Each reviewed event becomes evidence the system can use to prioritize similar footage and reduce unnecessary review over time.
+                The owner remains the final decision-maker. Every reviewed event is retained as a labeled
+                example, and with enough confirmed footage that record can inform how future versions
+                prioritize review — an evaluation goal for the pilot, not an automatic improvement.
               </p>
             </div>
           </div>
 
-          <div className="mt-12 grid border-y border-band-border md:mt-16 lg:grid-cols-[0.9fr_1.1fr]">
-            <div data-reveal className="flex min-h-[360px] items-center justify-center border-b border-band-border py-9 lg:border-b-0 lg:border-r">
+          <div className="mt-10 grid border-y border-band-border md:mt-12 lg:grid-cols-[0.9fr_1.1fr]">
+            <div data-reveal className="flex min-h-[320px] items-center justify-center border-b border-band-border py-9 lg:border-b-0 lg:border-r">
               <FlywheelDiagram />
             </div>
 
@@ -202,7 +224,7 @@ export default function HowItGrows() {
                 <li
                   data-reveal-item
                   key={title}
-                  className={`grid min-h-[180px] grid-cols-[28px_1fr] content-center gap-3 border-band-border px-1 py-7 sm:px-8 ${index > 0 ? 'border-t' : ''} ${index === 1 ? 'sm:border-l sm:border-t-0' : ''} ${index === 3 ? 'sm:border-l' : ''}`}
+                  className={`grid min-h-[150px] grid-cols-[28px_1fr] content-center gap-3 border-band-border px-1 py-6 sm:px-8 ${index > 0 ? 'border-t' : ''} ${index === 1 ? 'sm:border-l sm:border-t-0' : ''} ${index === 3 ? 'sm:border-l' : ''}`}
                 >
                   <span className="grid h-6 w-6 place-items-center rounded-full bg-band-accent text-[10px] font-bold text-band" aria-hidden="true">
                     {index + 1}

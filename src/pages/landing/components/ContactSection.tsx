@@ -28,7 +28,7 @@ export default function ContactSection() {
         <div className="grid grid-cols-1 items-start gap-12 md:grid-cols-[0.78fr_1.22fr] md:gap-20">
           {/* Left */}
           <div data-reveal>
-            <p className="mb-3 text-sm font-semibold text-teal-600">Get in touch</p>
+            <p className="mb-3 text-sm font-semibold text-teal-700">Get in touch</p>
             <h2 className="text-3xl md:text-4xl font-semibold tracking-tight leading-tight text-ink mb-4">
               Ready to see it on your cameras?
             </h2>
@@ -42,12 +42,14 @@ export default function ContactSection() {
             </div>
 
             <div className="mt-8 flex flex-col gap-3 border-t border-ink/10 pt-6">
+              <p className="text-xs uppercase tracking-[0.14em] text-ink-600">Prefer to write directly?</p>
               <a
                 href="mailto:info@ketchenterprise.net"
-                className="flex items-center gap-3 text-sm text-ink-600 hover:text-ink transition-colors"
+                className="flex min-h-11 items-center gap-3 rounded-sm text-sm text-ink-600 transition-colors hover:text-ink
+                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600 focus-visible:ring-offset-2 focus-visible:ring-offset-cream"
               >
-                <EnvelopeSimple size={18} weight="duotone" className="text-teal-600 shrink-0" />
-                <span>info@ketchenterprise.net</span>
+                <EnvelopeSimple size={18} weight="duotone" className="text-teal-700 shrink-0" aria-hidden="true" />
+                <span className="underline decoration-ink/30 underline-offset-4">info@ketchenterprise.net</span>
               </a>
             </div>
           </div>
@@ -63,6 +65,7 @@ export default function ContactSection() {
                   id="name"
                   name="name"
                   type="text"
+                  autoComplete="name"
                   required
                   placeholder="Alex Johnson"
                   className="rounded-md border border-ink/15 bg-cream-200 px-4 py-3 text-sm text-ink placeholder:text-ink-600/40
@@ -78,6 +81,7 @@ export default function ContactSection() {
                   id="store"
                   name="store"
                   type="text"
+                  autoComplete="organization"
                   placeholder="Main St Liquors"
                   className="rounded-md border border-ink/15 bg-cream-200 px-4 py-3 text-sm text-ink placeholder:text-ink-600/40
                     focus:outline-none focus:ring-2 focus:ring-teal-600 focus:ring-offset-1 focus:ring-offset-cream
@@ -92,7 +96,9 @@ export default function ContactSection() {
               <input
                 id="email"
                 name="email"
-                type="email"
+                  type="email"
+                  autoComplete="email"
+                  spellCheck={false}
                 required
                 placeholder="alex@mainliquors.com"
                 className="rounded-md border border-ink/15 bg-cream-200 px-4 py-3 text-sm text-ink placeholder:text-ink-600/40
@@ -108,6 +114,7 @@ export default function ContactSection() {
                 id="message"
                 name="message"
                 rows={3}
+                autoComplete="off"
                 placeholder="How many cameras? Any specific zones of concern?"
                 className="rounded-md border border-ink/15 bg-cream-200 px-4 py-3 text-sm text-ink placeholder:text-ink-600/40
                   focus:outline-none focus:ring-2 focus:ring-teal-600 focus:ring-offset-1 focus:ring-offset-cream
@@ -117,14 +124,16 @@ export default function ContactSection() {
             <button
               type="submit"
               className="mt-1 rounded-md bg-teal-900 px-6 py-3.5 text-sm font-semibold text-cream
-                hover:bg-teal-600 transition-colors duration-150 focus-visible:outline-none
+                hover:bg-teal-700 transition-colors duration-150 focus-visible:outline-none
                 focus-visible:ring-2 focus-visible:ring-teal-600 focus-visible:ring-offset-2
                 focus-visible:ring-offset-cream active:translate-y-px"
             >
-              Send message
+              Continue in your email app
             </button>
-            <p className="text-xs text-ink-600/50">
-              Your message goes directly to the pilot team. No marketing list, no third-party CRM.
+            <p className="text-xs leading-relaxed text-ink-600/80">
+              This site does not send the message itself. The button opens a pre-filled draft in
+              your own email app — review it and press send there. Only what you type above goes
+              into the draft; no marketing list, no third-party CRM.
             </p>
           </form>
         </div>

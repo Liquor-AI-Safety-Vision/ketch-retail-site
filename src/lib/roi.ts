@@ -7,10 +7,11 @@
  * result as a benchmark their pilot turns into real figures. We never invent a
  * store-specific loss number.
  *
- * Sources (verified 2026-06-29):
- *  - US convenience-store shrink ≈ 1.5% of in-store sales (~$12,700/store/yr,
- *    ~⅓ employee theft) — NACS State of the Industry, cross-referenced to the
- *    NRF National Retail Security Survey.
+ * Sources (verified 2026-09-04):
+ *  - NACS preliminary 2025 data: $1,703 merchandise shrink/store/month
+ *    ($20,436 annualized here for display).
+ *  - NRF 2022 National Retail Security Survey: 1.4% average FY2021 retail
+ *    shrink and a 1.5% five-year average. The calculator uses the latter.
  *  - Avg dishonest-employee case $1,137 — Jack L. Hayes Int'l 35th Annual Retail
  *    Theft Survey (FY2022).
  *  - 6.6% of US robberies occur at convenience stores — FBI Crime in the U.S.,
@@ -28,7 +29,7 @@ export const BENCHMARKS = {
   retail: {
     shrinkRate: 0.015,
     avgEmployeeCaseUsd: 1137,
-    cstoreShrinkPerStoreUsd: 12700,
+    cstoreShrinkPerStoreUsd: 1703 * 12,
     robberyShareAtCstores: 0.066,
   },
   factory: {
@@ -40,8 +41,9 @@ export const BENCHMARKS = {
   usdVnd: 26300,
 } as const
 
-/** Conservative default for the "share of loss steady oversight returns" slider.
- *  Owner-adjustable; never presented as a guarantee. */
+/** Default for the "assumed avoidable share of total estimated shrink" slider.
+ *  Owner-adjustable assumption with no published source — the UI must present
+ *  the result as an illustrative scenario, never a prediction or guarantee. */
 export const DEFAULT_RECOVERY = 0.3
 
 export interface RetailEstimate {
@@ -49,7 +51,14 @@ export interface RetailEstimate {
   recoverable: number
 }
 
-/** monthlyRevenue in USD, recovery in [0,1]. */
+/**
+ * Illustrative scenario, not a business claim.
+ *  annualShrink = monthlyRevenue (USD) × 12 × 1.5% benchmark shrink
+ *  recoverable  = annualShrink × recovery, where recovery is the OWNER'S
+ *                 assumed avoidable share of that total estimated shrink
+ *                 (no verified industry rate exists). Values are returned
+ *                 unvalidated; the slider constrains recovery to [0.1, 0.5].
+ */
 export function retailEstimate(monthlyRevenue: number, recovery: number): RetailEstimate {
   const annualShrink = monthlyRevenue * 12 * BENCHMARKS.retail.shrinkRate
   return { annualShrink, recoverable: annualShrink * recovery }

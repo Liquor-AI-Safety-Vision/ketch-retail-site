@@ -32,7 +32,7 @@ export default function ResultsSection() {
             key={item.label}
             className="grid gap-3 border-b border-ink/10 py-7 last:border-b-0 md:grid-cols-[56px_0.38fr_0.62fr_1fr] md:items-start md:gap-7"
           >
-            <span className="text-xs font-semibold tracking-[0.18em] text-teal-600">0{index + 1}</span>
+            <span className="text-xs font-semibold tracking-[0.18em] text-teal-700">0{index + 1}</span>
             <p className="text-xs font-semibold uppercase tracking-[0.14em] text-ink-600">{item.label}</p>
             <h3 className="text-lg font-semibold tracking-[-0.025em] text-ink">{item.measure}</h3>
             <p className="max-w-[58ch] text-sm leading-relaxed text-ink-600">{item.purpose}</p>

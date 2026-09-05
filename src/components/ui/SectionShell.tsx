@@ -24,7 +24,7 @@ export default function SectionShell({
   children, id, eyebrow, title, intro, tone = 'cream', className = '', titleClassName,
 }: SectionShellProps) {
   const muted = tone === 'teal' ? 'text-band-muted' : 'text-ink-600'
-  const accent = tone === 'teal' ? 'text-band-accent' : 'text-teal-600'
+  const accent = tone === 'teal' ? 'text-band-accent' : 'text-teal-700'
   const headerLayout = eyebrow
     ? 'grid max-w-5xl gap-5 md:grid-cols-[minmax(0,0.42fr)_minmax(0,0.58fr)] md:gap-12'
     : 'max-w-4xl'

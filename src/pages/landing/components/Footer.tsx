@@ -5,7 +5,7 @@ type FooterLink =
   | { label: string; to: string }
   | { label: string; section: string }
 
-const LINK_CLASS = 'text-sm text-band-muted hover:text-band-text transition-colors duration-100'
+const LINK_CLASS = 'inline-flex min-h-11 items-center rounded-sm text-sm text-band-muted transition-colors duration-100 hover:text-band-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-band-accent sm:min-h-0'
 
 const COL1: FooterLink[] = [
   { label: 'View dashboard', to: '/dashboard' },
@@ -35,9 +35,9 @@ function FooterLinkItem({ item }: { item: FooterLink }) {
 }
 
 const COL3_TEXT = [
-  'Primary video processing runs on-site.',
-  'Review access stays controlled by the store.',
-  'No cloud subscription.',
+  'Primary video processing is designed to run on-site.',
+  'Review access is authenticated and scoped to store staff.',
+  'Camera feeds are not streamed to this public site.',
   'Pilot tuned to your cameras.',
 ]
 

@@ -25,7 +25,7 @@ export default function HonestFramingStrip() {
             key={label}
             className={`py-8 md:px-10 md:py-12 ${index > 0 ? 'border-t border-ink/12 md:border-l md:border-t-0' : ''}`}
           >
-            <div className="flex items-center gap-3 text-teal-600">
+            <div className="flex items-center gap-3 text-teal-700">
               <Icon size={21} weight="duotone" aria-hidden="true" />
               <span className="text-[10px] font-semibold uppercase tracking-[0.2em]">{label}</span>
             </div>

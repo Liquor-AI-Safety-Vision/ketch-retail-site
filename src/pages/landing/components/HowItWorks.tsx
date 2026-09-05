@@ -42,7 +42,7 @@ export default function HowItWorks() {
             key={number}
             className="grid gap-4 border-b border-ink/10 py-7 last:border-b-0 md:grid-cols-[64px_52px_minmax(220px,0.7fr)_minmax(0,1fr)] md:items-start md:gap-7 md:py-8"
           >
-            <span className="text-xs font-semibold tracking-[0.18em] text-teal-600">{number}</span>
+            <span className="text-xs font-semibold tracking-[0.18em] text-teal-700">{number}</span>
             <Icon size={25} weight="duotone" className="text-teal-900" aria-hidden="true" />
             <h3 className="max-w-[24ch] text-lg font-semibold leading-snug tracking-[-0.025em] text-ink md:text-xl">{title}</h3>
             <p className="max-w-[62ch] text-sm leading-relaxed text-ink-600 md:text-base">{body}</p>

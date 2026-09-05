@@ -4,6 +4,9 @@
 :root {
   --ketch-teal-900: #0E5C5B;
   --ketch-teal-600: #128C8A;
+  /* Small-text teal: #128C8A is only ~3.6:1 on cream — teal-700 passes AA
+     (~5.6:1) for captions, eyebrows and labels at normal sizes. */
+  --ketch-teal-700: #0B6B69;
   --ketch-teal-300: #6FB3B1;
   --ketch-cream: #F6F1E7;
   --ketch-cream-200: #ECE4D4;
@@ -14,9 +17,11 @@
      dark mode doesn't flip them into bright mint slabs. */
   --ketch-band: #0E5C5B;
   --ketch-band-text: #F6F1E7;
-  --ketch-band-muted: rgba(246, 241, 231, 0.72);
-  --ketch-band-faint: rgba(246, 241, 231, 0.68);
-  --ketch-band-accent: #6FB3B1;
+  /* Muted/faint/accent tuned for WCAG AA small text on the deep-teal band
+     (muted ≈5.5:1, faint ≈4.9:1, accent ≈5:1). */
+  --ketch-band-muted: rgba(246, 241, 231, 0.85);
+  --ketch-band-faint: rgba(246, 241, 231, 0.78);
+  --ketch-band-accent: #A9D8D3;
   --ketch-band-card: rgba(18, 140, 138, 0.16);
   --ketch-band-border: rgba(111, 179, 177, 0.22);
   --ketch-footer: #15211F;
@@ -39,6 +44,7 @@
 html[data-color-mode="dark"] {
   --ketch-teal-900: #78C7C2;
   --ketch-teal-600: #55B0AB;
+  --ketch-teal-700: #55B0AB;
   --ketch-teal-300: #2E7773;
   --ketch-cream: #0D1211;
   --ketch-cream-200: #18201D;
@@ -75,6 +81,7 @@ html[data-color-mode="dark"] {
   /* Brand */
   --color-teal-900: var(--ketch-teal-900);   /* deep teal: headers, CTA fills          */
   --color-teal-600: var(--ketch-teal-600);   /* brand teal: accents, links             */
+  --color-teal-700: var(--ketch-teal-700);   /* AA small-text teal on cream            */
   --color-teal-300: var(--ketch-teal-300);   /* tints, hovers on dark                 */
   --color-cream:    var(--ketch-cream);       /* page base                             */
   --color-cream-200:var(--ketch-cream-200);   /* card surfaces on cream                */
@@ -135,6 +142,56 @@ body {
 
 .landing-page {
   letter-spacing: -0.006em;
+}
+
+.landing-page :where(h1, h2, h3, h4) {
+  text-wrap: balance;
+}
+
+.landing-page :where(a, button) {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: rgba(14, 92, 91, 0.12);
+}
+
+/* Keep the aisle recognizable. A directional wash gives the copy a quiet
+   surface while allowing more of the store to show around the camera frame. */
+.hero-ambient-image {
+  filter: saturate(0.55) blur(1px);
+  opacity: 1;
+  object-position: 50% 55%;
+  transform: scale(1.015);
+  transform-origin: center;
+}
+
+.hero-ambient-wash {
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--ketch-cream) 90%, transparent) 0%, color-mix(in srgb, var(--ketch-cream) 85%, transparent) 25%, color-mix(in srgb, var(--ketch-cream) 72%, transparent) 43%, color-mix(in srgb, var(--ketch-cream) 32%, transparent) 70%, color-mix(in srgb, var(--ketch-cream) 24%, transparent) 100%),
+    linear-gradient(180deg, color-mix(in srgb, var(--ketch-cream) 20%, transparent) 0%, transparent 32%, transparent 60%, var(--ketch-cream) 100%);
+}
+
+html[data-color-mode="dark"] .hero-ambient-image {
+  filter: saturate(0.45) brightness(0.6) blur(1px);
+}
+
+/* A soft local wash keeps supporting copy and controls readable in either
+   theme without hiding more of the aisle around the hero. */
+.hero-copy-support::before {
+  content: "";
+  position: absolute;
+  inset: -1.5rem -2rem;
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(ellipse at 35% 48%, color-mix(in srgb, var(--ketch-cream) 62%, transparent) 0%, color-mix(in srgb, var(--ketch-cream) 42%, transparent) 48%, transparent 78%);
+}
+
+@media (max-width: 767px) {
+  .hero-ambient-image {
+    object-position: 50% 50%;
+  }
+
+  .hero-ambient-wash {
+    background: linear-gradient(180deg, color-mix(in srgb, var(--ketch-cream) 86%, transparent) 0%, color-mix(in srgb, var(--ketch-cream) 88%, transparent) 45%, color-mix(in srgb, var(--ketch-cream) 55%, transparent) 75%, var(--ketch-cream) 100%);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
