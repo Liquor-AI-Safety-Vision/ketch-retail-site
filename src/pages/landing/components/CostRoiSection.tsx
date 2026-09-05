@@ -178,7 +178,7 @@ export default function CostRoiSection() {
               software, or pilot costs. Not net savings.
             </p>
           </div>
-          <LinkButton href="#contact" onClick={scrollToSection('contact')} size="md" className="mt-1 w-full">
+          <LinkButton href="#contact" onClick={scrollToSection('contact')} variant="onBand" size="md" className="mt-1 w-full">
             Book a pilot
             <ArrowRight size={16} weight="bold" aria-hidden="true" />
           </LinkButton>
