@@ -1,4 +1,6 @@
-import SecurityOutlinedIcon from '@mui/icons-material/SecurityOutlined';
+import DarkModeOutlinedIcon from '@mui/icons-material/DarkModeOutlined';
+import GridViewRoundedIcon from '@mui/icons-material/GridViewRounded';
+import LightModeOutlinedIcon from '@mui/icons-material/LightModeOutlined';
 import VisibilityOffOutlinedIcon from '@mui/icons-material/VisibilityOffOutlined';
 import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
 import { Alert, Box, Button, IconButton, InputAdornment, Stack, TextField, Typography } from '@mui/material';
@@ -6,6 +8,7 @@ import { useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
 import { getErrorMessage } from '../lib/api';
+import { useColorMode } from '../theme/ColorModeProvider';
 
 const allowedPostLoginPaths = new Set(['/dashboard', '/alerts', '/cameras']);
 
@@ -18,8 +21,13 @@ export function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const { mode, toggleMode } = useColorMode();
+  const from = (location.state as { from?: { pathname?: string; search?: string } } | null)?.from;
+  const destination = from?.pathname && allowedPostLoginPaths.has(from.pathname)
+    ? `${from.pathname}${typeof from.search === 'string' && from.search.startsWith('?') ? from.search : ''}`
+    : '/dashboard';
 
-  if (!isLoading && user) return <Navigate to="/dashboard" replace />;
+  if (!isLoading && user) return <Navigate to={destination} replace />;
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -27,8 +35,6 @@ export function LoginPage() {
     setSubmitting(true);
     try {
       await login(email, password);
-	  const requestedPath = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname;
-	  const destination = requestedPath && allowedPostLoginPaths.has(requestedPath) ? requestedPath : '/dashboard';
       navigate(destination, { replace: true });
     } catch (cause) {
       setError(getErrorMessage(cause));
@@ -38,27 +44,40 @@ export function LoginPage() {
   };
 
   return (
-    <Box sx={{ minHeight: '100vh', display: 'grid', gridTemplateColumns: { xs: '1fr', lg: 'minmax(0, 7fr) minmax(420px, 5fr)' }, bgcolor: '#090B0C', overflow: 'hidden' }}>
+    <Box sx={{ minHeight: '100vh', display: 'grid', gridTemplateColumns: { xs: '1fr', lg: 'minmax(0, 7fr) minmax(420px, 5fr)' }, bgcolor: 'background.default', overflow: 'hidden' }}>
       <Box sx={{ minHeight: { xs: 360, lg: '100vh' }, position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', p: { xs: 3, sm: 5, lg: 7 } }}>
         <Box component="img" src="/cctv/stockroom.png" alt="Monitored store interior" sx={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', filter: 'grayscale(1) contrast(1.24) brightness(.58)' }} />
         <Box sx={{ position: 'absolute', inset: 0, background: 'linear-gradient(135deg, rgba(9,11,12,.3), rgba(9,11,12,.88) 78%), radial-gradient(circle at 20% 15%, rgba(216,163,93,.2), transparent 38%)' }} />
         <Stack direction="row" spacing={1.5} alignItems="center" sx={{ position: 'relative' }}>
-          <Box sx={{ display: 'grid', placeItems: 'center', width: 38, height: 38, borderRadius: '50%', border: '1px solid rgba(240,201,135,.5)', color: '#F0C987' }}><SecurityOutlinedIcon fontSize="small" /></Box>
-          <Box><Typography color="#F4EFE6" fontWeight={650} lineHeight={1}>Nocturne</Typography><Typography sx={{ color: '#B1A996', fontSize: 9, letterSpacing: 1.8, mt: 0.5 }}>STORE INTELLIGENCE</Typography></Box>
+          <Box sx={{ display: 'grid', placeItems: 'center', width: 38, height: 38, borderRadius: 1.25, bgcolor: '#0F6665', color: '#F4EFE6' }}><GridViewRoundedIcon fontSize="small" /></Box>
+          <Box>
+            <Typography color="#F4EFE6" fontWeight={650} lineHeight={1}>
+              Ketch Enterprise <Box component="span" sx={{ color: '#58C8C1' }}>AI</Box>
+            </Typography>
+            <Typography sx={{ color: '#B1A996', fontSize: 9, letterSpacing: 1.8, mt: 0.5 }}>RETAIL LOSS PREVENTION</Typography>
+          </Box>
         </Stack>
         <Box sx={{ position: 'relative', maxWidth: 900 }}>
           <Typography component="h1" sx={{ color: '#F4EFE6', fontSize: 'clamp(3rem, 6vw, 7rem)', lineHeight: 0.92, letterSpacing: '-0.065em', fontWeight: 500, maxWidth: 1040 }}>
-            Clarity after closing time.
+            Stop loss before it leaves the store
           </Typography>
           <Typography sx={{ color: '#C4BEB3', mt: 3, maxWidth: 500, lineHeight: 1.75 }}>
-            A quiet command center for the incidents, cameras, and decisions that protect your store.
+            Review camera-backed alerts, verify what happened, and act before a suspicious event becomes a loss.
           </Typography>
         </Box>
       </Box>
 
       <Box sx={{ display: 'grid', placeItems: 'center', p: { xs: 3, sm: 6, lg: 8 }, position: 'relative' }}>
+        <IconButton
+          onClick={toggleMode}
+          aria-label={`Switch to ${mode === 'light' ? 'dark' : 'light'} mode`}
+          title={`Switch to ${mode === 'light' ? 'dark' : 'light'} mode`}
+          sx={{ position: 'absolute', top: { xs: 16, sm: 24 }, right: { xs: 16, sm: 24 }, border: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}
+        >
+          {mode === 'light' ? <DarkModeOutlinedIcon fontSize="small" /> : <LightModeOutlinedIcon fontSize="small" />}
+        </IconButton>
         <Box sx={{ width: '100%', maxWidth: 440 }}>
-          <Typography sx={{ color: '#D8A35D', fontSize: 10, letterSpacing: 2, textTransform: 'uppercase', fontWeight: 700 }}>Secure access</Typography>
+          <Typography sx={{ color: 'primary.main', fontSize: 10, letterSpacing: 2, textTransform: 'uppercase', fontWeight: 700 }}>Secure access</Typography>
           <Typography variant="h4" sx={{ mt: 1.5, fontSize: { xs: 34, sm: 42 }, fontWeight: 520 }}>Welcome back.</Typography>
           <Typography color="text.secondary" sx={{ mt: 1.25, mb: 4, lineHeight: 1.65 }}>Sign in to review live operations and respond to security events.</Typography>
           {error && <Alert severity="error" sx={{ mb: 2.5 }}>{error}</Alert>}
@@ -71,6 +90,7 @@ export function LoginPage() {
             </Stack>
           </Box>
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 4, lineHeight: 1.6 }}>Authorized store personnel only. Contact your system administrator if you need access.</Typography>
+          <Button onClick={() => navigate('/dashboard')} sx={{ mt: 2 }}>View read-only demo</Button>
         </Box>
       </Box>
     </Box>

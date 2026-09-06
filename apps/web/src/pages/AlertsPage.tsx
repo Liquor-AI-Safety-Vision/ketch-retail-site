@@ -1,17 +1,14 @@
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import CloseIcon from '@mui/icons-material/Close';
-import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined';
 import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline';
 import ReplayIcon from '@mui/icons-material/Replay';
-import ReportProblemOutlinedIcon from '@mui/icons-material/ReportProblemOutlined';
-import { Alert as MuiAlert, Box, Button, Chip, CircularProgress, Dialog, DialogContent, DialogTitle, IconButton, LinearProgress, Pagination, Paper, Stack, Typography } from '@mui/material';
-import { useGSAP } from '@gsap/react';
-import gsap from 'gsap';
+import { Alert as MuiAlert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, FormControl, IconButton, InputLabel, LinearProgress, MenuItem, Pagination, Paper, Select, Stack, Typography } from '@mui/material';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
 import { EmptyState, InlineError, ScreenLoader, alertTitle, formatDateTime, toTitle } from '../components/common';
-import { api, getErrorMessage } from '../lib/api';
+import { getErrorMessage } from '../lib/api';
+import { hideConfirmedAlertLocally, isPresentationOnlyAlert, presentationBaseAlertId, setPresentationAlertDecision, storageAlertSessionFor } from '../lib/presentationAlerts';
 import type { Alert, AlertDetail } from '../lib/types';
 
 type ReviewDecision = 'match' | 'false-alarm';
@@ -28,32 +25,40 @@ const contextImages = [
 ];
 
 const alertDescriptions: Record<string, string> = {
-  CASH_DRAWER_WITHOUT_CUSTOMER: 'The cash drawer was opened while no customer was visible at the counter.',
-  SUSPICIOUS_CASH_HANDLING: 'Unusual cash handling was detected at the checkout counter.',
-  POS_VOID_OR_REFUND: 'A void or refund happened at the register and may need a quick review.',
-  UNAUTHORIZED_STOCKROOM_ACCESS: 'Someone entered the stockroom outside the expected access pattern.',
-  HIGH_VALUE_ZONE_DWELL: 'A person stayed unusually long near high-value products.',
-  WEAPON_DETECTED: 'The system detected an object that may be a weapon.',
-  SUSPICIOUS_PRODUCT_CONCEALMENT: 'A person may have concealed a product from view.',
+  CASH_DRAWER_WITHOUT_CUSTOMER: 'A staff member opened the cash drawer while no customer transaction was visible. No cash removal was confirmed.',
+  SUSPICIOUS_CASH_HANDLING: 'The system tracked cash being removed from the drawer and moved toward a staff member’s pocket.',
+  POS_VOID_OR_REFUND: 'Unusual register activity was detected and may need a quick review.',
+  UNAUTHORIZED_STOCKROOM_ACCESS: 'A staff member entered outside the allowed schedule or an unknown person entered the stockroom.',
+  WEAPON_DETECTED: 'The system detected violence or an object that may be a dangerous weapon.',
+  SUSPICIOUS_PRODUCT_CONCEALMENT: 'Customer behavior consistent with possible shoplifting was detected from a whole-store camera.',
+  REGULAR_SHOPLIFTER: 'A returning customer linked to a previously confirmed shoplifting incident was detected at the entrance.',
 };
 
-const alertTypeOrder = [
-  'WEAPON_DETECTED',
+const alertTitles: Record<string, string> = {
+  WEAPON_DETECTED: 'Violence or weapon detected',
+  CASH_DRAWER_WITHOUT_CUSTOMER: 'Cash drawer opened without customer',
+  SUSPICIOUS_CASH_HANDLING: 'Suspected cash concealment',
+  POS_VOID_OR_REFUND: 'Suspicious register activity',
+  UNAUTHORIZED_STOCKROOM_ACCESS: 'Unauthorized stockroom access',
+  SUSPICIOUS_PRODUCT_CONCEALMENT: 'Suspected customer shoplifting',
+  REGULAR_SHOPLIFTER: 'Regular shoplifter',
+};
+
+const employeeBehaviorTypes = [
   'CASH_DRAWER_WITHOUT_CUSTOMER',
   'SUSPICIOUS_CASH_HANDLING',
   'POS_VOID_OR_REFUND',
-  'UNAUTHORIZED_STOCKROOM_ACCESS',
-  'HIGH_VALUE_ZONE_DWELL',
-  'SUSPICIOUS_PRODUCT_CONCEALMENT',
-];
+] as const;
 
-interface AlertFolder {
-  type: string | null;
-  title: string;
-  needsReview: number;
-  confirmed: number;
-  emergency: boolean;
-}
+const employeeBehaviorFolderType = 'UNUSUAL_EMPLOYEE_BEHAVIOR';
+
+const alertFolderDefinitions = [
+  { type: 'WEAPON_DETECTED', title: alertTitles.WEAPON_DETECTED, alertTypes: ['WEAPON_DETECTED'], emergency: true },
+  { type: employeeBehaviorFolderType, title: 'Unusual employee behavior', alertTypes: [...employeeBehaviorTypes], emergency: false },
+  { type: 'UNAUTHORIZED_STOCKROOM_ACCESS', title: alertTitles.UNAUTHORIZED_STOCKROOM_ACCESS, alertTypes: ['UNAUTHORIZED_STOCKROOM_ACCESS'], emergency: false },
+  { type: 'SUSPICIOUS_PRODUCT_CONCEALMENT', title: alertTitles.SUSPICIOUS_PRODUCT_CONCEALMENT, alertTypes: ['SUSPICIOUS_PRODUCT_CONCEALMENT'], emergency: false },
+  { type: 'REGULAR_SHOPLIFTER', title: alertTitles.REGULAR_SHOPLIFTER, alertTypes: ['REGULAR_SHOPLIFTER'], emergency: false },
+];
 
 function isDetectedToday(alert: Alert) {
   return new Date(alert.detectedAt).toDateString() === new Date().toDateString();
@@ -65,9 +70,96 @@ function imageForAlert(alert: Alert) {
   return contextImages[seed % contextImages.length];
 }
 
-function metadataUrl(alert: Alert, key: 'thumbnailUrl' | 'videoUrl' | 'trackingUrl') {
+interface OriginalAlertMedia {
+  videoUrl: string;
+  thumbnailUrl: string;
+  personLabel: string;
+}
+
+function metadataString(alert: Alert, key: string) {
   const value = alert.metadata?.[key];
   return typeof value === 'string' ? value : null;
+}
+
+function originalAlertMedia(alert: Alert): OriginalAlertMedia | null {
+  const isPresentationFixture = alert.metadata?.sampleOnly === true || alert.metadata?.sourceSystem === 'cctv-upload-fixture';
+  if (!isPresentationFixture) return null;
+  const presentationVideoUrl = metadataString(alert, 'presentationVideoUrl');
+  const presentationThumbnailUrl = metadataString(alert, 'presentationThumbnailUrl');
+  const presentationPersonLabel = metadataString(alert, 'presentationPersonLabel');
+  if (presentationVideoUrl && presentationThumbnailUrl) {
+    return {
+      videoUrl: presentationVideoUrl,
+      thumbnailUrl: presentationThumbnailUrl,
+      personLabel: presentationPersonLabel ?? toTitle(alert.subjectPersonCategory),
+    };
+  }
+
+  const storageSession = storageAlertSessionFor(alert.sourceEventId);
+  if (alert.type === 'UNAUTHORIZED_STOCKROOM_ACCESS' && storageSession) {
+    const assetBase = `/demo-source/alerts/storage/segments/storage-session-${storageSession.sessionId}-clip-01`;
+    return {
+      videoUrl: `${assetBase}.mp4`,
+      thumbnailUrl: `${assetBase}.jpg`,
+      personLabel: storageSession.personLabel,
+    };
+  }
+
+  const variant = Array.from(alert.sourceEventId).reduce((total, character) => total + character.charCodeAt(0), 0);
+
+  if (alert.type === 'UNAUTHORIZED_STOCKROOM_ACCESS') {
+    return variant % 2 === 0
+      ? {
+          videoUrl: '/demo-source/alerts/storage/segments/storage-session-01-clip-01.mp4',
+          thumbnailUrl: '/demo-source/alerts/storage/segments/storage-session-01-clip-01.jpg',
+          personLabel: 'Unknown',
+        }
+      : {
+          videoUrl: '/demo-source/alerts/storage/segments/storage-session-03-clip-01.mp4',
+          thumbnailUrl: '/demo-source/alerts/storage/segments/storage-session-03-clip-01.jpg',
+          personLabel: 'Employee',
+        };
+  }
+
+  if (alert.type === 'CASH_DRAWER_WITHOUT_CUSTOMER' || alert.type === 'POS_VOID_OR_REFUND') {
+    return {
+      videoUrl: '/demo-source/alerts/counter-generated/cvlp_h3_00043_Left.mp4',
+      thumbnailUrl: '/demo-source/alerts/counter-generated/cvlp_h3_00043_Left.jpg',
+      personLabel: 'Employee',
+    };
+  }
+
+  if (alert.type === 'SUSPICIOUS_CASH_HANDLING') {
+    return variant % 2 === 0
+      ? {
+          videoUrl: '/demo-source/alerts/counter-generated/cvlp_h3_00013_Right.mp4',
+          thumbnailUrl: '/demo-source/alerts/counter-generated/cvlp_h3_00013_Right.jpg',
+          personLabel: 'Employee',
+        }
+      : {
+          videoUrl: '/demo-source/alerts/counter-generated/cvlp_h3_00045_Left.mp4',
+          thumbnailUrl: '/demo-source/alerts/counter-generated/cvlp_h3_00045_Left.jpg',
+          personLabel: 'Employee',
+        };
+  }
+
+  return null;
+}
+
+function metadataUrl(alert: Alert, key: 'thumbnailUrl' | 'videoUrl' | 'trackingUrl') {
+  const originalMedia = originalAlertMedia(alert);
+  if (originalMedia && key !== 'trackingUrl') return originalMedia[key];
+  if (originalMedia && key === 'trackingUrl') return null;
+  const value = alert.metadata?.[key];
+  return typeof value === 'string' ? value : null;
+}
+
+function alertPersonLabel(alert: Alert) {
+  return originalAlertMedia(alert)?.personLabel ?? toTitle(alert.subjectPersonCategory);
+}
+
+function hasBakedTracking(alert: Alert) {
+  return originalAlertMedia(alert) !== null;
 }
 
 interface DetectionBoxValue {
@@ -206,7 +298,7 @@ function TrackedAlertVideo({ alert, videoUrl, thumbnail }: { alert: Alert; video
   return (
     <Box sx={{ aspectRatio: '16 / 9', bgcolor: '#050606', overflow: 'hidden', position: 'relative' }}>
       <Box ref={videoRef} component="video" src={videoUrl} poster={thumbnail} controls playsInline sx={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-      {tracking ? <TrackedBoxes boxes={boxes} /> : <DetectionOverlay alert={alert} />}
+      {!hasBakedTracking(alert) && (tracking ? <TrackedBoxes boxes={boxes} /> : <DetectionOverlay alert={alert} />)}
       {tracking && (
         <Typography sx={{ position: 'absolute', right: 10, top: 10, bgcolor: 'rgba(5,6,6,.78)', color: '#A8DAB7', px: 0.8, py: 0.4, fontSize: 9, fontWeight: 750, letterSpacing: '.08em', pointerEvents: 'none' }}>
           {tracking.model} · {tracking.tracker}
@@ -217,7 +309,7 @@ function TrackedAlertVideo({ alert, videoUrl, thumbnail }: { alert: Alert; video
 }
 
 function hasVideo(alert: Alert) {
-  return Boolean(metadataUrl(alert, 'videoUrl'));
+  return Boolean(metadataUrl(alert, 'videoUrl')) || alert.hasVideoEvidence;
 }
 
 function isEmergency(alert: Alert) {
@@ -225,8 +317,13 @@ function isEmergency(alert: Alert) {
 }
 
 function situationTitle(type: string) {
+  if (alertTitles[type]) return alertTitles[type];
   const title = alertTitle(type).toLocaleLowerCase();
   return title.charAt(0).toLocaleUpperCase() + title.slice(1);
+}
+
+function folderTitleForAlert(type: string) {
+  return alertFolderDefinitions.find((folder) => folder.alertTypes.includes(type))?.title ?? situationTitle(type);
 }
 
 function sortActiveAlerts(items: Alert[]) {
@@ -256,10 +353,9 @@ function AlertPagination({ page, count, onChange }: { page: number; count: numbe
 }
 
 export function AlertsPage() {
-  const pageRef = useRef<HTMLDivElement>(null);
   const attentionSectionRef = useRef<HTMLDivElement>(null);
   const confirmedSectionRef = useRef<HTMLDivElement>(null);
-  const { store } = useAuth();
+  const { store, api, isDemo } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [confirmedAlerts, setConfirmedAlerts] = useState<Alert[]>([]);
@@ -270,10 +366,32 @@ export function AlertsPage() {
   const [reviewingId, setReviewingId] = useState<string | null>(null);
   const [detail, setDetail] = useState<AlertDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [falseAlarmTarget, setFalseAlarmTarget] = useState<AlertDetail | null>(null);
+  const openedAlertParamRef = useRef<string | null>(null);
   const requestedType = searchParams.get('type');
-  const selectedType = requestedType && alertTypeOrder.includes(requestedType) ? requestedType : null;
+  const normalizedRequestedType = requestedType && employeeBehaviorTypes.includes(requestedType as (typeof employeeBehaviorTypes)[number])
+    ? employeeBehaviorFolderType
+    : requestedType;
+  const selectedFolderDefinition = normalizedRequestedType
+    ? alertFolderDefinitions.find((folder) => folder.type === normalizedRequestedType) ?? null
+    : null;
+  const selectedType = selectedFolderDefinition?.type ?? null;
+  const selectedAlertTypes = selectedFolderDefinition?.alertTypes ?? null;
   const todayOnly = searchParams.get('period') === 'today';
   const requestedSection = searchParams.get('section');
+  const activeSection: 'attention' | 'confirmed' = requestedSection === 'confirmed' ? 'confirmed' : 'attention';
+  const requestedAlertId = (searchParams.get('alertId') ?? '').trim();
+
+  const attachPlaybackUrl = useCallback(async (alert: AlertDetail) => {
+    if (!store || metadataUrl(alert, 'videoUrl')) return alert;
+    const videoEvidence = alert.evidence.find((evidence) => evidence.mimeType.startsWith('video/'));
+    if (!videoEvidence) return alert;
+    const playback = await api.getEvidencePlaybackUrl(store.id, alert.id, videoEvidence.id);
+    return {
+      ...alert,
+      metadata: { ...(alert.metadata ?? {}), videoUrl: playback.url },
+    };
+  }, [api, store]);
 
   const loadAlerts = useCallback(async () => {
     if (!store) return;
@@ -285,13 +403,13 @@ export function AlertsPage() {
         api.getAlerts(store.id, { status: 'RESOLVED', limit: 100 }),
       ]);
       setAlerts(sortActiveAlerts(activeResult.items.filter(hasVideo)));
-      setConfirmedAlerts(confirmedResult.items.filter((alert) => hasVideo(alert) && !isEmergency(alert)));
+      setConfirmedAlerts(confirmedResult.items.filter(hasVideo));
     } catch (cause) {
       setError(getErrorMessage(cause));
     } finally {
       setLoading(false);
     }
-  }, [store]);
+  }, [api, store]);
 
   useEffect(() => { void loadAlerts(); }, [loadAlerts]);
 
@@ -303,34 +421,20 @@ export function AlertsPage() {
     () => todayOnly ? confirmedAlerts.filter(isDetectedToday) : confirmedAlerts,
     [confirmedAlerts, todayOnly],
   );
-  const folders = useMemo<AlertFolder[]>(() => {
-    const foldersByType = alertTypeOrder
-      .map((type) => ({
-        type,
-        title: situationTitle(type),
-        needsReview: periodAlerts.filter((alert) => alert.type === type).length,
-        confirmed: periodConfirmedAlerts.filter((alert) => alert.type === type).length,
-        emergency: type === 'WEAPON_DETECTED',
-      }))
-      .filter((folder) => folder.needsReview > 0 || folder.confirmed > 0 || folder.type === selectedType);
-
-    return [{
-      type: null,
-      title: 'All alerts',
-      needsReview: periodAlerts.length,
-      confirmed: periodConfirmedAlerts.length,
-      emergency: false,
-    }, ...foldersByType];
-  }, [periodAlerts, periodConfirmedAlerts, selectedType]);
-  const filteredAlerts = useMemo(
-    () => selectedType ? periodAlerts.filter((alert) => alert.type === selectedType) : periodAlerts,
-    [periodAlerts, selectedType],
-  );
-  const filteredConfirmedAlerts = useMemo(
-    () => selectedType ? periodConfirmedAlerts.filter((alert) => alert.type === selectedType) : periodConfirmedAlerts,
-    [periodConfirmedAlerts, selectedType],
-  );
-  const selectedFolderTitle = selectedType ? situationTitle(selectedType) : 'All alerts';
+  const caseOptions = alertFolderDefinitions.map((definition) => ({
+    ...definition,
+    count: activeSection === 'attention'
+      ? periodAlerts.filter((alert) => definition.alertTypes.includes(alert.type)).length
+      : periodConfirmedAlerts.filter((alert) => definition.alertTypes.includes(alert.type)).length,
+  }));
+  const filteredAlerts = selectedAlertTypes
+    ? periodAlerts.filter((alert) => selectedAlertTypes.includes(alert.type))
+    : periodAlerts;
+  const filteredConfirmedAlerts = selectedAlertTypes
+    ? periodConfirmedAlerts.filter((alert) => selectedAlertTypes.includes(alert.type))
+    : periodConfirmedAlerts;
+  const selectedFolderTitle = selectedFolderDefinition?.title ?? 'All situations';
+  const currentResultCount = activeSection === 'attention' ? filteredAlerts.length : filteredConfirmedAlerts.length;
 
   const attentionPageCount = Math.max(1, Math.ceil(filteredAlerts.length / alertsPerPage));
   const confirmedPageCount = Math.max(1, Math.ceil(filteredConfirmedAlerts.length / alertsPerPage));
@@ -350,27 +454,18 @@ export function AlertsPage() {
   useEffect(() => {
     setAttentionPage(1);
     setConfirmedPage(1);
-  }, [selectedType, todayOnly]);
-
-  useEffect(() => {
-    if (loading || (requestedSection !== 'attention' && requestedSection !== 'confirmed')) return;
-    const target = requestedSection === 'confirmed' ? confirmedSectionRef.current : attentionSectionRef.current;
-    const animationFrame = requestAnimationFrame(() => target?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
-    return () => cancelAnimationFrame(animationFrame);
-  }, [loading, requestedSection]);
-
-  useGSAP(() => {
-    gsap.from('.alert-folder', { x: 18, opacity: 0, duration: 0.42, stagger: 0.045, ease: 'power2.out' });
-    gsap.from('.alert-review-card', { y: 12, opacity: 0, duration: 0.38, stagger: 0.045, ease: 'power2.out' });
-  }, { scope: pageRef, dependencies: [loading] });
+  }, [selectedType, todayOnly, activeSection]);
 
   const reviewAlert = async (alert: Alert, decision: ReviewDecision) => {
-    if (!store || reviewingId || isEmergency(alert)) return;
+    if (isDemo || !store || reviewingId || isEmergency(alert)) return;
     setReviewingId(alert.id);
     setError(null);
     try {
+      const actionAlertId = presentationBaseAlertId(alert);
+      const presentationOnly = isPresentationOnlyAlert(alert);
       if (decision === 'match') {
-        await api.actionAlert(store.id, alert.id, 'resolve', 'Owner review: confirmed as a real incident.');
+        if (presentationOnly) setPresentationAlertDecision(alert, 'RESOLVED');
+        else await api.actionAlert(store.id, actionAlertId, 'resolve', 'Owner review: confirmed as a real incident.');
         setConfirmedAlerts((current) => [{
           ...alert,
           status: 'RESOLVED',
@@ -378,9 +473,10 @@ export function AlertsPage() {
           resolutionNote: 'Owner review: confirmed as a real incident.',
         }, ...current.filter((item) => item.id !== alert.id)]);
       } else {
-        await api.actionAlert(store.id, alert.id, 'dismiss', 'Owner review: marked as a false alarm.');
+        if (presentationOnly) setPresentationAlertDecision(alert, 'DISMISSED');
+        else await api.actionAlert(store.id, actionAlertId, 'dismiss', 'Owner review: marked as a false alarm.');
       }
-      setAlerts((current) => current.filter((item) => item.id !== alert.id));
+      setAlerts((current) => current.filter((item) => presentationOnly ? item.id !== alert.id : presentationBaseAlertId(item) !== actionAlertId));
       if (detail?.id === alert.id) setDetail(null);
       window.dispatchEvent(new Event('alerts:changed'));
     } catch (cause) {
@@ -390,38 +486,111 @@ export function AlertsPage() {
     }
   };
 
-  const openContext = async (alert: Alert) => {
+  const openContext = useCallback(async (alert: Alert) => {
     if (!store) return;
     setDetailLoading(true);
     setDetail({ ...alert, acknowledgedById: null, acknowledgedByName: null, evidence: [] });
+    if (isPresentationOnlyAlert(alert)) {
+      setDetailLoading(false);
+      return;
+    }
     try {
-      setDetail(await api.getAlert(store.id, alert.id));
+      const apiDetail = await api.getAlert(store.id, presentationBaseAlertId(alert));
+      const mergedDetail: AlertDetail = {
+        ...apiDetail,
+        ...alert,
+        acknowledgedById: apiDetail.acknowledgedById,
+        acknowledgedByName: apiDetail.acknowledgedByName,
+        evidence: apiDetail.evidence,
+      };
+      setDetail(await attachPlaybackUrl(mergedDetail));
     } catch (cause) {
       setError(getErrorMessage(cause));
     } finally {
       setDetailLoading(false);
     }
+  }, [api, attachPlaybackUrl, store]);
+
+  useEffect(() => {
+    if (!requestedAlertId) {
+      openedAlertParamRef.current = null;
+      return;
+    }
+    if (!store || loading || openedAlertParamRef.current === requestedAlertId) return;
+    openedAlertParamRef.current = requestedAlertId;
+
+    const listedAlert = [...alerts, ...confirmedAlerts].find((alert) => (
+      alert.id === requestedAlertId || presentationBaseAlertId(alert) === requestedAlertId
+    ));
+    if (listedAlert) {
+      void openContext(listedAlert);
+      return;
+    }
+
+    setDetailLoading(true);
+    setDetail(null);
+    void api.getAlert(store.id, requestedAlertId)
+      .then(attachPlaybackUrl)
+      .then((alert) => setDetail(alert))
+      .catch((cause) => setError(getErrorMessage(cause)))
+      .finally(() => setDetailLoading(false));
+  }, [alerts, api, attachPlaybackUrl, confirmedAlerts, loading, openContext, requestedAlertId, store]);
+
+  const closeDetail = () => {
+    setDetail(null);
+    if (!requestedAlertId) return;
+    const next = new URLSearchParams(searchParams);
+    next.delete('alertId');
+    setSearchParams(next, { replace: true });
   };
 
-  const selectFolder = (type: string | null) => {
+  const markConfirmedAlertAsFalseAlarm = async () => {
+    if (isDemo || !falseAlarmTarget || !store || reviewingId) return;
+    setReviewingId(falseAlarmTarget.id);
+    setError(null);
+    try {
+      const isPresentationClip = typeof falseAlarmTarget.metadata?.presentationClipNumber === 'number';
+      if (isPresentationOnlyAlert(falseAlarmTarget) || isPresentationClip) {
+        hideConfirmedAlertLocally(falseAlarmTarget);
+      } else {
+        await api.actionAlert(store.id, presentationBaseAlertId(falseAlarmTarget), 'dismiss', 'Owner correction: confirmed by mistake and reclassified as a false alarm.');
+      }
+      setConfirmedAlerts((current) => current.filter((alert) => alert.id !== falseAlarmTarget.id));
+      if (detail?.id === falseAlarmTarget.id) setDetail(null);
+      setFalseAlarmTarget(null);
+      window.dispatchEvent(new Event('alerts:changed'));
+    } catch (cause) {
+      setError(getErrorMessage(cause));
+    } finally {
+      setReviewingId(null);
+    }
+  };
+
+  const selectCase = (type: string | null) => {
     const next = new URLSearchParams(searchParams);
     if (type) next.set('type', type);
     else next.delete('type');
-    next.delete('section');
+    next.set('section', activeSection);
+    setSearchParams(next);
+  };
+
+  const selectStatus = (status: 'attention' | 'confirmed') => {
+    const next = new URLSearchParams(searchParams);
+    next.set('section', status);
     setSearchParams(next);
   };
 
   const clearPeriodFilter = () => {
     const next = new URLSearchParams(searchParams);
     next.delete('period');
-    next.delete('section');
+    next.set('section', activeSection);
     setSearchParams(next);
   };
 
   if (loading) return <ScreenLoader label="Loading alerts…" />;
 
   return (
-    <Stack ref={pageRef} spacing={3.5}>
+    <Stack spacing={3.5}>
       <Box sx={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'end', gap: 2 }}>
         <Box>
           <Typography component="h1" variant="h4">Alert</Typography>
@@ -434,53 +603,124 @@ export function AlertsPage() {
 
       {error && <InlineError message={error} />}
 
-      <Paper variant="outlined" sx={{ px: 2.5, py: 2, display: 'flex', alignItems: 'center', gap: 1.5, borderColor: filteredAlerts.length ? '#5A472E' : '#2C3931', bgcolor: filteredAlerts.length ? 'rgba(216,163,93,.06)' : 'rgba(120,185,144,.05)' }}>
-        <Typography sx={{ fontSize: 30, lineHeight: 1, fontWeight: 650, color: filteredAlerts.length ? '#F0C987' : '#9BD2AC' }}>{filteredAlerts.length}</Typography>
-        <Box>
-          <Typography fontWeight={650}>{filteredAlerts.length === 1 ? 'active alert' : 'active alerts'} · {selectedFolderTitle}</Typography>
-          <Typography variant="body2" color="text.secondary">Emergency alerts appear first. Select a folder to focus on one situation type.</Typography>
+      <Paper
+        variant="outlined"
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, minmax(0, 1fr))' },
+          overflow: 'hidden',
+          bgcolor: 'background.paper',
+        }}
+      >
+        <Box sx={{ px: 2.5, py: 2.25 }}>
+          <Typography sx={{ fontSize: 30, lineHeight: 1, fontWeight: 680 }}>
+            {periodAlerts.length + periodConfirmedAlerts.length}
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.7 }}>Total video alerts</Typography>
+        </Box>
+        <Box sx={{ px: 2.5, py: 2.25, borderTop: { xs: '1px solid', sm: 0 }, borderLeft: { sm: '1px solid' }, borderColor: 'divider' }}>
+          <Typography sx={{ fontSize: 30, lineHeight: 1, fontWeight: 680, color: periodAlerts.length ? 'error.main' : 'text.primary' }}>{periodAlerts.length}</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.7 }}>Needs an owner decision</Typography>
+        </Box>
+        <Box sx={{ px: 2.5, py: 2.25, borderTop: { xs: '1px solid', sm: 0 }, borderLeft: { sm: '1px solid' }, borderColor: 'divider' }}>
+          <Typography sx={{ fontSize: 30, lineHeight: 1, fontWeight: 680 }}>{periodConfirmedAlerts.length}</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.7 }}>Confirmed incidents</Typography>
         </Box>
       </Paper>
 
-      <Box>
-        <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'end' }} gap={1.5} sx={{ mb: 1.5 }}>
-          <Box>
-            <Typography variant="h5">Alert folders</Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>Warnings are grouped by situation so related clips stay together.</Typography>
-          </Box>
+      <Box
+        component="section"
+        aria-label="Alert filters"
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'repeat(2, minmax(0, 1fr))', lg: 'minmax(0, 1.2fr) minmax(0, .8fr) auto' },
+          gap: 1.5,
+          alignItems: 'center',
+          p: { xs: 1.5, sm: 2 },
+          border: '1px solid',
+          borderColor: 'divider',
+          borderRadius: 1.5,
+          bgcolor: 'background.paper',
+        }}
+      >
+        <FormControl size="small" fullWidth>
+          <InputLabel id="alert-case-filter-label">Case</InputLabel>
+          <Select
+            labelId="alert-case-filter-label"
+            id="alert-case-filter"
+            value={selectedType ?? 'ALL'}
+            label="Case"
+            MenuProps={{ slotProps: { paper: { sx: { maxHeight: 400 } } } }}
+            onChange={(event) => selectCase(event.target.value === 'ALL' ? null : event.target.value)}
+            renderValue={(value) => value === 'ALL'
+              ? 'All cases'
+              : alertFolderDefinitions.find((definition) => definition.type === value)?.title ?? 'All cases'}
+          >
+            <MenuItem value="ALL">
+              <Box component="span" sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 3, width: '100%' }}>
+                <span>All cases</span>
+                <Typography component="span" variant="caption" color="text.secondary" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+                  {activeSection === 'attention' ? periodAlerts.length : periodConfirmedAlerts.length}
+                </Typography>
+              </Box>
+            </MenuItem>
+            {caseOptions.map((option) => (
+              <MenuItem key={option.type} value={option.type} sx={{ whiteSpace: 'normal', py: 1.25 }}>
+                <Box component="span" sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 3, width: '100%' }}>
+                  <Box component="span" sx={{ flex: 1, minWidth: 0, lineHeight: 1.4 }}>{option.title}</Box>
+                  <Typography component="span" variant="caption" color={option.emergency && option.count > 0 ? 'error.main' : 'text.secondary'} sx={{ flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>
+                    {option.count}
+                  </Typography>
+                </Box>
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+
+        <FormControl size="small" fullWidth>
+          <InputLabel id="alert-status-filter-label">Status</InputLabel>
+          <Select
+            labelId="alert-status-filter-label"
+            id="alert-status-filter"
+            value={activeSection}
+            label="Status"
+            onChange={(event) => selectStatus(event.target.value as 'attention' | 'confirmed')}
+          >
+            <MenuItem value="attention">Needs attention</MenuItem>
+            <MenuItem value="confirmed">Confirmed</MenuItem>
+          </Select>
+        </FormControl>
+
+        <Box
+          aria-live="polite"
+          sx={{
+            minWidth: { lg: 150 },
+            gridColumn: { sm: '1 / -1', lg: 'auto' },
+            pt: { sm: 1.5, lg: 0 },
+            pl: { lg: 1.5 },
+            borderTop: { sm: '1px solid', lg: 0 },
+            borderLeft: { lg: '1px solid' },
+            borderColor: 'divider',
+          }}
+        >
+          <Typography variant="caption" color="text.secondary">Showing</Typography>
+          <Typography sx={{ mt: 0.15, fontWeight: 650, fontVariantNumeric: 'tabular-nums' }}>
+            {currentResultCount} {activeSection === 'attention' ? 'to review' : 'confirmed'}
+          </Typography>
           {todayOnly && (
             <Chip
+              size="small"
               color="primary"
               variant="outlined"
               label="Detected today"
               onDelete={clearPeriodFilter}
+              sx={{ mt: 1 }}
             />
           )}
-        </Stack>
-        <Box
-          sx={{
-            display: 'flex',
-            gap: 1,
-            mx: { xs: -2, sm: 0 },
-            px: { xs: 2, sm: 0 },
-            pb: 1,
-            overflowX: 'auto',
-            scrollSnapType: 'x proximity',
-            scrollbarWidth: 'thin',
-            scrollbarColor: '#343A38 transparent',
-          }}
-        >
-          {folders.map((folder) => (
-            <AlertFolderButton
-              key={folder.type ?? 'ALL'}
-              folder={folder}
-              selected={folder.type === selectedType}
-              onClick={() => selectFolder(folder.type)}
-            />
-          ))}
         </Box>
       </Box>
 
+      {activeSection === 'attention' && (
       <Box ref={attentionSectionRef} sx={{ scrollMarginTop: 96 }}>
         <Typography variant="h5">Needs attention</Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 2 }}>
@@ -496,7 +736,7 @@ export function AlertsPage() {
             return (
               <Paper key={alert.id} className="alert-review-card" variant="outlined" sx={{ overflow: 'hidden', position: 'relative' }}>
                 {isSaving && <LinearProgress sx={{ position: 'absolute', zIndex: 2, top: 0, left: 0, right: 0 }} />}
-                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '260px minmax(0, 1fr)', xl: '280px minmax(0, 1fr) 250px' }, minHeight: 210 }}>
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '280px minmax(0, 1fr)' }, minHeight: 196 }}>
                   <Box
                     component="button"
                     type="button"
@@ -518,12 +758,12 @@ export function AlertsPage() {
                       '& .play-indicator': { opacity: 0, transform: 'scale(.92)', transition: 'opacity 180ms ease, transform 180ms ease' },
                       '&:hover .alert-thumbnail': { transform: 'scale(1.018)', filter: 'brightness(.62) contrast(1.14)' },
                       '&:hover .play-indicator, &:focus-visible .play-indicator': { opacity: 1, transform: 'scale(1)' },
-                      '&:focus-visible': { outline: '2px solid #D8A35D', outlineOffset: -2 },
+                      '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: -2 },
                     }}
                   >
                     <Box sx={{ position: 'relative', width: '100%', aspectRatio: '16 / 9', overflow: 'hidden' }}>
                       <Box className="alert-thumbnail" component="img" src={thumbnail} alt={`Video preview for ${situationTitle(alert.type)}`} sx={{ width: '100%', height: '100%', position: 'absolute', inset: 0, objectFit: 'cover', filter: 'brightness(.72) contrast(1.12)' }} />
-                      <DetectionOverlay alert={alert} />
+                      {!hasBakedTracking(alert) && <DetectionOverlay alert={alert} />}
                     </Box>
                     <Box className="play-indicator" aria-hidden="true" sx={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', pointerEvents: 'none' }}>
                       <PlayCircleOutlineIcon sx={{ color: '#FFF', fontSize: 45, filter: 'drop-shadow(0 2px 10px rgba(0,0,0,.72))' }} />
@@ -531,42 +771,35 @@ export function AlertsPage() {
                   </Box>
 
                   <Box sx={{ p: { xs: 2.25, md: 3 }, minWidth: 0 }}>
-                    <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
-                      <Chip
-                        size="small"
-                        variant="outlined"
-                        label={isEmergency(alert) ? 'Emergency alert' : 'Suspicious behavior'}
-                        sx={{ color: isEmergency(alert) ? '#FF817A' : '#F0C987', borderColor: isEmergency(alert) ? '#FF6B63' : '#D8A35D' }}
-                      />
+                    <Stack direction="row" spacing={1.25} alignItems="center" useFlexGap flexWrap="wrap">
+                      <Typography variant="overline" sx={{ color: isEmergency(alert) ? 'error.main' : 'primary.main', lineHeight: 1.4 }}>
+                        {isEmergency(alert) ? 'Emergency review' : folderTitleForAlert(alert.type)}
+                      </Typography>
+                      <Typography aria-hidden="true" color="divider">·</Typography>
                       <Typography variant="body2" color="text.secondary">{formatDateTime(alert.detectedAt)}</Typography>
                     </Stack>
                     <Typography variant="h5" sx={{ mt: 1.5 }}>{situationTitle(alert.type)}</Typography>
                     <Typography color="text.secondary" sx={{ mt: 1, lineHeight: 1.65 }}>{alertDescriptions[alert.type] ?? 'The security system detected activity that needs a quick review.'}</Typography>
                     <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2.5, mt: 2 }}>
                       <ContextValue label="Camera" value={alert.cameraName ?? 'Unknown camera'} />
-                      <ContextValue label="Person" value={toTitle(alert.subjectPersonCategory)} />
-                      {alert.confidence !== null && <ContextValue label="AI confidence" value={`${Math.round(alert.confidence * 100)}%`} />}
+                      <ContextValue label="Person" value={alertPersonLabel(alert)} />
                     </Box>
-                  </Box>
-
-                  <Box sx={{ gridColumn: { md: '1 / -1', xl: 'auto' }, borderLeft: { xl: '1px solid #252A29' }, borderTop: { xs: '1px solid #252A29', xl: 0 }, p: 2.25, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 1 }}>
-                    {isEmergency(alert) ? (
-                      <>
-                        <Typography fontWeight={700} color="#FF817A">Immediate review required</Typography>
-                        <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.65 }}>Review the footage and follow the store emergency procedure. Emergency alerts do not have Match or False alarm options.</Typography>
-                      </>
-                    ) : (
-                      <>
-                        <Typography fontWeight={650} sx={{ mb: 0.5 }}>What did you find?</Typography>
-                        <Button fullWidth variant="contained" color="success" startIcon={<CheckCircleOutlineIcon />} disabled={Boolean(reviewingId)} onClick={() => void reviewAlert(alert, 'match')} sx={{ justifyContent: 'flex-start', py: 1.2 }}>
-                          Match · Real incident
-                        </Button>
-                        <Button fullWidth variant="outlined" startIcon={<CloseIcon />} disabled={Boolean(reviewingId)} onClick={() => void reviewAlert(alert, 'false-alarm')} sx={{ justifyContent: 'flex-start', py: 1.2 }}>
-                          False alarm
-                        </Button>
-                        <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, lineHeight: 1.5 }}>Confirmed incidents move to the archive below.</Typography>
-                      </>
-                    )}
+                    <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ xs: 'stretch', sm: 'center' }} justifyContent="space-between" spacing={1.5} sx={{ mt: 2.5 }}>
+                      <Typography variant="caption" color={isEmergency(alert) ? 'error.main' : 'text.secondary'} sx={{ maxWidth: 420, lineHeight: 1.55 }}>
+                        {isEmergency(alert)
+                          ? 'Immediate review required. Follow the store emergency procedure after reviewing the footage.'
+                          : 'Open the footage before confirming or dismissing this alert.'}
+                      </Typography>
+                      <Button
+                        variant={isEmergency(alert) ? 'contained' : 'outlined'}
+                        color={isEmergency(alert) ? 'error' : 'primary'}
+                        startIcon={<PlayCircleOutlineIcon />}
+                        onClick={() => void openContext(alert)}
+                        sx={{ flexShrink: 0, alignSelf: { xs: 'flex-start', sm: 'center' } }}
+                      >
+                        {isEmergency(alert) ? 'Review now' : 'Review video'}
+                      </Button>
+                    </Stack>
                   </Box>
                 </Box>
               </Paper>
@@ -583,7 +816,9 @@ export function AlertsPage() {
         </Stack>
       )}
       </Box>
+      )}
 
+      {activeSection === 'confirmed' && (
       <Box ref={confirmedSectionRef} sx={{ pt: 1, scrollMarginTop: 96 }}>
         <Stack direction="row" justifyContent="space-between" alignItems="end" gap={2} sx={{ mb: 2 }}>
           <Box>
@@ -610,82 +845,56 @@ export function AlertsPage() {
           </Stack>
         )}
       </Box>
+      )}
 
-      <Dialog open={Boolean(detail)} onClose={() => !detailLoading && setDetail(null)} fullWidth maxWidth="md">
+      <Dialog open={Boolean(detail)} onClose={() => !detailLoading && closeDetail()} fullWidth maxWidth="md">
         <DialogTitle sx={{ pr: 7 }}>
-          {detail ? (isEmergency(detail) ? 'Emergency alert' : 'Suspicious behavior alert') : 'Alert context'}
-          <IconButton aria-label="Close" onClick={() => setDetail(null)} sx={{ position: 'absolute', right: 12, top: 10 }}><CloseIcon /></IconButton>
+          {detail ? folderTitleForAlert(detail.type) : 'Alert context'}
+          <IconButton aria-label="Close" onClick={closeDetail} sx={{ position: 'absolute', right: 12, top: 10 }}><CloseIcon /></IconButton>
         </DialogTitle>
         <DialogContent>
           {detailLoading && <Box sx={{ display: 'grid', placeItems: 'center', minHeight: 260 }}><CircularProgress /></Box>}
           {!detailLoading && detail && (
             <AlertContext
               alert={detail}
+              readOnly={isDemo}
               reviewing={reviewingId === detail.id}
               onReview={(decision) => reviewAlert(detail, decision)}
+              onReclassify={() => setFalseAlarmTarget(detail)}
             />
           )}
         </DialogContent>
       </Dialog>
+
+      <Dialog
+        open={Boolean(falseAlarmTarget)}
+        onClose={() => !reviewingId && setFalseAlarmTarget(null)}
+        fullWidth
+        maxWidth="xs"
+        aria-labelledby="false-alarm-confirmation-title"
+      >
+        <DialogTitle id="false-alarm-confirmation-title">Mark this alert as a false alarm?</DialogTitle>
+        <DialogContent>
+          <Typography color="text.secondary" sx={{ lineHeight: 1.7 }}>
+            This video will be removed from Confirmed alerts and treated as a false alarm. This action only changes the review classification.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.5, gap: 1 }}>
+          <Button onClick={() => setFalseAlarmTarget(null)} color="inherit" disabled={Boolean(reviewingId)}>Cancel</Button>
+          <Button onClick={() => void markConfirmedAlertAsFalseAlarm()} color="error" variant="contained" disabled={Boolean(reviewingId)}>
+            {reviewingId ? 'Updating…' : 'Yes, mark as false alarm'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Stack>
-  );
-}
-
-function AlertFolderButton({ folder, selected, onClick }: { folder: AlertFolder; selected: boolean; onClick: () => void }) {
-  const accent = folder.emergency ? '#FF817A' : selected ? '#F0C987' : '#8E9793';
-  const borderColor = folder.emergency && folder.needsReview > 0 ? '#733E3A' : selected ? '#6A5334' : '#252A29';
-
-  return (
-    <Paper
-      component="button"
-      type="button"
-      className="alert-folder"
-      variant="outlined"
-      aria-pressed={selected}
-      aria-label={`${folder.title}: ${folder.needsReview} need review, ${folder.confirmed} confirmed`}
-      onClick={onClick}
-      sx={{
-        flex: { xs: '0 0 235px', lg: selected ? '1.45 0 285px' : '1 0 205px' },
-        minWidth: { xs: 235, lg: selected ? 285 : 205 },
-        maxWidth: { xs: 280, lg: selected ? 380 : 280 },
-        minHeight: 92,
-        p: 1.75,
-        color: 'inherit',
-        textAlign: 'left',
-        cursor: 'pointer',
-        scrollSnapAlign: 'start',
-        borderColor,
-        bgcolor: selected ? 'rgba(216,163,93,.075)' : folder.emergency && folder.needsReview > 0 ? 'rgba(224,107,101,.045)' : '#111516',
-        transition: 'flex-basis 360ms cubic-bezier(.2,.8,.2,1), min-width 360ms cubic-bezier(.2,.8,.2,1), border-color 180ms ease, background-color 180ms ease, transform 180ms ease',
-        '&:hover': { borderColor: accent, transform: 'translateY(-2px)', bgcolor: selected ? 'rgba(216,163,93,.095)' : 'rgba(255,255,255,.025)' },
-        '&:focus-visible': { outline: `2px solid ${accent}`, outlineOffset: 2 },
-      }}
-    >
-      <Stack direction="row" spacing={1.25} alignItems="flex-start">
-        <Box sx={{ color: accent, display: 'grid', placeItems: 'center', mt: 0.15 }}>
-          {folder.emergency ? <ReportProblemOutlinedIcon fontSize="small" /> : <FolderOutlinedIcon fontSize="small" />}
-        </Box>
-        <Box sx={{ minWidth: 0, flex: 1 }}>
-          <Typography fontWeight={680} noWrap title={folder.title}>{folder.title}</Typography>
-          <Stack direction="row" spacing={1.5} useFlexGap flexWrap="wrap" sx={{ mt: 0.75 }}>
-            <Typography variant="caption" sx={{ color: folder.needsReview > 0 ? accent : 'text.secondary' }}>
-              {folder.needsReview} {folder.emergency ? 'urgent' : 'need review'}
-            </Typography>
-            {!folder.emergency && (
-              <Typography variant="caption" color="text.secondary">{folder.confirmed} confirmed</Typography>
-            )}
-          </Stack>
-        </Box>
-      </Stack>
-    </Paper>
   );
 }
 
 function ConfirmedAlertCard({ alert, onOpen }: { alert: Alert; onOpen: (alert: Alert) => void | Promise<void> }) {
   const thumbnail = metadataUrl(alert, 'thumbnailUrl') ?? imageForAlert(alert);
   return (
-    <Paper className="alert-review-card" variant="outlined" sx={{ overflow: 'hidden', borderColor: '#2C4937' }}>
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '260px minmax(0, 1fr)' }, minHeight: 190 }}>
+    <Paper className="alert-review-card" variant="outlined" sx={{ overflow: 'hidden' }}>
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '280px minmax(0, 1fr)' }, minHeight: 190 }}>
         <Box
           component="button"
           type="button"
@@ -712,25 +921,31 @@ function ConfirmedAlertCard({ alert, onOpen }: { alert: Alert; onOpen: (alert: A
         >
           <Box sx={{ position: 'relative', width: '100%', aspectRatio: '16 / 9', overflow: 'hidden' }}>
             <Box className="alert-thumbnail" component="img" src={thumbnail} alt={`Video preview for ${situationTitle(alert.type)}`} sx={{ width: '100%', height: '100%', position: 'absolute', inset: 0, objectFit: 'cover', filter: 'brightness(.66) contrast(1.08)' }} />
-            <DetectionOverlay alert={alert} />
+            {!hasBakedTracking(alert) && <DetectionOverlay alert={alert} />}
           </Box>
           <Box className="play-indicator" aria-hidden="true" sx={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', pointerEvents: 'none' }}>
             <PlayCircleOutlineIcon sx={{ color: '#FFF', fontSize: 45, filter: 'drop-shadow(0 2px 10px rgba(0,0,0,.72))' }} />
           </Box>
         </Box>
         <Box sx={{ p: { xs: 2.25, md: 3 }, minWidth: 0 }}>
-          <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
-            <Chip size="small" variant="outlined" label="Suspicious behavior" sx={{ color: '#F0C987', borderColor: '#D8A35D' }} />
-            <Chip size="small" color="success" label="Confirmed" />
+          <Stack direction="row" spacing={1.25} alignItems="center" useFlexGap flexWrap="wrap">
+            <Typography variant="overline" color="success.main" sx={{ lineHeight: 1.4 }}>Confirmed incident</Typography>
+            <Typography aria-hidden="true" color="divider">·</Typography>
+            <Typography variant="body2" color="text.secondary">{folderTitleForAlert(alert.type)}</Typography>
+            <Typography aria-hidden="true" color="divider">·</Typography>
             <Typography variant="body2" color="text.secondary">{formatDateTime(alert.detectedAt)}</Typography>
           </Stack>
           <Typography variant="h6" sx={{ mt: 1.5 }}>{situationTitle(alert.type)}</Typography>
           <Typography color="text.secondary" sx={{ mt: 0.75, lineHeight: 1.65 }}>{alertDescriptions[alert.type] ?? 'Confirmed security incident.'}</Typography>
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2.5, mt: 2 }}>
-            <ContextValue label="Camera" value={alert.cameraName ?? 'Unknown camera'} />
-            <ContextValue label="Person" value={toTitle(alert.subjectPersonCategory)} />
-            <ContextValue label="Decision" value="Matched · Real incident" />
-          </Box>
+          <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ xs: 'stretch', sm: 'end' }} justifyContent="space-between" gap={2} sx={{ mt: 2 }}>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2.5 }}>
+              <ContextValue label="Camera" value={alert.cameraName ?? 'Unknown camera'} />
+              <ContextValue label="Person" value={alertPersonLabel(alert)} />
+            </Box>
+            <Button variant="text" startIcon={<PlayCircleOutlineIcon />} onClick={() => void onOpen(alert)} sx={{ flexShrink: 0, alignSelf: { xs: 'flex-start', sm: 'end' } }}>
+              View incident
+            </Button>
+          </Stack>
         </Box>
       </Box>
     </Paper>
@@ -741,9 +956,10 @@ function ContextValue({ label, value }: { label: string; value: string }) {
   return <Box><Typography variant="caption" color="text.secondary">{label}</Typography><Typography variant="body2" fontWeight={650} sx={{ mt: 0.2 }}>{value}</Typography></Box>;
 }
 
-function AlertContext({ alert, reviewing, onReview }: { alert: AlertDetail; reviewing: boolean; onReview: (decision: ReviewDecision) => void | Promise<void> }) {
+function AlertContext({ alert, readOnly, reviewing, onReview, onReclassify }: { alert: AlertDetail; readOnly: boolean; reviewing: boolean; onReview: (decision: ReviewDecision) => void | Promise<void>; onReclassify: () => void }) {
   const videoUrl = metadataUrl(alert, 'videoUrl');
   const thumbnail = metadataUrl(alert, 'thumbnailUrl') ?? imageForAlert(alert);
+  const isConfirmed = alert.status === 'RESOLVED';
 
   return (
     <Stack spacing={2.5}>
@@ -752,15 +968,16 @@ function AlertContext({ alert, reviewing, onReview }: { alert: AlertDetail; revi
       ) : (
         <Box sx={{ aspectRatio: '16 / 9', bgcolor: '#050606', overflow: 'hidden', position: 'relative' }}>
           <Box component="img" src={thumbnail} alt="Alert context" sx={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'brightness(.78) contrast(1.1)' }} />
-          <DetectionOverlay alert={alert} />
+          {!hasBakedTracking(alert) && <DetectionOverlay alert={alert} />}
         </Box>
       )}
       {!videoUrl && <MuiAlert severity="info">A video link has not been attached to this alert yet. The available camera snapshot is shown instead.</MuiAlert>}
+      {readOnly && <MuiAlert severity="info">Read-only demo. Videos are available to view; sign in as an owner to manage real incidents.</MuiAlert>}
       <Typography color="text.secondary" sx={{ lineHeight: 1.7 }}>{alertDescriptions[alert.type] ?? 'Review the recorded context before making a decision.'}</Typography>
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', sm: isEmergency(alert) ? '1fr 1fr' : 'minmax(150px, .8fr) minmax(130px, .65fr) minmax(310px, 1.55fr)' }, gap: 2, alignItems: 'end' }}>
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', sm: readOnly || isEmergency(alert) ? '1fr 1fr' : 'minmax(150px, .8fr) minmax(130px, .65fr) minmax(310px, 1.55fr)' }, gap: 2, alignItems: 'end' }}>
         <ContextValue label="Detected" value={formatDateTime(alert.detectedAt)} />
         <ContextValue label="Camera" value={alert.cameraName ?? 'Unknown'} />
-        {!isEmergency(alert) && (
+        {!readOnly && !isEmergency(alert) && !isConfirmed && (
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ gridColumn: { xs: '1 / -1', sm: 'auto' }, justifySelf: { sm: 'end' }, width: { xs: '100%', sm: 'auto' } }}>
             <Button
               variant="contained"
@@ -782,6 +999,16 @@ function AlertContext({ alert, reviewing, onReview }: { alert: AlertDetail; revi
               False alarm
             </Button>
           </Stack>
+        )}
+        {!readOnly && isConfirmed && (
+          <Button
+            variant="text"
+            color="inherit"
+            onClick={onReclassify}
+            sx={{ gridColumn: { xs: '1 / -1', sm: 'auto' }, justifySelf: 'end', alignSelf: 'end', minWidth: 0, p: 0.25, color: 'text.secondary', fontSize: 13, fontWeight: 500, textDecoration: 'underline', textUnderlineOffset: 3, '&:hover': { color: 'error.main', bgcolor: 'transparent', textDecoration: 'underline' } }}
+          >
+            Confirmed by mistake?
+          </Button>
         )}
       </Box>
     </Stack>

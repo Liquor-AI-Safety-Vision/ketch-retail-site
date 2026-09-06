@@ -75,11 +75,11 @@ export interface Alert {
   cameraName: string | null;
   zoneId: string | null;
   zoneName: string | null;
+  hasVideoEvidence: boolean;
 }
 
 export interface AlertEvidence {
   id: string;
-  storageKey: string;
   mimeType: string;
   durationSeconds: number;
   startsAt: string;

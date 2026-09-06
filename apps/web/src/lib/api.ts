@@ -1,14 +1,14 @@
 import type { Alert, AlertDetail, AlertFilters, AlertPage, AuthSession, Camera, CameraInput, CameraZone, Store, ZoneInput } from './types';
 
-const baseUrl = (import.meta.env.VITE_API_BASE_URL ?? '/api/v1').replace(/\/$/, '');
+const baseUrl = (import.meta.env?.VITE_API_BASE_URL ?? '/api/v1').replace(/\/$/, '');
 
 export class ApiError extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-  ) {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
     super(message);
     this.name = 'ApiError';
+    this.status = status;
   }
 }
 
@@ -93,7 +93,13 @@ class ApiClient {
   }
 
   async getAlert(storeId: string, alertId: string) {
-    return this.request<AlertDetail>(`/stores/${storeId}/alerts/${alertId}`);
+    return this.request<AlertDetail>(`/stores/${encodeURIComponent(storeId)}/alerts/${encodeURIComponent(alertId)}`);
+  }
+
+  async getEvidencePlaybackUrl(storeId: string, alertId: string, evidenceId: string) {
+    return this.request<{ url: string; expiresInSeconds: number }>(
+      `/stores/${encodeURIComponent(storeId)}/alerts/${encodeURIComponent(alertId)}/evidence/${encodeURIComponent(evidenceId)}/playback-url`,
+    );
   }
 
   async actionAlert(storeId: string, alertId: string, action: 'acknowledge' | 'dismiss' | 'resolve', note?: string) {
@@ -150,6 +156,9 @@ interface RequestOptions {
 }
 
 export const api = new ApiClient();
+
+export type DashboardApi = Pick<typeof api,
+  'getCameras' | 'getAlerts' | 'getAlert' | 'getEvidencePlaybackUrl' | 'actionAlert'>;
 
 export function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : 'Something went wrong. Please try again.';

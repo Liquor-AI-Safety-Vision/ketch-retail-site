@@ -1,15 +1,17 @@
 import AccessTimeOutlinedIcon from '@mui/icons-material/AccessTimeOutlined';
-import CameraAltOutlinedIcon from '@mui/icons-material/CameraAltOutlined';
+import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import NotificationsActiveOutlinedIcon from '@mui/icons-material/NotificationsActiveOutlined';
-import { Box, Paper, Stack, Typography } from '@mui/material';
-import { useGSAP } from '@gsap/react';
-import gsap from 'gsap';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import ReplayIcon from '@mui/icons-material/Replay';
+import VideocamOutlinedIcon from '@mui/icons-material/VideocamOutlined';
+import { Box, Button, Paper, Stack, Typography } from '@mui/material';
+import { alpha, useTheme } from '@mui/material/styles';
+import { useQuery } from '@tanstack/react-query';
+import { useMemo } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
 import { InlineError, ScreenLoader } from '../components/common';
-import { api, getErrorMessage } from '../lib/api';
+import { getErrorMessage } from '../lib/api';
 import type { Alert, Camera } from '../lib/types';
 
 interface Metric {
@@ -22,101 +24,221 @@ interface Metric {
 }
 
 function hasVideoEvidence(alert: Alert) {
-  return typeof alert.metadata?.videoUrl === 'string' && alert.metadata.videoUrl.length > 0;
+  return alert.hasVideoEvidence || (typeof alert.metadata?.videoUrl === 'string' && alert.metadata.videoUrl.length > 0);
+}
+
+interface OverviewData {
+  cameras: Camera[];
+  alerts: Alert[];
 }
 
 export function DashboardPage() {
-  const pageRef = useRef<HTMLDivElement>(null);
-  const { store } = useAuth();
-  const [cameras, setCameras] = useState<Camera[]>([]);
-  const [alerts, setAlerts] = useState<Alert[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const theme = useTheme();
+  const { store, api } = useAuth();
 
-  const load = useCallback(async () => {
-    if (!store) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const [cameraResult, alertResult] = await Promise.all([
-        api.getCameras(store.id),
-        api.getAlerts(store.id, { limit: 100 }),
+  const { data, error, isLoading, isFetching, refetch } = useQuery({
+    queryKey: ['overview', store?.id],
+    queryFn: async (): Promise<OverviewData> => {
+      const [cameras, alertResult] = await Promise.all([
+        api.getCameras(store!.id),
+        api.getAlerts(store!.id, { limit: 100 }),
       ]);
-      setCameras(cameraResult);
-      setAlerts(alertResult.items);
-    } catch (cause) {
-      setError(getErrorMessage(cause));
-    } finally {
-      setLoading(false);
-    }
-  }, [store]);
-
-  useEffect(() => { void load(); }, [load]);
+      return { cameras, alerts: alertResult.items };
+    },
+    enabled: Boolean(store),
+    staleTime: 15_000,
+    refetchInterval: 30_000,
+  });
 
   const metrics = useMemo<Metric[]>(() => {
-    const cameraTotal = cameras.length || 32;
-    const onlineTotal = cameras.length ? cameras.filter((camera) => camera.isEnabled && camera.status !== 'OFFLINE').length : 32;
+    const cameras = data?.cameras ?? [];
+    const alerts = data?.alerts ?? [];
+    const cameraTotal = cameras.length;
+    const onlineTotal = cameras.filter((camera) => camera.isEnabled && camera.status !== 'OFFLINE').length;
     const videoAlerts = alerts.filter(hasVideoEvidence);
     const needsReview = videoAlerts.filter((alert) => alert.status === 'NEW').length;
     const today = new Date().toDateString();
     const incidentsToday = videoAlerts.filter((alert) => new Date(alert.detectedAt).toDateString() === today).length;
-    const confirmedTotal = videoAlerts.filter((alert) => alert.status === 'RESOLVED' && alert.type !== 'WEAPON_DETECTED').length;
+    const confirmedTotal = videoAlerts.filter((alert) => alert.status === 'RESOLVED').length;
 
     return [
-      { label: 'Cameras online', value: `${onlineTotal}/${cameraTotal}`, helper: 'View live cameras', icon: <CameraAltOutlinedIcon />, tone: '#78B990', to: '/cameras?status=LIVE' },
-      { label: 'Alerts to review', value: String(needsReview), helper: needsReview ? 'Needs your decision' : 'Nothing waiting', icon: <NotificationsActiveOutlinedIcon />, tone: needsReview ? '#E06B65' : '#78B990', to: '/alerts?section=attention' },
-      { label: 'Alerts today', value: String(incidentsToday), helper: 'View alerts since midnight', icon: <AccessTimeOutlinedIcon />, tone: '#D8A35D', to: '/alerts?period=today' },
-      { label: 'Confirmed', value: String(confirmedTotal), helper: 'View confirmed incidents', icon: <CheckCircleOutlineIcon />, tone: '#72A7B5', to: '/alerts?section=confirmed' },
+      {
+        label: 'Alerts to review',
+        value: String(needsReview),
+        helper: needsReview ? `${needsReview === 1 ? 'Incident needs' : 'Incidents need'} an owner decision` : 'No incidents are waiting',
+        icon: <NotificationsActiveOutlinedIcon />,
+        tone: needsReview ? theme.palette.error.main : theme.palette.success.main,
+        to: '/alerts?section=attention',
+      },
+      {
+        label: 'Cameras online',
+        value: `${onlineTotal}/${cameraTotal}`,
+        helper: onlineTotal === cameraTotal ? 'All cameras available' : `${cameraTotal - onlineTotal} offline`,
+        icon: <VideocamOutlinedIcon />,
+        tone: onlineTotal === cameraTotal ? theme.palette.success.main : theme.palette.warning.main,
+        to: '/cameras?status=LIVE',
+      },
+      {
+        label: 'Alerts today',
+        value: String(incidentsToday),
+        helper: 'Recorded since midnight',
+        icon: <AccessTimeOutlinedIcon />,
+        tone: theme.palette.primary.main,
+        to: '/alerts?period=today',
+      },
+      {
+        label: 'Confirmed',
+        value: String(confirmedTotal),
+        helper: 'Retained for later review',
+        icon: <CheckCircleOutlineIcon />,
+        tone: theme.palette.info.main,
+        to: '/alerts?section=confirmed',
+      },
     ];
-  }, [alerts, cameras]);
+  }, [data, theme]);
 
-  useGSAP(() => {
-    gsap.from('.overview-metric', { y: 14, opacity: 0, duration: 0.45, stagger: 0.06, ease: 'power2.out' });
-  }, { scope: pageRef, dependencies: [loading] });
+  if (!store || isLoading) return <ScreenLoader label="Loading overview" />;
 
-  if (loading) return <ScreenLoader label="Loading overview…" />;
+  const [priorityMetric, ...supportingMetrics] = metrics;
 
   return (
-    <Stack ref={pageRef} spacing={3.5}>
-      <Box>
-        <Typography component="h1" variant="h4">Overview</Typography>
-        <Typography color="text.secondary" sx={{ mt: 0.75 }}>The numbers that need your attention today.</Typography>
+    <Stack spacing={{ xs: 3, md: 4 }}>
+      <Box
+        sx={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          justifyContent: 'space-between',
+          alignItems: 'flex-end',
+          gap: 2,
+        }}
+      >
+        <Box>
+          <Typography component="h1" variant="h4">Overview</Typography>
+          <Typography color="text.secondary" sx={{ mt: 0.75 }}>
+            Monitor availability and incident decisions at a glance.
+          </Typography>
+        </Box>
+        <Button
+          variant="outlined"
+          startIcon={<ReplayIcon />}
+          disabled={isFetching}
+          onClick={() => void refetch()}
+        >
+          {isFetching ? 'Updating' : 'Refresh'}
+        </Button>
       </Box>
 
-      {error && <InlineError message={error} />}
+      {error && <InlineError message={getErrorMessage(error)} />}
 
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(4, minmax(0, 1fr))' }, gridAutoFlow: 'dense', gap: 1.5 }}>
-        {metrics.map((metric) => (
-          <Paper
-            key={metric.label}
-            component={RouterLink}
-            to={metric.to}
-            className="overview-metric"
-            variant="outlined"
-            sx={{
-              p: { xs: 2.5, md: 3 },
-              minHeight: 178,
-              display: 'flex',
-              flexDirection: 'column',
-              justifyContent: 'space-between',
-              color: 'inherit',
-              textDecoration: 'none',
-              transition: 'border-color 180ms ease, transform 180ms ease, background-color 180ms ease',
-              '&:hover': { borderColor: metric.tone, transform: 'translateY(-2px)', bgcolor: 'rgba(255,255,255,.018)' },
-              '&:focus-visible': { outline: `2px solid ${metric.tone}`, outlineOffset: 3 },
-            }}
-          >
-            <Box sx={{ color: metric.tone, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Typography color="text.secondary" fontWeight={600}>{metric.label}</Typography>
-              {metric.icon}
+      <Paper
+        variant="outlined"
+        sx={{
+          overflow: 'hidden',
+          borderRadius: 2,
+          display: 'grid',
+          gridTemplateColumns: { xs: '1fr', lg: 'minmax(320px, 0.82fr) minmax(0, 1.45fr)' },
+        }}
+      >
+        <Box
+          component={RouterLink}
+          to={priorityMetric.to}
+          sx={{
+            minHeight: { xs: 280, md: 330 },
+            p: { xs: 3, sm: 4, lg: 4.5 },
+            display: 'flex',
+            flexDirection: 'column',
+            color: 'inherit',
+            textDecoration: 'none',
+            bgcolor: alpha(priorityMetric.tone, theme.palette.mode === 'dark' ? 0.07 : 0.035),
+            borderRight: { lg: '1px solid' },
+            borderBottom: { xs: '1px solid', lg: 0 },
+            borderColor: 'divider',
+            transition: 'background-color 180ms ease',
+            '&:hover': { bgcolor: alpha(priorityMetric.tone, theme.palette.mode === 'dark' ? 0.11 : 0.065) },
+            '&:focus-visible': { outline: `2px solid ${priorityMetric.tone}`, outlineOffset: -2 },
+          }}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
+            <Typography color="text.secondary" fontWeight={650}>{priorityMetric.label}</Typography>
+            <Box sx={{ color: priorityMetric.tone, display: 'grid', placeItems: 'center', '& svg': { fontSize: 25 } }}>
+              {priorityMetric.icon}
             </Box>
-            <Box>
-              <Typography sx={{ fontSize: { xs: 40, md: 48 }, lineHeight: 1, letterSpacing: '-0.05em', fontWeight: 560 }}>{metric.value}</Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>{metric.helper}</Typography>
+          </Box>
+
+          <Box sx={{ mt: 'auto', pt: 5 }}>
+            <Typography
+              sx={{
+                color: priorityMetric.tone,
+                fontSize: { xs: 68, md: 88 },
+                lineHeight: 0.9,
+                letterSpacing: '-0.065em',
+                fontWeight: 650,
+                fontVariantNumeric: 'tabular-nums',
+              }}
+            >
+              {priorityMetric.value}
+            </Typography>
+            <Typography sx={{ mt: 2.5, maxWidth: 310, fontSize: { xs: 20, md: 23 }, lineHeight: 1.25, fontWeight: 620, letterSpacing: '-0.025em' }}>
+              {priorityMetric.helper}
+            </Typography>
+            <Box sx={{ mt: 3, display: 'flex', alignItems: 'center', gap: 0.75, color: priorityMetric.tone }}>
+              <Typography variant="body2" fontWeight={700}>Review alerts</Typography>
+              <ArrowForwardRoundedIcon sx={{ fontSize: 19 }} />
             </Box>
-          </Paper>
-        ))}
-      </Box>
+          </Box>
+        </Box>
+
+        <Box
+          sx={{
+            display: 'grid',
+            gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, minmax(0, 1fr))' },
+          }}
+        >
+          {supportingMetrics.map((metric, index) => (
+            <Box
+              key={metric.label}
+              component={RouterLink}
+              to={metric.to}
+              sx={{
+                minHeight: { xs: 190, sm: 330 },
+                p: { xs: 3, sm: 3.25, xl: 4 },
+                display: 'flex',
+                flexDirection: 'column',
+                color: 'inherit',
+                textDecoration: 'none',
+                borderRight: { sm: index < supportingMetrics.length - 1 ? '1px solid' : 0 },
+                borderBottom: { xs: index < supportingMetrics.length - 1 ? '1px solid' : 0, sm: 0 },
+                borderColor: 'divider',
+                transition: 'background-color 180ms ease',
+                '&:hover': { bgcolor: 'action.hover' },
+                '&:focus-visible': { outline: `2px solid ${metric.tone}`, outlineOffset: -2 },
+              }}
+            >
+              <Box sx={{ color: metric.tone, display: 'grid', placeItems: 'center', alignSelf: 'flex-start', '& svg': { fontSize: 23 } }}>
+                {metric.icon}
+              </Box>
+              <Box sx={{ mt: 'auto', pt: 4 }}>
+                <Typography
+                  sx={{
+                    fontSize: { xs: 46, md: 52 },
+                    lineHeight: 1,
+                    letterSpacing: '-0.055em',
+                    fontWeight: 640,
+                    fontVariantNumeric: 'tabular-nums',
+                  }}
+                >
+                  {metric.value}
+                </Typography>
+                <Typography fontWeight={650} sx={{ mt: 2 }}>{metric.label}</Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.65, lineHeight: 1.45 }}>
+                  {metric.helper}
+                </Typography>
+                <ArrowForwardRoundedIcon sx={{ mt: 2.5, color: 'text.disabled', fontSize: 19 }} />
+              </Box>
+            </Box>
+          ))}
+        </Box>
+      </Paper>
     </Stack>
   );
 }

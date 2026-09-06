@@ -1,14 +1,18 @@
-import CameraAltOutlinedIcon from '@mui/icons-material/CameraAltOutlined';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import VideocamOffOutlinedIcon from '@mui/icons-material/VideocamOffOutlined';
-import { Alert, Box, Chip, CircularProgress, Paper, Stack, Typography } from '@mui/material';
+import VideocamOutlinedIcon from '@mui/icons-material/VideocamOutlined';
+import { Alert, Box, Chip, Paper, Skeleton, Stack, Typography } from '@mui/material';
 import type { AlertStatus, CameraStatus } from '../lib/types';
 
 export function ScreenLoader({ label = 'Loading dashboard…' }: { label?: string }) {
   return (
-    <Stack alignItems="center" justifyContent="center" spacing={2} sx={{ minHeight: '50vh' }}>
-      <CircularProgress />
-      <Typography color="text.secondary">{label}</Typography>
+    <Stack aria-busy="true" aria-label={label} spacing={3} sx={{ minHeight: '50vh', pt: 0.5 }}>
+      <Box>
+        <Skeleton variant="text" width={190} height={48} />
+        <Skeleton variant="text" width="min(420px, 72%)" />
+      </Box>
+      <Skeleton variant="rounded" height={330} sx={{ borderRadius: 2 }} />
+      <Typography variant="caption" color="text.secondary">{label}</Typography>
     </Stack>
   );
 }
@@ -52,9 +56,9 @@ export function AlertStatusChip({ status }: { status: AlertStatus }) {
 }
 
 export function formatDateTime(value: string | null | undefined) {
-  if (!value) return '—';
+  if (!value) return 'Unavailable';
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? '—' : new Intl.DateTimeFormat('en-US', {
+  return Number.isNaN(date.getTime()) ? 'Unavailable' : new Intl.DateTimeFormat('en-US', {
     dateStyle: 'medium',
     timeStyle: 'short',
   }).format(date);
@@ -69,5 +73,5 @@ export function toTitle(value: string) {
 }
 
 export function CameraEmptyState() {
-  return <EmptyState title="No cameras found" description="Add a camera to begin configuring its secure stream reference and detection zones." icon={<CameraAltOutlinedIcon sx={{ fontSize: 42 }} />} />;
+  return <EmptyState title="No cameras found" description="Add a camera to begin configuring its secure stream reference and detection zones." icon={<VideocamOutlinedIcon sx={{ fontSize: 42 }} />} />;
 }

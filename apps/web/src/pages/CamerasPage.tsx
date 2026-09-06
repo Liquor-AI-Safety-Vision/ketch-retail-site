@@ -5,19 +5,19 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import SearchIcon from '@mui/icons-material/Search';
 import { Box, Button, Card, CardActionArea, Chip, Dialog, FormControl, IconButton, InputAdornment, InputLabel, MenuItem, Paper, Select, Stack, TextField, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
-import { useGSAP } from '@gsap/react';
-import gsap from 'gsap';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
 import { EmptyState, InlineError, ScreenLoader } from '../components/common';
-import { api, getErrorMessage } from '../lib/api';
+import { getErrorMessage } from '../lib/api';
 import type { Camera } from '../lib/types';
 
 interface LiveFeed {
   camera: Camera;
   imageUrl: string;
   videoUrl: string;
+  displayName: string;
+  displayLocation: string;
   channelNumber: number;
 }
 
@@ -32,6 +32,45 @@ interface CameraPreferences {
 const preferencesKey = 'liquor-store.camera-filters';
 const scrollKey = 'liquor-store.camera-scroll';
 const defaultPreferences: CameraPreferences = { search: '', status: 'ALL', area: 'ALL' };
+
+const originalTrackingFeeds: Record<string, { videoUrl: string; imageUrl: string; displayName: string; displayLocation: string }> = {
+  'record-counter-153921': {
+    videoUrl: '/demo-source/cameras/cctv-counter/cash_till_open_2.mp4',
+    imageUrl: '/demo-source/cameras/cctv-counter/cash_till_open_2.jpg',
+    displayName: 'Counter',
+    displayLocation: 'Staff, customer and cash drawer tracking',
+  },
+  'record-cold-drink-dispenser-152956': {
+    videoUrl: '/demo-source/cameras/whole-store/cold_drinks.mp4',
+    imageUrl: '/demo-source/cameras/whole-store/cold_drinks.jpg',
+    displayName: 'Cold drink dispenser',
+    displayLocation: 'Customer tracking near cold drinks',
+  },
+  'record-whole-store-corner-view-153134': {
+    videoUrl: '/demo-source/cameras/whole-store/whole_store_corner.mp4',
+    imageUrl: '/demo-source/cameras/whole-store/whole_store_corner.jpg',
+    displayName: 'Whole store corner view',
+    displayLocation: 'Store-wide customer tracking',
+  },
+  'record-whole-store-153158': {
+    videoUrl: '/demo-source/cameras/whole-store/whole_store_long.mp4',
+    imageUrl: '/demo-source/cameras/whole-store/whole_store_long.jpg',
+    displayName: 'Whole store (Stream 1)',
+    displayLocation: 'Store-wide customer tracking',
+  },
+  'record-whole-store-top-view-153423': {
+    videoUrl: '/demo-source/cameras/whole-store/whole_store_short.mp4',
+    imageUrl: '/demo-source/cameras/whole-store/whole_store_short.jpg',
+    displayName: 'Whole store (Stream 2)',
+    displayLocation: 'Store-wide customer tracking',
+  },
+  'record-entrance-top-view-153712': {
+    videoUrl: '/demo-source/cameras/entrance/regular-shoplifter-tracking.mp4',
+    imageUrl: '/demo-source/cameras/entrance/regular-shoplifter-tracking.jpg',
+    displayName: 'Entrance top view',
+    displayLocation: 'Customer recognition and entrance tracking',
+  },
+};
 
 function restorePreferences(): CameraPreferences {
   try {
@@ -69,9 +108,8 @@ function recordAsset(camera: Camera, extension: 'jpg' | 'mp4') {
 }
 
 export function CamerasPage() {
-  const pageRef = useRef<HTMLDivElement>(null);
   const restoredScrollRef = useRef(false);
-  const { store } = useAuth();
+  const { store, api } = useAuth();
   const [searchParams] = useSearchParams();
   const [preferences, setPreferences] = useState<CameraPreferences>(() => {
     const restored = restorePreferences();
@@ -100,12 +138,17 @@ export function CamerasPage() {
 
   const feeds = useMemo<LiveFeed[]>(() => cameras
     .filter((camera) => camera.streamGatewayRef.startsWith('record-'))
-    .map((camera, index) => ({
-      camera,
-      imageUrl: recordAsset(camera, 'jpg'),
-      videoUrl: recordAsset(camera, 'mp4'),
-      channelNumber: index + 1,
-    })), [cameras]);
+    .map((camera, index) => {
+      const originalFeed = originalTrackingFeeds[camera.streamGatewayRef];
+      return {
+        camera,
+        imageUrl: originalFeed?.imageUrl ?? recordAsset(camera, 'jpg'),
+        videoUrl: originalFeed?.videoUrl ?? recordAsset(camera, 'mp4'),
+        displayName: originalFeed?.displayName ?? camera.name,
+        displayLocation: originalFeed?.displayLocation ?? camera.location,
+        channelNumber: index + 1,
+      };
+    }), [cameras]);
 
   const onlineCount = feeds.filter(({ camera }) => isCameraOnline(camera)).length;
   const areas = useMemo<string[]>(() => Array.from(new Set<string>(feeds.map(({ camera }) => cameraArea(camera)))).sort((left, right) => left.localeCompare(right)), [feeds]);
@@ -115,7 +158,8 @@ export function CamerasPage() {
     const search = preferences.search.trim().toLocaleLowerCase();
     return feeds.filter(({ camera }) => {
       if (selectedArea !== 'ALL' && cameraArea(camera) !== selectedArea) return false;
-      if (search && !`${camera.name} ${camera.location} ${cameraArea(camera)}`.toLocaleLowerCase().includes(search)) return false;
+      const originalFeed = originalTrackingFeeds[camera.streamGatewayRef];
+      if (search && !`${originalFeed?.displayName ?? camera.name} ${originalFeed?.displayLocation ?? camera.location} ${cameraArea(camera)}`.toLocaleLowerCase().includes(search)) return false;
       return true;
     });
   }, [feeds, preferences.search, selectedArea]);
@@ -149,19 +193,15 @@ export function CamerasPage() {
     return () => window.removeEventListener('scroll', saveScrollPosition);
   }, []);
 
-  useGSAP(() => {
-    gsap.from('.live-feed', { y: 14, scale: 0.985, opacity: 0, duration: 0.45, stagger: 0.035, ease: 'power2.out' });
-  }, { scope: pageRef, dependencies: [isLoading, preferences.search, preferences.status, selectedArea], revertOnUpdate: true });
-
   if (!store || isLoading) return <ScreenLoader label="Loading cameras…" />;
 
   return (
-    <Stack ref={pageRef} spacing={3} sx={{ overflowX: 'hidden' }}>
+    <Stack spacing={3} sx={{ overflowX: 'hidden' }}>
       <Box sx={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'end', gap: 2 }}>
         <Box sx={{ maxWidth: 760 }}>
           <Typography component="h1" variant="h4">Live camera</Typography>
           <Typography color="text.secondary" sx={{ mt: 0.75 }}>
-            Select a camera to open its continuously looping deployment-preview feed.
+            Select a camera to open its live security feed.
           </Typography>
         </Box>
         <Chip
@@ -179,9 +219,9 @@ export function CamerasPage() {
           top: { xs: 66, md: 12 },
           zIndex: 5,
           p: { xs: 1.5, sm: 2 },
-          bgcolor: 'rgba(13,16,16,.96)',
+          bgcolor: 'background.paper',
           backdropFilter: 'blur(16px)',
-          borderColor: '#2A302E',
+          borderColor: 'divider',
         }}
       >
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'minmax(260px, 1.5fr) minmax(160px, .7fr) auto' }, gap: 1.25 }}>
@@ -243,14 +283,14 @@ export function CamerasPage() {
           {filteredFeeds.map((feed) => {
             const online = isCameraOnline(feed.camera);
             return (
-              <Card key={feed.camera.id} className="live-feed" sx={{ overflow: 'hidden', '&:hover': { borderColor: '#6B5435' }, transition: 'border-color 160ms ease' }}>
+              <Card key={feed.camera.id} className="live-feed" sx={{ overflow: 'hidden', '&:hover': { borderColor: 'primary.main' }, transition: 'border-color 160ms ease' }}>
                 <CardActionArea
                   onClick={() => setSelectedFeedId(feed.camera.id)}
-                  aria-label={`Open live view for ${feed.camera.name}`}
+                  aria-label={`Open live view for ${feed.displayName}`}
                   sx={{ touchAction: 'pan-y', '&:hover': { bgcolor: 'rgba(216,163,93,.025)' } }}
                 >
                   <Box sx={{ position: 'relative', aspectRatio: '16 / 9', bgcolor: '#050606', overflow: 'hidden' }}>
-                    <Box component="img" src={feed.imageUrl} alt={`${feed.camera.name} camera preview`} loading="lazy" decoding="async" sx={{ width: '100%', height: '100%', objectFit: 'cover', filter: online ? 'brightness(.86) contrast(1.1)' : 'grayscale(1) brightness(.42)' }} />
+                    <Box component="img" src={feed.imageUrl} alt={`${feed.displayName} camera preview`} loading="lazy" decoding="async" sx={{ width: '100%', height: '100%', objectFit: 'cover', filter: online ? 'brightness(.86) contrast(1.1)' : 'grayscale(1) brightness(.42)' }} />
                     <Box sx={{ position: 'absolute', top: 10, left: 10, display: 'flex', alignItems: 'center', gap: 0.6, bgcolor: 'rgba(9,11,12,.82)', color: online ? '#9BD2AC' : '#C6C9C7', px: 1, py: 0.45, borderRadius: 0.5, fontSize: 10, fontWeight: 750, letterSpacing: '.08em' }}>
                       <FiberManualRecordIcon sx={{ fontSize: 9 }} />
                       {online ? 'LIVE' : 'OFFLINE'}
@@ -261,8 +301,8 @@ export function CamerasPage() {
                     </Box>
                   </Box>
                   <Box sx={{ px: 1.75, py: 1.4, textAlign: 'left' }}>
-                    <Typography fontWeight={650} noWrap>{feed.camera.name}</Typography>
-                    <Typography variant="caption" color="text.secondary" noWrap display="block" sx={{ mt: 0.25 }}>{feed.camera.location}</Typography>
+                    <Typography fontWeight={650} noWrap>{feed.displayName}</Typography>
+                    <Typography variant="caption" color="text.secondary" noWrap display="block" sx={{ mt: 0.25 }}>{feed.displayLocation}</Typography>
                   </Box>
                 </CardActionArea>
               </Card>
@@ -276,10 +316,15 @@ export function CamerasPage() {
         onClose={() => setSelectedFeedId(null)}
         maxWidth="lg"
         fullWidth
-        PaperProps={{ sx: { overflow: 'hidden', bgcolor: '#050606', backgroundImage: 'none', border: '1px solid #303735' } }}
+        PaperProps={{
+          // MUI forwards a Dialog-level aria-label to the modal root, not to the
+          // element that carries role="dialog", so it is set on the paper here.
+          'aria-label': selectedFeed ? `Live view for ${selectedFeed.displayName}` : undefined,
+          sx: { overflow: 'hidden', bgcolor: '#050606', backgroundImage: 'none', border: '1px solid #303735' },
+        }}
       >
         {selectedFeed && (
-          <Box sx={{ position: 'relative', bgcolor: '#020303', aspectRatio: '16 / 9', maxHeight: 'calc(100vh - 80px)' }}>
+          <Box sx={{ position: 'relative', bgcolor: '#020303', aspectRatio: '16 / 9', maxHeight: 'calc(100vh - 170px)' }}>
             {selectedFeedOnline ? (
               <Box
                 component="video"
@@ -299,24 +344,27 @@ export function CamerasPage() {
               <Box
                 component="img"
                 src={selectedFeed.imageUrl}
-                alt={`${selectedFeed.camera.name} offline camera image`}
+                alt={`${selectedFeed.displayName} offline camera image`}
                 sx={{ display: 'block', width: '100%', height: '100%', objectFit: 'contain', bgcolor: '#000', filter: 'grayscale(1) brightness(.42)' }}
               />
             )}
-            <Box sx={{ position: 'absolute', inset: 0, pointerEvents: 'none', background: 'linear-gradient(180deg, rgba(0,0,0,.52), transparent 22%, transparent 72%, rgba(0,0,0,.68))' }} />
+            <Box sx={{ position: 'absolute', inset: 0, pointerEvents: 'none', background: 'linear-gradient(180deg, rgba(0,0,0,.52), transparent 22%)' }} />
             <Box sx={{ position: 'absolute', top: 16, left: 18, display: 'flex', alignItems: 'center', gap: 0.8, color: selectedFeedOnline ? '#A8DAB7' : '#C6C9C7', fontSize: 11, fontWeight: 800, letterSpacing: '.12em' }}>
               <FiberManualRecordIcon sx={{ fontSize: 10 }} /> {selectedFeedOnline ? 'LIVE PREVIEW' : 'CAMERA OFFLINE'}
             </Box>
             <IconButton onClick={() => setSelectedFeedId(null)} aria-label="Close live view" sx={{ position: 'absolute', top: 9, right: 10, color: '#FFF', bgcolor: 'rgba(0,0,0,.5)', '&:hover': { bgcolor: 'rgba(0,0,0,.78)' } }}>
               <CloseIcon />
             </IconButton>
-            <Box sx={{ position: 'absolute', left: 18, right: 18, bottom: 15, display: 'flex', justifyContent: 'space-between', alignItems: 'end', gap: 2, pointerEvents: 'none' }}>
-              <Box>
-                <Typography sx={{ color: '#FFF', fontWeight: 700, fontSize: { xs: 15, md: 20 } }}>{selectedFeed.camera.name}</Typography>
-                <Typography sx={{ color: 'rgba(255,255,255,.68)', fontSize: 12, mt: 0.25 }}>{selectedFeed.camera.location}</Typography>
-              </Box>
-              <Typography sx={{ color: 'rgba(255,255,255,.58)', fontFamily: 'monospace', fontSize: 10 }}>{selectedFeedOnline ? 'LOOPED RECORD FEED' : 'STATIC CAMERA IMAGE'}</Typography>
-            </Box>
+          </Box>
+        )}
+        {selectedFeed && (
+          /* The recorded footage already burns its own camera label into the
+             bottom-left corner, so this caption sits under the frame instead of
+             on top of it. */
+          <Box sx={{ px: 2.25, py: 1.6, bgcolor: '#050606', borderTop: '1px solid #232927' }}>
+            {/* The camera name is already burned into the footage and announced
+                on the dialog, so only the description it does not carry is shown. */}
+            <Typography noWrap sx={{ color: 'rgba(255,255,255,.78)', fontSize: 13 }}>{selectedFeed.displayLocation}</Typography>
           </Box>
         )}
       </Dialog>
