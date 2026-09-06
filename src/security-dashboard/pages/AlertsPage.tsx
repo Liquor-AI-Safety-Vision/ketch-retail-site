@@ -29,7 +29,6 @@ const alertDescriptions: Record<string, string> = {
   SUSPICIOUS_CASH_HANDLING: 'The system tracked cash being removed from the drawer and moved toward a staff member’s pocket.',
   POS_VOID_OR_REFUND: 'Unusual register activity was detected and may need a quick review.',
   UNAUTHORIZED_STOCKROOM_ACCESS: 'A staff member entered outside the allowed schedule or an unknown person entered the stockroom.',
-  HIGH_VALUE_ZONE_DWELL: 'A person stayed unusually long near high-value products.',
   WEAPON_DETECTED: 'The system detected violence or an object that may be a dangerous weapon.',
   SUSPICIOUS_PRODUCT_CONCEALMENT: 'Customer behavior consistent with possible shoplifting was detected from a whole-store camera.',
   REGULAR_SHOPLIFTER: 'A returning customer linked to a previously confirmed shoplifting incident was detected at the entrance.',
@@ -41,7 +40,6 @@ const alertTitles: Record<string, string> = {
   SUSPICIOUS_CASH_HANDLING: 'Suspected cash concealment',
   POS_VOID_OR_REFUND: 'Suspicious register activity',
   UNAUTHORIZED_STOCKROOM_ACCESS: 'Unauthorized stockroom access',
-  HIGH_VALUE_ZONE_DWELL: 'Unusual dwell near high-value products',
   SUSPICIOUS_PRODUCT_CONCEALMENT: 'Suspected customer shoplifting',
   REGULAR_SHOPLIFTER: 'Regular shoplifter',
 };
@@ -58,7 +56,6 @@ const alertFolderDefinitions = [
   { type: 'WEAPON_DETECTED', title: alertTitles.WEAPON_DETECTED, alertTypes: ['WEAPON_DETECTED'], emergency: true },
   { type: employeeBehaviorFolderType, title: 'Unusual employee behavior', alertTypes: [...employeeBehaviorTypes], emergency: false },
   { type: 'UNAUTHORIZED_STOCKROOM_ACCESS', title: alertTitles.UNAUTHORIZED_STOCKROOM_ACCESS, alertTypes: ['UNAUTHORIZED_STOCKROOM_ACCESS'], emergency: false },
-  { type: 'HIGH_VALUE_ZONE_DWELL', title: alertTitles.HIGH_VALUE_ZONE_DWELL, alertTypes: ['HIGH_VALUE_ZONE_DWELL'], emergency: false },
   { type: 'SUSPICIOUS_PRODUCT_CONCEALMENT', title: alertTitles.SUSPICIOUS_PRODUCT_CONCEALMENT, alertTypes: ['SUSPICIOUS_PRODUCT_CONCEALMENT'], emergency: false },
   { type: 'REGULAR_SHOPLIFTER', title: alertTitles.REGULAR_SHOPLIFTER, alertTypes: ['REGULAR_SHOPLIFTER'], emergency: false },
 ];

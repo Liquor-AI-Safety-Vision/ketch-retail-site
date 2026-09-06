@@ -41,7 +41,7 @@ function sampleAlert(id: string, type: string, status: Alert['status'], cameraRe
   const camera = cameras.find((item) => item.streamGatewayRef === cameraRef)!;
   return {
     id: `demo-alert-${id}`, sourceEventId: id, correlationId: `demo-incident-${id}`,
-    type, severity: 'MEDIUM', status, subjectPersonCategory: type === 'HIGH_VALUE_ZONE_DWELL' ? 'CUSTOMER' : 'EMPLOYEE', confidence: null,
+    type, severity: 'MEDIUM', status, subjectPersonCategory: 'EMPLOYEE', confidence: null,
     detectedAt: sampleDate, acknowledgedAt: status === 'RESOLVED' ? sampleDate : null,
     resolutionNote: null, cameraId: camera.id, cameraName: camera.name, zoneId: null, zoneName: null,
     hasVideoEvidence: true,
@@ -60,7 +60,6 @@ const baseAlerts: Alert[] = [
   sampleAlert('pdsi-ui-fixture-017', 'UNAUTHORIZED_STOCKROOM_ACCESS', 'RESOLVED', 'record-cold-storage-153534', '/demo-source/alerts/storage/storage_1'),
   sampleAlert('pdsi-ui-fixture-013', 'UNAUTHORIZED_STOCKROOM_ACCESS', 'RESOLVED', 'record-cold-storage-153534', '/demo-source/alerts/storage/storage_1'),
   sampleAlert('pdsi-ui-fixture-005', 'UNAUTHORIZED_STOCKROOM_ACCESS', 'RESOLVED', 'record-storage-154138', '/demo-source/alerts/storage/storage_2'),
-  sampleAlert('high-value', 'HIGH_VALUE_ZONE_DWELL', 'RESOLVED', 'record-whole-store-153158', '/demo/cctv-ch14-034329'),
 ];
 
 function requireDemoStore(storeId: string) {
