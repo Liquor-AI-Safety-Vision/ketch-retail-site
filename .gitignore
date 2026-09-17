@@ -46,3 +46,7 @@ backend/data/*.json
 # mediamtx tu sinh cert cho MoQ/QUIC khi chay rtsp_sim
 auto.crt
 auto.key
+
+# Local scratch at the repo root and a one-off document not kept in git.
+/outputs/
+docs/remote_support_setup.pdf
