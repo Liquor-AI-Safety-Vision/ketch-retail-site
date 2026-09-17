@@ -59,7 +59,44 @@ def tier_guard(role: str, ready_q, stats_q):
     stats_q if it died mid-run. A spare message on the queue the parent had
     already moved past is harmless -- the queue is discarded at the end of
     the run either way.
+
+    Also where a tier stops listening to Ctrl+C. The terminal delivers SIGINT
+    to every process in its foreground group at once, so without this each
+    tier would die mid-frame on its own KeyboardInterrupt while the parent
+    was trying to stop them in order -- and the business tier's unflushed
+    alerts would go with it. Only the parent handles it (see
+    run_split_pipeline.main); the tiers stop when told to, through the same
+    queues that end a finite run. SIGTERM is untouched, so terminate() works.
+
+    Ignoring Ctrl+C removes the one thing that used to take a tier down along
+    with a parent that died abruptly (kill -9, an error during its own
+    shutdown). So each tier also watches its parent and exits when it is
+    gone; otherwise an inference tier would outlive it holding its CUDA
+    context, and the next start on the same GPU would inherit the orphan.
     """
+    import multiprocessing
+    import os
+    import signal
+    import threading
+
+    from backend.src.common.logging_setup import configure_logging
+
+    # A spawned tier is a fresh interpreter: the parent's logging setup does
+    # not carry over, and without this every INFO line a tier logs was
+    # silently dropped (Python's last-resort handler prints WARNING and up).
+    # The level and log file still come from the environment, which spawn
+    # does inherit.
+    configure_logging()
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    parent = multiprocessing.parent_process()
+    if parent is not None:
+        def _exit_with_parent():
+            parent.join()
+            print(f"[{role}] parent process is gone; exiting", file=sys.stderr)
+            os._exit(1)
+
+        threading.Thread(target=_exit_with_parent, daemon=True,
+                         name=f"{role}-parent-watchdog").start()
     try:
         yield
     except BaseException:
@@ -76,14 +113,21 @@ def tier_guard(role: str, ready_q, stats_q):
         raise
 
 
-def await_message(q, procs, *, what: str, timeout_s: float = 600.0, poll_s: float = 0.5):
+def await_message(q, procs, *, what: str, timeout_s: float | None = 600.0,
+                  poll_s: float = 0.5):
     """Get one message, but give up if a child died or nothing ever comes.
 
     `procs` is every tier process. Checking their exit codes between polls is
     what catches the deaths no exception handler can report -- a killed or
     segfaulted process sends nothing at all.
+
+    timeout_s=None waits as long as every child stays alive. That is the right
+    bound for a wait whose length is the length of the run itself -- decoder
+    stats arrive only when the streams end, which for strategy=forever is
+    never. A fixed deadline there did not detect a hang, it capped every run
+    at ten minutes. Liveness is still checked, so a crash still surfaces.
     """
-    deadline = time.monotonic() + timeout_s
+    deadline = None if timeout_s is None else time.monotonic() + timeout_s
     while True:
         try:
             item = q.get(timeout=poll_s)
@@ -93,7 +137,7 @@ def await_message(q, procs, *, what: str, timeout_s: float = 600.0, poll_s: floa
                 raise TierProcessError(
                     f"waiting for {what}, but {len(dead)} tier process(es) exited: "
                     + ", ".join(f"{p.name} (exit {p.exitcode})" for p in dead))
-            if time.monotonic() > deadline:
+            if deadline is not None and time.monotonic() > deadline:
                 alive = [p.name for p in procs if p.is_alive()]
                 raise TierProcessError(
                     f"timed out after {timeout_s:.0f}s waiting for {what}; "

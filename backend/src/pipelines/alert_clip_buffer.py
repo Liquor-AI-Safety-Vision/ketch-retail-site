@@ -36,8 +36,18 @@ class PendingAlertClip:
 
 
 class AlertClipBuffer:
-    def __init__(self, fps: float, pre_seconds: float = 15.0, post_seconds: float = 15.0):
+    """Decides a clip's time range: pre_seconds before the event to post_seconds after.
+
+    keep_images=False keeps timestamps only. That is the mode for a camera whose
+    stream is being recorded (see infra/recorded_clips.py): the clip is cut from
+    the recording at native fps, so holding 15 s of full-resolution frames in
+    RAM per camera -- hundreds of MB -- would buy nothing.
+    """
+
+    def __init__(self, fps: float, pre_seconds: float = 15.0, post_seconds: float = 15.0,
+                 keep_images: bool = True):
         self.fps = float(fps)
+        self.keep_images = keep_images
         self.pre_frames = max(1, int(round(pre_seconds * self.fps)))
         self.post_frames = max(0, int(round(post_seconds * self.fps)))
         self.history: deque[BufferedFrame] = deque(maxlen=self.pre_frames + 1)
@@ -48,7 +58,7 @@ class AlertClipBuffer:
             BufferedFrame(
                 frame_idx=frame.frame_idx,
                 ts_utc=frame.ts_utc,
-                image_bgr=frame.image_bgr.copy(),
+                image_bgr=frame.image_bgr.copy() if self.keep_images else None,
             )
         )
 
@@ -57,7 +67,7 @@ class AlertClipBuffer:
             BufferedFrame(
                 frame_idx=item.frame_idx,
                 ts_utc=item.ts_utc,
-                image_bgr=item.image_bgr.copy(),
+                image_bgr=item.image_bgr.copy() if item.image_bgr is not None else None,
             )
             for item in self.history
         ]
@@ -81,7 +91,8 @@ class AlertClipBuffer:
                         BufferedFrame(
                             frame_idx=newest.frame_idx,
                             ts_utc=newest.ts_utc,
-                            image_bgr=newest.image_bgr.copy(),
+                            image_bgr=(newest.image_bgr.copy()
+                                       if newest.image_bgr is not None else None),
                         )
                     )
             if current_frame_idx >= clip.end_frame_idx:
@@ -107,3 +118,25 @@ class AlertClipBuffer:
             ended_at=ended_at,
             metadata=clip.metadata,
         )
+
+
+def persist_clip(media_store, alert_store, clip: FinalizedAlertClip, fps: float) -> None:
+    """Write a finished clip and record it against its alert.
+
+    A media store that can produce clips asynchronously (submit_clip, i.e. one
+    cutting them from a recording) gets the job and records the media row when
+    the file exists; any other writes the buffered frames now. One helper so the
+    three pipelines that raise alerts with clips cannot diverge on it.
+    """
+    def record(path: str) -> None:
+        alert_store.add_alert_media(
+            alert_id=clip.alert_id, kind="clip", path=path, mime_type="video/mp4",
+            started_at=clip.started_at.isoformat() if clip.started_at else None,
+            ended_at=clip.ended_at.isoformat() if clip.ended_at else None,
+            metadata=clip.metadata)
+
+    submit = getattr(media_store, "submit_clip", None)
+    if submit is not None:
+        submit(clip, record)
+    else:
+        record(media_store.save_clip(clip.alert_id, clip, fps))

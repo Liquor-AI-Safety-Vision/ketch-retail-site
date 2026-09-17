@@ -250,7 +250,10 @@ def _run_partial(specs, layer, *, ctx, rings, free_qs, ring_specs, camera_decode
 
         dec_stats = []
         for _ in range(n_dec):
-            dec_stats.extend(await_message(stats_q, procs, what="decoder stats"))
+            # No deadline, as in the driver: this wait lasts as long as the
+            # run, and --duration above ten minutes used to be killed by it.
+            dec_stats.extend(await_message(stats_q, procs, what="decoder stats",
+                                           timeout_s=None))
         decode_done = time.time()
 
         for q in {id(q): q for q in decode_qs.values()}.values():

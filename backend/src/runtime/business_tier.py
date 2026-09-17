@@ -26,10 +26,11 @@ isinstance rather than needing two queues per camera.
 from __future__ import annotations
 
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
 
-from backend.src.pipelines.registry import COUNTER_CASH_THEFT, INTRUSION_IDS, build_pipeline
+from backend.src.pipelines.registry import COUNTER_CASH_THEFT, FACE_TARGET_IDS, build_pipeline
 from backend.src.runtime.frame_ring import FrameRing
 from backend.src.runtime.inference_server import FaceAnswer, FaceRequest, PerceptionResult, crop_face_patch
 
@@ -53,6 +54,10 @@ class BusinessStats:
     processing_started_at: float
     processing_ended_at: float
     pipeline_metrics: dict = field(default_factory=dict)
+    target_fps: float = 0.0
+    #: Decode -> business-done per frame, in ms: mean/p50/p95 over the most
+    #: recent frames, max over the whole run.
+    latency_ms: dict = field(default_factory=dict)
 
 
 class _CameraWorker:
@@ -78,6 +83,42 @@ class _CameraWorker:
         # face state is keyed by track_id alone -- fine, since each
         # _CameraWorker instance already belongs to exactly one camera.
         self.pending_face_count: dict[int, int] = {}
+        # (completed_at, latency_s) per frame. Bounded: a forever run must not
+        # grow a list per frame; 6000 frames is 20 min at 5 fps.
+        self._samples: deque[tuple[float, float]] = deque(maxlen=6000)
+        self._latency_max = 0.0
+
+    def _record_latency(self, frame_meta) -> None:
+        now = time.time()
+        latency_s = now - frame_meta.ts_utc.timestamp()
+        self._samples.append((now, latency_s))
+        self._latency_max = max(self._latency_max, latency_s)
+
+    def latency_summary(self) -> dict:
+        """Per-frame timing from the first processed frame to the last.
+
+        fps is measured between processed frames, so connection set-up before
+        the first frame is not counted against it. "late" counts frames whose
+        decode-to-done time exceeded one frame interval (1/target_fps) -- the
+        budget a frame has before the next one is due. max_gap is the longest
+        wait between two consecutive processed frames.
+        """
+        import numpy as np
+
+        if len(self._samples) < 2:
+            return {}
+        done = np.asarray([s[0] for s in self._samples])
+        lat = np.asarray([s[1] for s in self._samples]) * 1000.0
+        interval_ms = 1000.0 / max(1e-9, float(self.spec.target_fps))
+        return {"fps": round(float((len(done) - 1) / max(1e-9, done[-1] - done[0])), 3),
+                "p50": round(float(np.percentile(lat, 50)), 1),
+                "p95": round(float(np.percentile(lat, 95)), 1),
+                "p99": round(float(np.percentile(lat, 99)), 1),
+                "max": round(self._latency_max * 1000.0, 1),
+                "late": int((lat > interval_ms).sum()),
+                "interval_ms": round(interval_ms, 1),
+                "max_gap_ms": round(float(np.diff(done).max()) * 1000.0, 1),
+                "frames": int(len(done))}
 
     def handle_perception(self, result: PerceptionResult, frame_bgr) -> None:
         frame = result.frame_meta.to_envelope(frame_bgr)
@@ -89,7 +130,7 @@ class _CameraWorker:
             if handler.binding.pipeline_id == COUNTER_CASH_THEFT:
                 out = handler.handle_perceived(frame, result.boxes, result.kpts, result.feats,
                                                result.till_detections)
-            elif handler.binding.pipeline_id in INTRUSION_IDS:
+            elif handler.binding.pipeline_id in FACE_TARGET_IDS:
                 out, face_targets = handler.handle_perceived(frame, result.boxes, result.kpts, result.feats)
                 for track_id, ltrb, store_id, company_id in face_targets:
                     self._send_face_request(handler, track_id, ltrb, frame_bgr, store_id, company_id)
@@ -98,6 +139,7 @@ class _CameraWorker:
             self.alerts_emitted += int(out.get("alerts_emitted", 0))
             self.events_emitted += int(out.get("events_emitted", 0))
         self.frames_processed += 1
+        self._record_latency(result.frame_meta)
 
     def _send_face_request(self, handler, track_id, ltrb, frame_bgr, store_id, company_id) -> None:
         if self.face_q is None:
@@ -155,7 +197,8 @@ class _CameraWorker:
             camera_id=self.spec.camera_id, camera_type=self.spec.camera_type,
             frames_processed=self.frames_processed, alerts_emitted=self.alerts_emitted,
             events_emitted=self.events_emitted, processing_started_at=started_at,
-            processing_ended_at=ended_at, pipeline_metrics=pipeline_metrics)
+            processing_ended_at=ended_at, pipeline_metrics=pipeline_metrics,
+            target_fps=float(self.spec.target_fps), latency_ms=self.latency_summary())
 
 
 def _build_sink_factory(storage_mode: str, db_path: str):
@@ -184,6 +227,13 @@ def _build_sink_factory(storage_mode: str, db_path: str):
 
     from backend.src.infra.sqlite_alert_store import SqliteAlertStore
     return lambda: SqliteAlertStore(db_path)
+
+
+def _recording_of(spec) -> dict | None:
+    """The camera's stream.recording block, if its stream is being recorded."""
+    stream = (spec.raw_config or {}).get("stream") or {}
+    recording = stream.get("recording")
+    return recording if isinstance(recording, dict) and recording.get("playback_url") else None
 
 
 def run_business_process(shard: list, ring_specs: dict, free_qs: dict, business_qs: dict,
@@ -216,9 +266,6 @@ def _run_business_process(shard, ring_specs, free_qs, business_qs, db_path, medi
     cap_native_threads(1)
     rings = {spec.camera_id: FrameRing(ring_specs[spec.camera_id]) for spec in shard}
 
-    ready_q.put(("business", 1))
-    go_evt.wait()
-
     # One outbox per process, shared by every camera thread below, not one
     # sink per camera: the writer thread it starts is where the sink lives
     # (a sqlite3 connection is thread-affine; a psycopg2/boto3 one has no
@@ -226,10 +273,34 @@ def _run_business_process(shard, ring_specs, free_qs, business_qs, db_path, medi
     # switches without touching anything below this line.
     alert_outbox = AlertOutbox(_build_sink_factory(storage_mode, db_path))
 
-    def run_one(spec) -> BusinessStats:
-        alert_store = alert_outbox
+    # Cameras whose stream is recorded get their clips cut from the recording
+    # at native fps (infra/recorded_clips.py); one worker thread serves them all.
+    clip_worker = None
+    if any(_recording_of(spec) for spec in shard):
+        from backend.src.infra.recorded_clips import ClipWorker
+        clip_worker = ClipWorker()
+
+    # Every camera's pipelines are built before reporting ready -- zone files,
+    # the private FSM module, the run row -- so none of it lands on a first
+    # frame. The outbox above has already started opening its Neon/R2
+    # connections on its writer thread.
+    workers = {}
+    for spec in shard:
         media_store = LocalMediaStore(media_root)
-        worker = _CameraWorker(spec, alert_store, media_store, gallery_db_path, face_q)
+        recording = _recording_of(spec)
+        if recording:
+            from backend.src.infra.recorded_clips import RecordingClipMediaStore
+            media_store = RecordingClipMediaStore(
+                media_store, clip_worker, playback_url=recording["playback_url"],
+                path=recording.get("path", spec.camera_id))
+        workers[spec.camera_id] = _CameraWorker(spec, alert_outbox, media_store,
+                                                gallery_db_path, face_q)
+
+    ready_q.put(("business", 1))
+    go_evt.wait()
+
+    def run_one(spec) -> BusinessStats:
+        worker = workers[spec.camera_id]
         ring = rings[spec.camera_id]
         free_q = free_qs[spec.camera_id]
         business_q = business_qs[spec.camera_id]
@@ -266,12 +337,27 @@ def _run_business_process(shard, ring_specs, free_qs, business_qs, db_path, medi
     try:
         with ThreadPoolExecutor(max_workers=len(shard)) as pool:
             stats = list(pool.map(run_one, shard))
-        stats_q.put(stats)
-    finally:
         # Closing here (once, after every camera thread is done producing
         # writes) flushes the queue and re-raises the first write failure --
         # closing per-camera would either close a store other cameras still
         # feed, or race the last camera's still-enqueued writes.
+        #
+        # Before stats_q.put, not after. The parent takes these stats as
+        # "business is done" and from there gives every tier SHUTDOWN_GRACE_S
+        # before terminating it. Flushing after the put meant the tail of the
+        # outbox -- with cloud-db, R2 uploads of 5-15 MB clips -- raced that
+        # grace period, and lost to it whenever the backlog was long.
+        #
+        # Clips first: a clip being cut from the recording queues its media
+        # row into the outbox only when the file exists, so the outbox cannot
+        # close before the clip worker has finished.
+        if clip_worker is not None:
+            clip_worker.close()
         alert_outbox.close()
-        for ring in rings.values():
-            ring.close()
+        stats_q.put(stats)
+    finally:
+        try:
+            alert_outbox.close()  # no-op if the line above already ran
+        finally:
+            for ring in rings.values():
+                ring.close()

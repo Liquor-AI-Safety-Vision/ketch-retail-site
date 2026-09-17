@@ -21,7 +21,7 @@ from backend.src.perception.uae_tracker import Detection, Tracker, camera_config
 from backend.src.domain.models import CameraPipelineBindingSpec, CameraStreamSpec, FrameEnvelope
 from backend.src.infra.local_media_store import LocalMediaStore
 from backend.src.infra.sqlite_alert_store import SqliteAlertStore
-from backend.src.pipelines.alert_clip_buffer import AlertClipBuffer, FinalizedAlertClip
+from backend.src.pipelines.alert_clip_buffer import AlertClipBuffer, FinalizedAlertClip, persist_clip
 from backend.src.pipelines.track_quality import record_track_quality
 from backend.src.runtime.shared_inference import SharedFaceIdentifier, SharedInferenceRegistry
 from backend.src.common.paths import model_path
@@ -45,6 +45,22 @@ logger = logging.getLogger(__name__)
 
 DAY_NAMES = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 BOOTSTRAP_LOCK = threading.Lock()
+
+
+def _store_local_time(frame: FrameEnvelope, store_timezone: str) -> datetime:
+    """The wall-clock time at the store when this frame was taken.
+
+    The simulated clock when the manifest enables one, the real clock
+    otherwise. This used to read simulated_local_ts alone, which is None
+    whenever the simulation clock is off -- and _in_allowed_window(None) is
+    False, so on a real clock every staff entry was "outside the allowed
+    window" at every hour of the day.
+    """
+    if frame.simulated_local_ts is not None:
+        return frame.simulated_local_ts
+    from zoneinfo import ZoneInfo
+
+    return frame.ts_utc.astimezone(ZoneInfo(store_timezone))
 
 
 def _parse_hhmm(value: str) -> int:
@@ -155,6 +171,7 @@ class StorageIntrusionPipeline:
             spec.target_fps,
             pre_seconds=float(alert_clip_cfg.get("pre_s", 15.0)),
             post_seconds=float(alert_clip_cfg.get("post_s", 15.0)),
+            keep_images=getattr(media_store, "needs_clip_frames", True),
         )
         self.det = None
         self.emb = None
@@ -410,16 +427,7 @@ class StorageIntrusionPipeline:
     def _persist_ready_clips(self, clips: list[FinalizedAlertClip]):
         with self.timing.track("clip_persist_io"):
             for clip in clips:
-                clip_path = self.media_store.save_clip(clip.alert_id, clip, self.spec.target_fps)
-                self.alert_store.add_alert_media(
-                    alert_id=clip.alert_id,
-                    kind="clip",
-                    path=clip_path,
-                    mime_type="video/mp4",
-                    started_at=clip.started_at.isoformat() if clip.started_at else None,
-                    ended_at=clip.ended_at.isoformat() if clip.ended_at else None,
-                    metadata=clip.metadata,
-                )
+                persist_clip(self.media_store, self.alert_store, clip, self.spec.target_fps)
 
     def finalize(self) -> int:
         """Close out anything still open. Returns alerts emitted while doing so.
@@ -715,7 +723,7 @@ class StorageIntrusionPipeline:
                     track_id=tid,
                     event_frame_idx=frame.frame_idx,
                     event_ts_utc=frame.ts_utc,
-                    event_local_ts=frame.simulated_local_ts,
+                    event_local_ts=_store_local_time(frame, self.spec.store_timezone),
                     # A copy, not the frame itself. This gets read back out
                     # for a snapshot whenever the entry window closes, up to
                     # post_entry_frames later -- and in the split

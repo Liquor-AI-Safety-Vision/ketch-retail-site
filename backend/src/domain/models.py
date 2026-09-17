@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Optional
 
@@ -119,6 +119,10 @@ class CameraStreamSpec:
     simulation_profile: dict[str, Any]
     pipeline_bindings: list[CameraPipelineBindingSpec]
     raw_config: dict[str, Any]
+    #: Files a video_file camera cycles through instead of source_path alone:
+    #: [{"path": resolved path, "repeat": n}, ...]. Empty for a single file.
+    #: See VirtualVideoStreamSource for how a pass through it is played.
+    playlist: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def pipeline_ids(self) -> list[str]:

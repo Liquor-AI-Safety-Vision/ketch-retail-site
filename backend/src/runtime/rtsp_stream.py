@@ -17,6 +17,7 @@ Measurements behind the design are in docs/RTSP_MIGRATION.md.
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from datetime import timezone
 
@@ -103,8 +104,13 @@ class RtspStreamSource:
     def _validate(self) -> None:
         if self.plan.target_fps <= 0:
             raise ValueError("target_fps must be > 0")
-        if self.plan.target_duration_s <= 0:
-            raise ValueError("target_duration_s must be > 0")
+        # strategy=forever is what a deployed camera wants: read until the
+        # operator stops the run. A finite target_duration_s remains for
+        # benchmarks, which need the run to end on its own.
+        if self.plan.target_duration_s <= 0 and not self.plan.endless:
+            raise ValueError(
+                "target_duration_s must be > 0, or set strategy=forever to read the "
+                "camera until the run is stopped")
         # Rejected rather than ignored: a manifest asking a camera to start 30s
         # in, or to loop, has a misunderstanding in it that should surface at
         # startup instead of quietly producing a stream that does neither.
@@ -112,6 +118,10 @@ class RtspStreamSource:
             raise ValueError(
                 f"camera={self.spec.camera_id} start_s={self.plan.start_s} is meaningless "
                 "for a live camera; there is nothing to seek to")
+        if self.spec.playlist:
+            raise ValueError(
+                f"camera={self.spec.camera_id} stream.playlist is for video files; a live "
+                "camera has one stream")
         if self.plan.strategy == "loop_to_duration":
             raise ValueError(
                 f"camera={self.spec.camera_id} strategy=loop_to_duration is meaningless "
@@ -274,6 +284,39 @@ class RtspStreamSource:
                 time.sleep(backoff)
                 backoff = min(backoff * 2.0, self.reconnect_backoff_max_s)
 
+    def keep_warm(self) -> None:
+        """Connect now and keep reading, so the stream is live the moment it is wanted.
+
+        Called before a run's clock starts. Without it the connection is made
+        on the first frame request -- measured ~3 s of RTSP setup and keyframe
+        wait inside the run -- and a connection opened early but not read fills
+        its buffer with frames that are stale by the time anyone asks for them.
+        The drain thread discards frames until iter_timed_frames takes over the
+        same capture.
+        """
+        if getattr(self, "_warm_cap", None) is not None:
+            return
+        self._warm_cap = self._open_capture()
+        self._warm_stop = threading.Event()
+
+        def drain():
+            while not self._warm_stop.is_set():
+                if not self._warm_cap.grab():
+                    time.sleep(0.05)
+
+        self._warm_thread = threading.Thread(target=drain, daemon=True,
+                                             name=f"{self.spec.camera_id}-rtsp-warm")
+        self._warm_thread.start()
+
+    def _take_warm_capture(self):
+        cap = getattr(self, "_warm_cap", None)
+        if cap is None:
+            return None
+        self._warm_stop.set()
+        self._warm_thread.join(timeout=5.0)
+        self._warm_cap = None
+        return cap
+
     def iter_timed_frames(self, pace_realtime: bool = True):
         """Yield (FrameEnvelope, timing) pairs.
 
@@ -290,11 +333,11 @@ class RtspStreamSource:
         source_step = self.info.native_fps / self.plan.target_fps
         source_acc = 0.0
         source_frame_idx = 0
-        cap = self._open_capture()
+        cap = self._take_warm_capture() or self._open_capture()
         last_frame_at = time.perf_counter()
 
         try:
-            while emitted < target_frames:
+            while self.plan.endless or emitted < target_frames:
                 grab_s_total = 0.0
                 skipped_source_frames = 0
                 retrieve_s = 0.0

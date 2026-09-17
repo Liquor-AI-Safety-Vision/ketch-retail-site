@@ -95,6 +95,8 @@ _ACCESS_WINDOW = Section(
     required=frozenset({"days", "start", "end"}),
 )
 
+_PLAYLIST_ENTRY = Section(keys={"uri": str, "repeat": int}, required=frozenset({"uri"}))
+
 # The till FSM's thresholds, read from the one table the pipeline also reads
 # (backend/src/pipelines/fsm_tuning.py) rather than typed out a second time --
 # a key listed here but no longer honoured there is exactly the correctly
@@ -159,6 +161,20 @@ PIPELINE_PARAMS: dict[str, Section] = {
     # and described behaviour that does not exist; it is gone rather than
     # warned about, so writing it again is an error naming an unknown key.
     "whole_store_tracking_v1": Section(keys={}),
+    "entrance_face_capture_v1": Section(
+        keys={
+            "zone_config_path": str,
+            "zone_asset_key": str,
+            "entry_confirm_seconds": NUMBER,
+            "min_face_h": NUMBER,
+            "face_top_frac": NUMBER,
+            "face_capture_window": dict,
+            "alert_clip": dict,
+        },
+        required=frozenset({"zone_config_path"}),
+        children={"face_capture_window": Section(keys={"end_after_inside_s": NUMBER}),
+                  "alert_clip": _ALERT_CLIP},
+    ),
 }
 PIPELINE_PARAMS["cold_storage_intrusion_v1"] = PIPELINE_PARAMS["storage_intrusion_v1"]
 
@@ -174,6 +190,12 @@ CAMERA = Section(
         "stream": Section(
             keys={
                 "input_mode": str, "uri": str, "simulation": dict, "rtsp": dict,
+                # video_file only: cycle through several files as one camera.
+                # Entries are checked against _PLAYLIST_ENTRY below.
+                "playlist": list,
+                # Where this stream is recorded; evidence clips are cut from it
+                # at native fps (infra/recorded_clips.py).
+                "recording": dict,
                 # Legacy spellings local_config still falls back to.
                 "kind": str, "path": str, "strategy": str, "start_s": NUMBER,
             },
@@ -183,6 +205,8 @@ CAMERA = Section(
                 "simulation": Section(
                     keys={"strategy": str, "start_s": NUMBER, "target_duration_s": NUMBER}
                 ),
+                "recording": Section(keys={"playback_url": str, "path": str},
+                                     required=frozenset({"playback_url"})),
                 "rtsp": Section(
                     keys={
                         "transport": str, "open_timeout_ms": int, "read_timeout_ms": int,
@@ -374,6 +398,12 @@ def validate_manifest(data: dict, *, path: str = "<manifest>") -> list[str]:
         _check(camera, CAMERA, where, errors, inert_hits)
         if not isinstance(camera, dict):
             continue
+
+        stream = camera.get("stream") or camera.get("source") or {}
+        if isinstance(stream, dict):
+            for p_idx, entry in enumerate(stream.get("playlist", []) or []):
+                _check(entry, _PLAYLIST_ENTRY, f"{where}.stream.playlist[{p_idx}]",
+                       errors, inert_hits)
 
         for binding in camera.get("pipelines", []) or []:
             if not isinstance(binding, dict):

@@ -21,6 +21,12 @@ only then does the face queue get its stop signal. Stopping face earlier
 would drop answers business workers are still waiting on; stopping business
 earlier would drop the tail of perception.
 
+A run whose cameras use strategy=forever has no stream that ends, so it is
+ended from outside: the first SIGINT (Ctrl+C) or SIGTERM sets stop_evt, each
+decoder returns after its current frame, and the same ordered shutdown above
+runs from there -- alerts still in the outbox are flushed, not lost. A second
+signal stops waiting and tears the tiers down.
+
     python backend/src/app/run_split_pipeline.py --cameras 16 \\
         --decoders 4 --inferers 2 --infer-threads 2 --business 2
 
@@ -54,12 +60,16 @@ if str(ROOT) not in sys.path:
 # cost 5x on every inference call.
 from backend.src.runtime.perf import cap_native_threads  # noqa: E402
 from backend.src.common.paths import backend_root, model_path
-from backend.src.pipelines.registry import COUNTER_CASH_THEFT, INTRUSION_IDS
+from backend.src.pipelines.registry import (
+    COUNTER_CASH_THEFT, ENTRANCE_FACE_CAPTURE, FACE_TARGET_IDS, INTRUSION_IDS)
 from backend.src.common.logging_setup import configure_logging
 
 cap_native_threads(1)
 
-MAX_FRAME_SHAPE = (1080, 1920, 3)
+# Height 1440, not 1080: the entrance camera is 1280x1440. Every slot is sized
+# for the largest frame any camera may send; the check that refuses a frame
+# larger than this is in decode_tier._run_camera.
+MAX_FRAME_SHAPE = (1440, 1920, 3)
 
 # The decoder writes pose blobs of this shape and dtype into every ring slot,
 # and the inference lanes verify at startup that the pose model agrees (a
@@ -95,7 +105,7 @@ def _default_conf_for(spec) -> float:
     decoder decides conf before any pipeline object exists, so it has to
     know the same defaults rather than picking one arbitrarily."""
     for binding in spec.pipeline_bindings:
-        if binding.pipeline_id in INTRUSION_IDS:
+        if binding.pipeline_id in INTRUSION_IDS or binding.pipeline_id == ENTRANCE_FACE_CAPTURE:
             return 0.45
     return 0.35
 
@@ -122,10 +132,12 @@ def _camera_face_config(spec):
     from backend.src.runtime.inference_server import FaceCameraConfig
 
     for binding in spec.pipeline_bindings:
-        if binding.pipeline_id not in INTRUSION_IDS:
+        if binding.pipeline_id not in FACE_TARGET_IDS:
             continue
         face_cfg = spec.perception_profile.get("face_identity", {})
-        if not face_cfg.get("enabled", False):
+        # Entrance has no reason to exist without faces, so it does not wait
+        # for face_identity.enabled; the intrusion pipelines still do.
+        if not face_cfg.get("enabled", False) and binding.pipeline_id != ENTRANCE_FACE_CAPTURE:
             return None
         return FaceCameraConfig(
             face_conf=float(face_cfg.get("face_conf", 0.20)),
@@ -133,6 +145,9 @@ def _camera_face_config(spec):
             iou_thres=float(face_cfg.get("iou_thres", 0.45)),
             match_threshold=float(face_cfg.get("match_threshold", 0.30)),
             match_margin=float(face_cfg.get("match_margin", 0.10)),
+            # Storage doors ask "is this staff?", the entrance asks "is this a
+            # known shoplifter?" -- never both, see SharedFaceIdentifier.
+            match_is_staff=binding.pipeline_id != ENTRANCE_FACE_CAPTURE,
         )
     return None
 
@@ -143,7 +158,7 @@ def run(specs, *, decoders: int, inferers: int, infer_threads: int, businesses: 
        gallery_db_path: str, slots_per_camera: int,
        pose_num_workers: int = 1, pose_max_batch: int = 1,
        pose_blob_dtype: str = POSE_BLOB_DTYPE, reid_shared: bool = False,
-       reid_num_workers: int = 1, storage_mode: str = "local-db"):
+       reid_num_workers: int = 1, storage_mode: str = "local-db", stop_evt=None):
     from backend.src.runtime.business_tier import run_business_process
     from backend.src.runtime.decode_tier import run_decoder_process
     from backend.src.runtime.frame_ring import FrameRing
@@ -219,7 +234,7 @@ def run(specs, *, decoders: int, inferers: int, infer_threads: int, businesses: 
                     slots_per_camera=slots_per_camera, pose_num_workers=pose_num_workers,
                     pose_max_batch=pose_max_batch, pose_blob_dtype=pose_blob_dtype,
                     reid_shared=reid_shared, reid_num_workers=reid_num_workers,
-                    storage_mode=storage_mode)
+                    storage_mode=storage_mode, stop_evt=stop_evt)
     finally:
         # The rings are owned here, so this is the only place that can unlink
         # them. Without the finally, any failure between allocation and the
@@ -264,7 +279,7 @@ def _run(specs, *, ctx, rings, free_qs, ring_specs, camera_decode_cfg, camera_fa
          till_model, till_imgsz, face_model, arcface_model, db_path, media_root,
          gallery_db_path, slots_per_camera, pose_num_workers=1, pose_max_batch=1,
          pose_blob_dtype=POSE_BLOB_DTYPE, reid_shared: bool = False,
-         reid_num_workers: int = 1, storage_mode: str = "local-db"):
+         reid_num_workers: int = 1, storage_mode: str = "local-db", stop_evt=None):
     """Start the tiers, run them, shut them down in the order frames flow.
 
     Split out from run() so the rings run() owns are closed in its finally
@@ -301,7 +316,7 @@ def _run(specs, *, ctx, rings, free_qs, ring_specs, camera_decode_cfg, camera_fa
         target=run_decoder_process, name=f"decode-{i}",
         args=(shard, ring_specs, free_qs, decode_qs, camera_decode_cfg),
         kwargs=dict(pose_imgsz=POSE_IMGSZ, pose_dtype_name=pose_blob_dtype,
-                   ready_q=ready_q, go_evt=go_evt, stats_q=stats_q))
+                   ready_q=ready_q, go_evt=go_evt, stats_q=stats_q, stop_evt=stop_evt))
         for i, shard in enumerate(dec_shards)]
 
     infer_config = InferenceConfig(pose_model=pose_model, reid_model=reid_model,
@@ -365,7 +380,12 @@ def _run(specs, *, ctx, rings, free_qs, ring_specs, camera_decode_cfg, camera_fa
         # and thrown away at the last step.
         all_stats = []
         for _ in dec_procs:
-            all_stats.extend(await_message(stats_q, all_procs, what="decoder stats"))
+            # No deadline: decoders report when their streams end, so this
+            # wait is the run itself -- minutes for a benchmark, indefinitely
+            # for strategy=forever. The 600s default here used to kill any run
+            # longer than ten minutes. A dead tier still raises immediately.
+            all_stats.extend(await_message(stats_q, all_procs, what="decoder stats",
+                                           timeout_s=None))
         for q in {id(q): q for q in decode_qs.values()}.values():
             q.put(None)
 
@@ -413,6 +433,29 @@ def _run(specs, *, ctx, rings, free_qs, ring_specs, camera_decode_cfg, camera_fa
             p.join(timeout=5)
 
     return biz_stats, all_stats, load_s
+
+
+def _stop_on_signal(stop_evt) -> None:
+    """First SIGINT/SIGTERM: stop cleanly. Second: stop waiting.
+
+    SIGTERM matters as much as Ctrl+C: it is what a process manager, `kill`
+    or run_forever.sh sends, and without a handler it kills the parent on the
+    spot -- no drain, no flush, tiers left to the parent-watchdog.
+    """
+    import signal
+
+    def handle(signum, _frame):
+        if stop_evt.is_set():
+            print("second stop signal: tearing the tiers down without draining",
+                  file=sys.stderr)
+            signal.signal(signal.SIGINT, signal.default_int_handler)
+            raise KeyboardInterrupt
+        print(f"{signal.Signals(signum).name}: stopping after the current frame and "
+              f"flushing alerts; send it again to stop immediately", file=sys.stderr)
+        stop_evt.set()
+
+    signal.signal(signal.SIGINT, handle)
+    signal.signal(signal.SIGTERM, handle)
 
 
 def _load_dotenv(path: Path) -> None:
@@ -463,8 +506,6 @@ def main() -> None:
              "default. cloud-db: NeonDB (Postgres) + Cloudflare R2, read from "
              "DATABASE_URL/R2_* in .env.")
     args = p.parse_args()
-    if args.gallery_db is None:
-        args.gallery_db = args.db_path
 
     if args.storage_mode == "cloud-db":
         _load_dotenv(ROOT / ".env")
@@ -476,6 +517,12 @@ def main() -> None:
                 f"--storage-mode cloud-db needs {missing} in the environment or in "
                 f"{ROOT / '.env'}; none of these are hardcoded anywhere on purpose")
 
+    if args.gallery_db is None:
+        # cloud-db keeps staff in Neon beside the stores they belong to, rather
+        # than in a SQLite file that lives and dies with one GPU box.
+        args.gallery_db = (os.environ["DATABASE_URL"] if args.storage_mode == "cloud-db"
+                           else args.db_path)
+
     from backend.src.infra.local_config import camera_specs_from_manifests
 
     specs = camera_specs_from_manifests(args.manifest)[:args.cameras]
@@ -483,6 +530,9 @@ def main() -> None:
     print(f"stores={stores} cameras={len(specs)} decoders={args.decoders} "
          f"inferers={args.inferers}x{args.infer_threads} business={args.business}",
          file=sys.stderr)
+
+    stop_evt = mp.get_context("spawn").Event()
+    _stop_on_signal(stop_evt)
 
     started_at = time.time()
     biz_stats, _all_stats, load_s = run(
@@ -493,7 +543,7 @@ def main() -> None:
         face_model=args.face_model, arcface_model=args.arcface_model,
         db_path=args.db_path, media_root=args.media_root,
         gallery_db_path=args.gallery_db, slots_per_camera=args.slots_per_camera,
-        storage_mode=args.storage_mode)
+        storage_mode=args.storage_mode, stop_evt=stop_evt)
 
     frames = sum(s.frames_processed for s in biz_stats)
     alerts = sum(s.alerts_emitted for s in biz_stats)
@@ -510,6 +560,24 @@ def main() -> None:
     for s in _all_stats:
         print(f"  {s!r}", file=sys.stderr)
 
+    # Per camera, measured from its first processed frame to its last: did it
+    # keep its target rate, and did each frame finish inside one frame interval?
+    from backend.src.runtime.decode_tier import DecoderStats
+
+    dec_by_cam = {d.camera_id: d for d in _all_stats if isinstance(d, DecoderStats)}
+    print(f"\n{'camera':24} {'target':>6} {'fps':>6} {'p50':>6} {'p95':>6} {'p99':>6} "
+          f"{'max':>6} {'budget':>7} {'late':>9} {'maxgap':>7} {'grab/src':>9}", file=sys.stderr)
+    for s in sorted(biz_stats, key=lambda b: b.camera_id):
+        lat = s.latency_ms or {}
+        dec = dec_by_cam.get(s.camera_id)
+        grab = (f"{dec.grab_s / dec.source_frames * 1000:7.1f}ms"
+                if dec and dec.source_frames else "      -")
+        print(f"{s.camera_id:24} {s.target_fps:6.1f} {lat.get('fps', 0):6.2f} "
+              f"{lat.get('p50', 0):5.0f}ms{lat.get('p95', 0):5.0f}ms{lat.get('p99', 0):5.0f}ms"
+              f"{lat.get('max', 0):5.0f}ms {lat.get('interval_ms', 0):5.0f}ms "
+              f"{lat.get('late', 0):4d}/{lat.get('frames', 0):<4d} {lat.get('max_gap_ms', 0):5.0f}ms "
+              f"{grab}", file=sys.stderr)
+
     import json
 
     results = [{
@@ -517,6 +585,7 @@ def main() -> None:
         "frames_processed": s.frames_processed, "alerts_emitted": s.alerts_emitted,
         "events_emitted": s.events_emitted, "processing_started_at": s.processing_started_at,
         "processing_ended_at": s.processing_ended_at, "pipeline_metrics": s.pipeline_metrics,
+        "target_fps": s.target_fps, "latency_ms": s.latency_ms,
     } for s in biz_stats]
     print(json.dumps(results, default=str))
     print(f"\nwall-clock incl. load : {time.time() - started_at:7.1f} s", file=sys.stderr)

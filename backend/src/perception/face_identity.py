@@ -255,7 +255,9 @@ class FaceGallery:
         self.conn.commit()
         return int(cur.lastrowid)
 
-    def iter_embeddings(self, store_id=None, company_id=None):
+    def iter_embeddings(self, store_id=None, company_id=None, is_staff=None):
+        """is_staff narrows the gallery to one role: True for staff, False for
+        everyone else (a watchlist). None searches both, as it always did."""
         query = """
             SELECT e.embedding_id, e.person_id, e.embedding, e.image_path,
                    p.display_name, p.is_staff, p.company_id, p.store_id
@@ -270,6 +272,9 @@ class FaceGallery:
         if company_id is not None:
             where.append("p.company_id = ?")
             params.append(company_id)
+        if is_staff is not None:
+            where.append("p.is_staff = ?")
+            params.append(int(bool(is_staff)))
         if where:
             query += " WHERE " + " AND ".join(where)
         cur = self.conn.execute(query, params)
@@ -286,7 +291,7 @@ class FaceGallery:
                 "embedding": emb,
             }
 
-    def summarize(self, store_id=None, company_id=None):
+    def summarize(self, store_id=None, company_id=None, is_staff=None):
         """Count what match() would actually search under the same filters.
 
         A scope that matches nothing is indistinguishable from a genuine
@@ -307,6 +312,9 @@ class FaceGallery:
         if company_id is not None:
             where.append("p.company_id = ?")
             params.append(company_id)
+        if is_staff is not None:
+            where.append("p.is_staff = ?")
+            params.append(int(bool(is_staff)))
         if where:
             query += " WHERE " + " AND ".join(where)
         row = self.conn.execute(query, params).fetchone()
@@ -319,11 +327,12 @@ class FaceGallery:
         }
 
     def match(self, embedding, threshold=0.30, margin=0.10,
-              store_id=None, company_id=None):
+              store_id=None, company_id=None, is_staff=None):
         emb = np.asarray(embedding, np.float32).reshape(-1)
         emb = emb / (np.linalg.norm(emb) + 1e-9)
         best_by_person = {}
-        for rec in self.iter_embeddings(store_id=store_id, company_id=company_id):
+        for rec in self.iter_embeddings(store_id=store_id, company_id=company_id,
+                                        is_staff=is_staff):
             sim = float(np.dot(emb, rec["embedding"]))
             hit = PersonMatch(
                 person_id=rec["person_id"],

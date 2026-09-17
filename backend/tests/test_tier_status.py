@@ -125,3 +125,32 @@ def test_hard_killed_child_is_caught_by_liveness_not_timeout():
         assert elapsed < 20, f"took {elapsed:.1f}s -- liveness check did not fire"
     finally:
         proc.join(timeout=10)
+
+
+def _child_reports_late(ready_q, stats_q):
+    with tier_guard("test", ready_q, stats_q):
+        ready_q.put(("test", 1))
+        time.sleep(3.0)
+        stats_q.put("done")
+
+
+def test_no_deadline_waits_out_a_long_run_but_a_deadline_does_not():
+    """Decoder stats arrive when the streams end. With the old fixed 600s
+    deadline on that wait, every run longer than ten minutes was torn down
+    as a 'hang'. Scaled down here: 3s of work, against a 1s deadline and
+    against none."""
+    ready_q, stats_q, procs, proc = _run(_child_reports_late)
+    try:
+        assert await_message(ready_q, procs, what="ready", timeout_s=30) == ("test", 1)
+        with pytest.raises(TierProcessError) as excinfo:
+            await_message(stats_q, procs, what="stats", timeout_s=1)
+        assert "timed out" in str(excinfo.value)
+    finally:
+        proc.join(timeout=10)
+
+    ready_q, stats_q, procs, proc = _run(_child_reports_late)
+    try:
+        assert await_message(ready_q, procs, what="ready", timeout_s=30) == ("test", 1)
+        assert await_message(stats_q, procs, what="stats", timeout_s=None) == "done"
+    finally:
+        proc.join(timeout=10)

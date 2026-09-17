@@ -16,7 +16,7 @@ import onnxruntime as ort
 
 
 from backend.src.perception.face_align import align  # noqa: E402
-from backend.src.perception.face_identity import FaceGallery, FaceObservation, MatchDecision  # noqa: E402
+from backend.src.perception.face_identity import FaceObservation, MatchDecision  # noqa: E402
 
 
 ReqT = TypeVar("ReqT")
@@ -830,10 +830,19 @@ class SharedFaceIdentifier:
         face_conf: float = 0.20,
         crop_expand: float = 0.12,
         iou: float = 0.45,
+        match_is_staff: bool | None = None,
     ):
+        from backend.src.infra.postgres_face_gallery import open_face_gallery
+
+        # Which role this camera compares faces against: True = staff only
+        # (a storage door), False = non-staff only (the entrance watchlist).
+        # Searching everyone would let a watchlisted face count as "recognised"
+        # at a storage door, and that pipeline alerts on unknown faces only.
+        self.match_is_staff = match_is_staff
         self.face_detector = face_detector
         self.arcface = arcface
-        self.gallery = FaceGallery(gallery_db_path)
+        # A SQLite path or, under cloud-db, the Neon DSN the staff live in.
+        self.gallery = open_face_gallery(gallery_db_path)
         self.match_threshold = match_threshold
         self.match_margin = match_margin
         self.face_conf = face_conf
@@ -887,6 +896,7 @@ class SharedFaceIdentifier:
             margin=self.match_margin,
             store_id=store_id,
             company_id=company_id,
+            is_staff=self.match_is_staff,
         )
         return MatchDecision(
             observation=obs,

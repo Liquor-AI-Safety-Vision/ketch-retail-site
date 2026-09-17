@@ -77,6 +77,56 @@ Camera RTSP thật rất hay không báo fps. Khi đó khai tay:
 "stream": { "input_mode": "rtsp", "uri": "rtsp://...", "rtsp": { "native_fps": 25 } }
 ```
 
+### `strategy` — khi nào một luồng kết thúc
+
+| `strategy` | video file | rtsp | cần `target_duration_s` |
+| --- | --- | --- | --- |
+| `trim` (mặc định) | dừng ở cuối clip hoặc hết thời lượng | chạy đủ thời lượng | có |
+| `loop_to_duration` | lặp clip tới hết thời lượng | **báo lỗi** | có |
+| `forever` | lặp clip **mãi mãi**, phát theo nhịp thời gian thực | đọc camera **mãi mãi** | không (có khai cũng bị bỏ qua) |
+
+Video: khai ở `stream.simulation.strategy`. RTSP: khai ở `stream.strategy`.
+
+```json
+"stream": {
+  "input_mode": "video_file",
+  "uri": "${DATA_ROOT}/videos/cctv_counter/counter_1h.mp4",
+  "simulation": { "strategy": "forever" }
+}
+```
+
+`forever` là chế độ triển khai; `trim`/`loop_to_duration` dành cho benchmark,
+vốn cần run tự kết thúc. Khác biệt đáng nhớ: video ở chế độ `forever` được **phát
+theo nhịp thực** (đúng `target_fps` như một camera), còn benchmark đọc nhanh hết
+mức GPU cho phép — nên số FPS của run `forever` không so được với số benchmark.
+
+Run `forever` dừng bằng `Ctrl+C` hoặc `kill -TERM <pid>` của `run_split_pipeline`:
+lần đầu dừng êm (decoder thôi đọc, các tầng xả hết, alert còn trong hàng đợi được
+ghi xong, thoát mã 0); lần thứ hai dừng ngay không chờ xả.
+
+### `stream.playlist` — một camera, nhiều file
+
+Chỉ cho `video_file`, và chỉ với `strategy` là `forever` hoặc `loop_to_duration`:
+
+```json
+"stream": {
+  "input_mode": "video_file",
+  "uri": "${DATA_ROOT}/videos/cctv_counter/cash_till_open_2.mp4",
+  "simulation": { "strategy": "forever" },
+  "playlist": [
+    { "uri": "${DATA_ROOT}/videos/cctv_counter/cash_till_open_2.mp4", "repeat": 100 },
+    { "uri": "${DATA_ROOT}/videos/counter-generated/Right/cvlp_h3_00013_.mp4", "repeat": 1 }
+  ]
+}
+```
+
+Phát file 1 đủ `repeat` lần, rồi file 2, rồi quay lại từ đầu. Mỗi file tự tính lại
+bước lấy mẫu theo fps của chính nó, và **mọi frame được resize về độ phân giải của
+file đầu tiên** — tracker, zone và ngưỡng pixel của FSM đều dựng từ frame đầu, nên
+chèn clip 960x544 vào camera 1920x1080 mà không resize thì mọi box lệch chỗ và không
+có gì báo lỗi. `uri` ở cấp `stream` vẫn phải khai (schema yêu cầu); nên để trùng file
+đầu của playlist.
+
 ### `camera.perception` — nhận thức
 
 | khoá | tới |
@@ -136,6 +186,39 @@ gốc — trong split tier nhiều camera là thread trong cùng một process, 
 `Config` sẽ retune lẫn nhau, đúng lỗi mà FSM globals từng mắc. Tên không có
 trong `Config` thì **báo lỗi**, vì một ngưỡng tracker không ai đọc là cách tốn
 một ngày chỉnh một con số vô nghĩa.
+
+Camera **lối vào** (`entrance_face_capture_v1`) — bản production của
+`demo/demo_entrance_face.py`. Với mỗi người **đi từ ngoài vào**, gửi yêu cầu nhận
+mặt mỗi frame và chỉ tin những mặt qua được bộ lọc chất lượng. Mặt được so với
+**danh sách đen** của store (người có `is_staff = 0`). Khi xác nhận vào vùng:
+
+- có mặt khớp → **alert** `event_type: watchlist_match`, `severity: warning`, kèm
+  ảnh chụp, ảnh mặt khớp và clip bằng chứng;
+- không khớp → **không ghi gì**, chỉ đếm và ghi log độ giống nhất (để chỉnh ngưỡng).
+
+| khoá | mặc định | tác dụng |
+| --- | --- | --- |
+| `zone_config_path` | bắt buộc | file vùng, vd. `entrance_zone.json` |
+| `zone_asset_key` | `entrance` | khoá trong file vùng |
+| `entry_confirm_seconds` | 0.5 | làm tròn **lên** thành frame (0.5 s @ 5 fps = 3) |
+| `min_face_h` | 32 | mặt thấp hơn số px này bị bỏ (rác đo được 10–29 px) |
+| `face_top_frac` | 0.35 | tâm mặt phải nằm trong 35% trên của box người |
+| `face_capture_window.end_after_inside_s` | 1.0 | chờ thêm câu trả lời mặt đang bay sau khi vào |
+| `alert_clip.pre_s` / `post_s` | 15 / 15 | clip bằng chứng |
+
+Ngưỡng khớp ở `perception.face_identity.match_threshold` / `match_margin`, ngưỡng
+detect mặt ở `face_conf`. Camera entrance luôn có tầng face.
+
+**Vai trò gallery theo camera:** camera kho chỉ so với **nhân viên**, camera entrance
+chỉ so với **danh sách đen**. Nếu so với tất cả, một người trong danh sách đen bước
+vào kho sẽ bị coi là "đã nhận ra" và pipeline kho — vốn chỉ báo người lạ — sẽ im lặng.
+
+### Nhân viên (gallery mặt) ở chế độ `cloud-db`
+
+`--storage-mode cloud-db` đọc nhân viên từ bảng `persons` / `face_embeddings` trên
+Neon (không cần `--gallery-db`), lọc theo `store_id` + `company_id` của camera.
+Danh sách được nạp vào bộ nhớ và làm mới mỗi 60 s; mất kết nối thì giữ danh sách cũ.
+Nạp store, nhân viên và owner: `backend/tools/seed_cloud_store.py`.
 
 ### `match_thres` đã bị gỡ
 

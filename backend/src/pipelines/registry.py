@@ -37,10 +37,15 @@ COUNTER_CASH_THEFT = "counter_cash_theft_v1"
 STORAGE_INTRUSION = "storage_intrusion_v1"
 COLD_STORAGE_INTRUSION = "cold_storage_intrusion_v1"
 WHOLE_STORE_TRACKING = "whole_store_tracking_v1"
+ENTRANCE_FACE_CAPTURE = "entrance_face_capture_v1"
 
 INTRUSION_IDS = frozenset({STORAGE_INTRUSION, COLD_STORAGE_INTRUSION})
+#: Pipelines whose handle_perceived returns (result, face_targets) and that
+#: take answers back through handle_face_answer. The business tier dispatches
+#: on this and the driver starts a face tier for any camera bound to one.
+FACE_TARGET_IDS = INTRUSION_IDS | {ENTRANCE_FACE_CAPTURE}
 KNOWN_PIPELINE_IDS = frozenset(
-    {COUNTER_CASH_THEFT, WHOLE_STORE_TRACKING} | INTRUSION_IDS
+    {COUNTER_CASH_THEFT, WHOLE_STORE_TRACKING} | FACE_TARGET_IDS
 )
 
 
@@ -78,6 +83,7 @@ def build_pipeline(
     # perception stack, and the registry is imported by callers that only want
     # KNOWN_PIPELINE_IDS.
     from backend.src.pipelines.counter_cash_theft import CounterCashTheftPipeline
+    from backend.src.pipelines.entrance_face_capture import EntranceFaceCapturePipeline
     from backend.src.pipelines.storage_intrusion import StorageIntrusionPipeline
     from backend.src.pipelines.tracking_baseline import TrackingBaselinePipeline
 
@@ -87,6 +93,9 @@ def build_pipeline(
         return CounterCashTheftPipeline(
             spec, binding, alert_store, media_store, run_id,
             cpu_only=cpu_only, shared_inference=shared_inference)
+
+    if pipeline_id == ENTRANCE_FACE_CAPTURE:
+        return EntranceFaceCapturePipeline(spec, binding, alert_store, media_store, run_id)
 
     if pipeline_id in INTRUSION_IDS:
         return StorageIntrusionPipeline(

@@ -89,6 +89,10 @@ def camera_specs_from_manifest(path: str | Path) -> list[CameraStreamSpec]:
         source_kind = stream.get("input_mode", stream.get("kind"))
         source_uri = stream.get("uri", stream.get("path"))
         resolved_source_uri = _resolve_optional_path(source_uri)
+        playlist = [
+            {"path": _resolve_optional_path(entry["uri"]), "repeat": int(entry.get("repeat", 1))}
+            for entry in stream.get("playlist", []) or []
+        ]
         target_duration_s = float(
             simulation.get("target_duration_s", default_target_duration_s)
         )
@@ -137,6 +141,7 @@ def camera_specs_from_manifest(path: str | Path) -> list[CameraStreamSpec]:
                 },
                 pipeline_bindings=pipeline_bindings,
                 raw_config=camera,
+                playlist=playlist,
             )
         )
     return specs

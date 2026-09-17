@@ -64,6 +64,7 @@ from typing import Any
 
 import numpy as np
 
+from backend.src.common.stream_uri import redact_stream_credentials
 from backend.src.domain.models import FrameMeta
 from backend.src.runtime.frame_ring import FrameRing, RingSpec
 
@@ -269,6 +270,8 @@ class FaceCameraConfig:
     iou_thres: float = 0.45
     match_threshold: float = 0.30
     match_margin: float = 0.10
+    #: Gallery role to match against: True staff, False watchlist, None both.
+    match_is_staff: bool | None = None
 
 
 def run_face_process(face_model: str, arcface_model: str, gallery_db_path: str,
@@ -305,15 +308,36 @@ def _run_face_process(face_model, arcface_model, gallery_db_path, camera_configs
             gallery_db_path=gallery_db_path,
             face_conf=cfg.face_conf, crop_expand=cfg.crop_expand, iou=cfg.iou_thres,
             match_threshold=cfg.match_threshold, match_margin=cfg.match_margin,
+            match_is_staff=cfg.match_is_staff,
         )
         # Same silent-failure class this already caught once: an
         # identity_gallery_scope mismatch yields an empty gallery with no
         # error, and every match then reports gallery_empty forever.
         summary = identifiers[camera_id].gallery.summarize(
-            store_id=None, company_id=None)  # store_id/company_id filtered per-call, not here
+            store_id=None, company_id=None,  # store_id/company_id filtered per-call, not here
+            is_staff=cfg.match_is_staff)
         if summary["embeddings"] == 0:
+            # Redacted: under cloud-db this is a DSN with the password in it.
             logger.warning("face process: gallery has no embeddings at all (%s); every "
-                           "identification will report gallery_empty", gallery_db_path)
+                           "identification will report gallery_empty",
+                           redact_stream_credentials(gallery_db_path))
+
+    # Warm the shared detector and ArcFace once, for the same reason the pose
+    # lanes are warmed: the first CUDA call is the slow one. The gallery roster
+    # was already loaded by summarize() above.
+    if identifiers:
+        from backend.src.runtime.shared_inference import FaceDetectRequest
+
+        started = time.perf_counter()
+        first = next(iter(identifiers.values()))
+        patch = np.zeros((600, 400, 3), np.uint8)
+        for _ in range(3):
+            first.face_detector.detect_face(FaceDetectRequest(
+                frame_bgr=patch, person_box_xyxy=np.array([50, 50, 350, 550], np.float32),
+                face_conf=0.99, iou=0.45, crop_expand=0.12, min_face_score=0.99))
+            first.arcface.embed(np.zeros((112, 112, 3), np.uint8))
+        logger.info("face process: detector and ArcFace warmed up in %.1fs",
+                    time.perf_counter() - started)
 
     try:
         ready_q.put(("face", 1))
@@ -399,6 +423,29 @@ class InferenceLane:
                     f"{pose_model} expects {np.dtype(self._expected_blob_dtype)}; every "
                     f"inference would read the wrong bytes as the wrong type and return "
                     f"nothing, without ever raising")
+
+    def warm_up(self, rounds: int = 3) -> float:
+        """Run every model this lane uses on synthetic input before the clock starts.
+
+        Loading a session is not the same as it being ready: the first CUDA
+        run allocates the arena and picks kernels, and measured on the box that
+        first frame per camera came back ~0.8-1.1 s late while the steady state
+        was ~50 ms. Paying it here keeps it out of the first real frames.
+        Returns the seconds spent.
+        """
+        started = time.perf_counter()
+        blob_shape = next((r.spec.blob_shape for r in self.rings.values() if r.spec.blob_shape),
+                          (3, 640, 640))
+        blob = np.zeros(blob_shape, dtype=self._expected_blob_dtype)
+        frame = np.zeros((1080, 1920, 3), np.uint8)
+        boxes = np.array([[100, 100, 300, 600, 0.9], [900, 200, 1100, 700, 0.9]], np.float32)
+        for _ in range(rounds):
+            self.pose.detect_preprocessed(blob, conf=0.99, frame_shape=(1080, 1920),
+                                          ratio=640 / 1920, dx=0, dy=140)
+            self.reid(frame, boxes)
+            if self.till is not None:
+                self.till.detect(frame, conf=0.99)
+        return time.perf_counter() - started
 
     @staticmethod
     def _build_reid(reid_model: str, cpu_only: bool):
@@ -556,6 +603,8 @@ def _run_inference_process(config, lane_decode_qs, business_qs, ring_specs,
                           cpu_only=config.cpu_only, reid_shared=config.reid_shared)
             for i, decode_q in enumerate(lane_decode_qs)
         ]
+        warm_s = sum(lane.warm_up() for lane in lanes)
+        logger.info("inference: %d lanes warmed up in %.1fs", len(lanes), warm_s)
 
         ready_q.put(("inference", len(lanes)))
         go_evt.wait()

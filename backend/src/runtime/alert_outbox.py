@@ -21,14 +21,38 @@ only holds because a single thread drains the queue in the order things were
 put() -- one camera's own sequential calls stay in that relative order, and
 sqlite3 connections are thread-affine besides, so the sink can only ever be
 touched from the one thread that created it.
+
+A failed write is retried or dropped, never allowed to stop the writes after
+it. This used to remember the first failure and skip every later write until
+close() -- harmless in a three-minute benchmark, and in a run that never ends
+it meant one dropped Neon connection silently discarded every alert for the
+rest of the process's life, with nothing logged until shutdown. Now the sink
+says which failures are worth waiting out (`sink.is_transient(exc)`: a lost
+connection, an R2 timeout) and those are retried in place with backoff, which
+keeps the queue order the FK depends on. Anything else is logged and dropped
+on its own, along with any media write for an alert whose row never landed.
 """
 from __future__ import annotations
 
+import logging
 import queue
 import threading
+import time
 import uuid
 from dataclasses import dataclass
 from typing import Any, Callable, Union
+
+logger = logging.getLogger(__name__)
+
+#: Backoff between retries of a transient failure, doubling up to the cap.
+RETRY_BACKOFF_S = 0.5
+RETRY_BACKOFF_MAX_S = 30.0
+#: Once close() is called, how long transient failures may still be retried.
+#: While running, an outage is waited out however long it lasts -- the
+#: alternative is dropping alerts. At shutdown something has to give, and the
+#: parent terminates a business process that has not exited well before this
+#: would let it wait forever.
+CLOSE_RETRY_BUDGET_S = 120.0
 
 
 @dataclass
@@ -73,6 +97,9 @@ class AlertOutbox:
     def __init__(self, sink_factory: Callable[[], Any]):
         self._queue: "queue.Queue[_WriteOp | object]" = queue.Queue()
         self._error: BaseException | None = None
+        self._failures = 0
+        self._close_deadline: float | None = None
+        self._closed = False
         self._thread = threading.Thread(
             target=self._drain, args=(sink_factory,), daemon=True, name="alert-outbox-writer")
         self._thread.start()
@@ -97,32 +124,91 @@ class AlertOutbox:
         return media_id
 
     def close(self) -> None:
-        """Block until every enqueued write has actually landed, then stop
-        the writer thread. Re-raises the first write failure, if any -- a
-        silently dropped alert is worse than a late one raising here."""
+        """Block until every enqueued write has landed or been given up on,
+        then stop the writer thread. Re-raises the first write failure, if
+        any -- a dropped alert was already logged when it happened, and still
+        must not look like a clean shutdown. Safe to call twice."""
+        if self._closed:
+            return
+        self._closed = True
+        self._close_deadline = time.monotonic() + CLOSE_RETRY_BUDGET_S
         self._queue.put(_CLOSE)
         self._thread.join()
         if self._error is not None:
+            if self._failures > 1:
+                logger.error("alert outbox: %d writes were dropped in total", self._failures)
             raise self._error
 
     def _drain(self, sink_factory: Callable[[], Any]) -> None:
-        sink = sink_factory()
+        try:
+            sink = sink_factory()
+        except BaseException as exc:  # noqa: BLE001 - surfaced via close()
+            # No sink means nothing below can land. Keep consuming so put()
+            # never backs up behind a dead writer, and let close() raise.
+            logger.error("alert outbox: could not build the sink: %r", exc)
+            self._error = exc
+            while self._queue.get() is not _CLOSE:
+                self._failures += 1
+            return
+        is_transient = getattr(sink, "is_transient", None) or (lambda _exc: False)
+        warm = getattr(sink, "warm", None)
+        if warm is not None:
+            # Open network connections now rather than on the first alert.
+            # Best effort: a failure here is retried by the first real write.
+            try:
+                warm()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("alert outbox: could not pre-connect the sink: %r", exc)
+        # Alerts whose row was given up on. Their media rows would fail the
+        # FK anyway, and for the cloud sink would first upload a file nothing
+        # will ever reference.
+        dropped_alerts: set[str] = set()
         try:
             while True:
                 item = self._queue.get()
                 if item is _CLOSE:
                     break
-                if self._error is not None:
-                    # A prior write already failed; close() will raise it.
-                    # Draining the rest would keep writing after a torn
-                    # state instead of stopping at the first problem.
+                if (isinstance(item, _AddAlertMedia)
+                        and item.kwargs.get("alert_id") in dropped_alerts):
+                    self._record_failure(item, RuntimeError(
+                        f"alert {item.kwargs['alert_id']} was never written, "
+                        f"so its media is skipped"))
                     continue
-                try:
-                    self._apply(sink, item)
-                except BaseException as exc:  # noqa: BLE001 - surfaced via close()
-                    self._error = exc
+                if not self._apply_with_retry(sink, item, is_transient):
+                    if isinstance(item, _CreateAlert):
+                        dropped_alerts.add(item.alert_id)
         finally:
             sink.close()
+
+    def _apply_with_retry(self, sink: Any, item: _WriteOp, is_transient) -> bool:
+        backoff = RETRY_BACKOFF_S
+        attempt = 0
+        while True:
+            attempt += 1
+            try:
+                self._apply(sink, item)
+                if attempt > 1:
+                    logger.warning("alert outbox: %s landed after %d attempts",
+                                   type(item).__name__, attempt)
+                return True
+            except BaseException as exc:  # noqa: BLE001 - logged, then retried or dropped
+                closing_expired = (self._close_deadline is not None
+                                   and time.monotonic() >= self._close_deadline)
+                if not is_transient(exc) or closing_expired:
+                    self._record_failure(item, exc)
+                    return False
+                logger.warning(
+                    "alert outbox: %s failed (attempt %d, %d writes queued behind it), "
+                    "retrying in %.1fs: %r",
+                    type(item).__name__, attempt, self._queue.qsize(), backoff, exc)
+                time.sleep(backoff)
+                backoff = min(backoff * 2.0, RETRY_BACKOFF_MAX_S)
+
+    def _record_failure(self, item: _WriteOp, exc: BaseException) -> None:
+        self._failures += 1
+        if self._error is None:
+            self._error = exc
+        logger.error("alert outbox: dropped %s: %r", type(item).__name__, exc)
 
     @staticmethod
     def _apply(sink: Any, item: _WriteOp) -> None:

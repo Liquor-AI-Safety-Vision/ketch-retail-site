@@ -22,7 +22,7 @@ from backend.src.domain.models import CameraPipelineBindingSpec, CameraStreamSpe
 from backend.src.infra.local_media_store import LocalMediaStore
 from backend.src.infra.sqlite_alert_store import SqliteAlertStore
 from backend.src.pipelines import fsm_tuning
-from backend.src.pipelines.alert_clip_buffer import AlertClipBuffer, FinalizedAlertClip
+from backend.src.pipelines.alert_clip_buffer import AlertClipBuffer, FinalizedAlertClip, persist_clip
 from backend.src.pipelines.till_schedule import compute_till_schedule
 from backend.src.pipelines.track_quality import record_track_quality
 from backend.src.runtime.shared_inference import SharedInferenceRegistry
@@ -109,6 +109,7 @@ class CounterCashTheftPipeline:
             spec.target_fps,
             pre_seconds=float(alert_clip_cfg.get("pre_s", 15.0)),
             post_seconds=float(alert_clip_cfg.get("post_s", 15.0)),
+            keep_images=getattr(media_store, "needs_clip_frames", True),
         )
         self.suppress_if_customer_recent = bool(self.params.get("suppress_if_customer_recent", True))
         self.customer_recent_window_frames = max(
@@ -335,16 +336,7 @@ class CounterCashTheftPipeline:
     def _persist_ready_clips(self, clips: list[FinalizedAlertClip]):
         with self.timing.track("clip_persist_io"):
             for clip in clips:
-                clip_path = self.media_store.save_clip(clip.alert_id, clip, self.spec.target_fps)
-                self.alert_store.add_alert_media(
-                    alert_id=clip.alert_id,
-                    kind="clip",
-                    path=clip_path,
-                    mime_type="video/mp4",
-                    started_at=clip.started_at.isoformat() if clip.started_at else None,
-                    ended_at=clip.ended_at.isoformat() if clip.ended_at else None,
-                    metadata=clip.metadata,
-                )
+                persist_clip(self.media_store, self.alert_store, clip, self.spec.target_fps)
 
     def finalize(self):
         self._persist_ready_clips(self.clip_buffer.flush_all())
