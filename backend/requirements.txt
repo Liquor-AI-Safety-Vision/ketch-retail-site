@@ -37,3 +37,10 @@ psycopg2-binary>=2.9   # NeonDB
 # Benchmarks read the cgroup CPU quota rather than nproc; psutil is only used
 # by the diagnostic tooling, not by the pipeline.
 psutil>=5.9
+
+# Owner dashboard API (backend/src/api). Not imported by the pipeline itself;
+# only backend.src.api.main pulls these in.
+fastapi>=0.115
+uvicorn[standard]>=0.30
+pyjwt>=2.9
+bcrypt>=4.2
