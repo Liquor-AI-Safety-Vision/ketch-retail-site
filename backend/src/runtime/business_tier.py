@@ -25,6 +25,7 @@ isinstance rather than needing two queues per camera.
 """
 from __future__ import annotations
 
+import logging
 import time
 from collections import deque
 from dataclasses import dataclass, field
@@ -33,6 +34,11 @@ from typing import Any
 from backend.src.pipelines.registry import COUNTER_CASH_THEFT, FACE_TARGET_IDS, build_pipeline
 from backend.src.runtime.frame_ring import FrameRing
 from backend.src.runtime.inference_server import FaceAnswer, FaceRequest, PerceptionResult, crop_face_patch
+
+logger = logging.getLogger(__name__)
+
+#: How often each camera logs its own fps and latency while the run continues.
+HEARTBEAT_S = 60.0
 
 
 def _build_pipeline(spec, binding, alert_store, media_store, run_id, gallery_db_path):
@@ -87,12 +93,32 @@ class _CameraWorker:
         # grow a list per frame; 6000 frames is 20 min at 5 fps.
         self._samples: deque[tuple[float, float]] = deque(maxlen=6000)
         self._latency_max = 0.0
+        self._last_heartbeat = time.time()
 
     def _record_latency(self, frame_meta) -> None:
         now = time.time()
         latency_s = now - frame_meta.ts_utc.timestamp()
         self._samples.append((now, latency_s))
         self._latency_max = max(self._latency_max, latency_s)
+        if now - self._last_heartbeat >= HEARTBEAT_S:
+            self._last_heartbeat = now
+            self._log_heartbeat()
+
+    def _log_heartbeat(self) -> None:
+        """The same numbers the end-of-run table prints, while the run is still
+        going. A forever run has no end, so without this a camera that has
+        fallen behind its target fps is invisible until the process is stopped.
+        The window is _samples' own (20 min at 5 fps), so this is recent
+        behaviour, not an average since start-up."""
+        s = self.latency_summary()
+        if not s:
+            return
+        logger.info(
+            "%s: %.2f fps (target %d) latency p50 %.0f p95 %.0f p99 %.0f max %.0f ms, "
+            "%d/%d frames over the %.0f ms budget, max gap %.0f ms, %d alerts so far",
+            self.spec.camera_id, s["fps"], self.spec.target_fps, s["p50"], s["p95"],
+            s["p99"], s["max"], s["late"], s["frames"], s["interval_ms"],
+            s["max_gap_ms"], self.alerts_emitted)
 
     def latency_summary(self) -> dict:
         """Per-frame timing from the first processed frame to the last.

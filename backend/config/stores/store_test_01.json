@@ -49,7 +49,7 @@
         "uri": "${DATA_ROOT}/videos/cctv_storage/storage_2.mp4",
         "simulation": { "strategy": "forever" }
       },
-      "runtime": { "target_fps": 3 },
+      "runtime": { "target_fps": 5 },
       "perception": {
         "person_detector": { "conf_thres": 0.5 },
         "face_identity": { "enabled": true, "match_threshold": 0.25, "match_margin": 0.1 }
@@ -83,7 +83,7 @@
         "uri": "${DATA_ROOT}/videos/cctv_storage/storage_1.mp4",
         "simulation": { "strategy": "forever" }
       },
-      "runtime": { "target_fps": 3 },
+      "runtime": { "target_fps": 5 },
       "perception": {
         "person_detector": { "conf_thres": 0.5 },
         "face_identity": { "enabled": true, "match_threshold": 0.25, "match_margin": 0.1 }

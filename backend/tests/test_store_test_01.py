@@ -106,8 +106,8 @@ def test_store_test_01_has_the_seven_agreed_cameras():
         BACKEND / "config/stores/store_test_01.json")}
     expected = {
         "st01_counter": ("counter_cash_theft_v1", 5),
-        "st01_storage": ("storage_intrusion_v1", 3),
-        "st01_cold_storage": ("cold_storage_intrusion_v1", 3),
+        "st01_storage": ("storage_intrusion_v1", 5),
+        "st01_cold_storage": ("cold_storage_intrusion_v1", 5),
         "st01_entrance": ("entrance_face_capture_v1", 5),
         "st01_whole_store": ("whole_store_tracking_v1", 5),
         "st01_whole_store_corner": ("whole_store_tracking_v1", 5),
