@@ -9,6 +9,11 @@ dist-ssr
 .security-check/
 *.local
 
+# Only the placeholder example belongs in Git; VITE_* values are public in builds.
+.env
+.env.*
+!.env.example
+
 # Cloudflare wrangler local state — carries the deploying account's identity
 .wrangler/
 

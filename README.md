@@ -17,12 +17,30 @@ authentication or backend access. Only explicitly signed-in owners load data fro
 
 ## Run it
 
+For the Go backend, migrations, owner bootstrap and AI ingestion, use
+[qthinhbk/Liquor-store](https://github.com/qthinhbk/Liquor-store). Its
+[setup instructions](https://github.com/qthinhbk/Liquor-store/tree/codex/env-setup-and-ai-guide#installation) and
+[environment reference](https://github.com/qthinhbk/Liquor-store/blob/codex/env-setup-and-ai-guide/docs/environment.md)
+describe the backend variables. This repo contains the landing page and integrated
+dashboard; the other repo also contains a standalone dashboard. Start only one
+frontend on port 5173.
+
 ```bash
-npm install
+npm ci
+cp .env.example .env    # PowerShell: Copy-Item .env.example .env
 npm run dev        # http://localhost:5173; proxies /api to http://localhost:3000
 ```
 
-Copy `.env.example` to `.env` when the API is not served under `/api/v1`. Routes are:
+Keep an existing `.env` instead of overwriting it. The only browser environment
+variable is `VITE_API_BASE_URL`, normally `/api/v1`. Vite forwards it to the local
+Go API; no Cloudflare, database, JWT, Telegram, WhatsApp or AI token is needed to
+browse the public demo. These secrets belong on the backend, never in `VITE_*`.
+To view real data, start the Go API with its development database, then sign in
+with the local owner account at `/#/login`. The public demo does not display new
+events from the database. Use the same `localhost:5173` origin as backend
+`WEB_ORIGIN`, or update both when using `127.0.0.1` instead.
+
+Routes are:
 
 - `/#/` — Ketch landing page
 - `/#/login` — owner login
@@ -59,6 +77,19 @@ production — prefer the workflow.
 The `functions/api/v1/[[path]].js` Pages Function proxies dashboard requests to the Render API.
 This keeps authentication same-origin on the Ketch domain while the Go API retains its strict
 origin policy. `API_ORIGIN` and `API_TRUSTED_ORIGIN` may override its safe defaults in Cloudflare.
+
+| Variable | Configured in | Purpose |
+|---|---|---|
+| `VITE_API_BASE_URL` | Local Vite `.env` / frontend build | Public browser API base; default `/api/v1`. |
+| `API_ORIGIN` | Cloudflare Pages Functions environment | Backend origin; default `https://liquor-store-api-7tq2.onrender.com`. |
+| `API_TRUSTED_ORIGIN` | Cloudflare Pages Functions environment | Origin forwarded to the API; must match backend `WEB_ORIGIN`. |
+| `CLOUDFLARE_API_TOKEN` | GitHub Actions secret | Credential scoped to Pages deployments; unnecessary locally. |
+| `CLOUDFLARE_ACCOUNT_ID` | GitHub Actions secret | Account containing project `ketch-enterprise`; unnecessary locally. |
+
+The `.env.example` contains placeholders/public defaults only. Share actual
+deployment tokens privately. GitHub Actions secrets are not readable back as
+plaintext; access to an existing deployment does not imply the token can be
+exported from GitHub.
 
 ### Public demo and owner access
 
