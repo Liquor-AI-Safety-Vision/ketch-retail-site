@@ -19,8 +19,8 @@ authentication or backend access. Only explicitly signed-in owners load data fro
 
 For the Go backend, migrations, owner bootstrap and AI ingestion, use
 [thinhEden/LS-backend](https://github.com/thinhEden/LS-backend). Its
-[setup instructions](https://github.com/thinhEden/LS-backend/tree/codex/env-setup-and-ai-guide#installation) and
-[environment reference](https://github.com/thinhEden/LS-backend/blob/codex/env-setup-and-ai-guide/docs/environment.md)
+[setup instructions](https://github.com/thinhEden/LS-backend#installation) and
+[environment reference](https://github.com/thinhEden/LS-backend/blob/main/docs/environment.md)
 describe the backend variables. This repo contains the landing page and integrated
 dashboard; the other repo also contains a standalone dashboard. Start only one
 frontend on port 5173.
