@@ -18,9 +18,9 @@ authentication or backend access. Only explicitly signed-in owners load data fro
 ## Run it
 
 For the Go backend, migrations, owner bootstrap and AI ingestion, use
-[qthinhbk/Liquor-store](https://github.com/qthinhbk/Liquor-store). Its
-[setup instructions](https://github.com/qthinhbk/Liquor-store/tree/codex/env-setup-and-ai-guide#installation) and
-[environment reference](https://github.com/qthinhbk/Liquor-store/blob/codex/env-setup-and-ai-guide/docs/environment.md)
+[thinhEden/LS-backend](https://github.com/thinhEden/LS-backend). Its
+[setup instructions](https://github.com/thinhEden/LS-backend/tree/codex/env-setup-and-ai-guide#installation) and
+[environment reference](https://github.com/thinhEden/LS-backend/blob/codex/env-setup-and-ai-guide/docs/environment.md)
 describe the backend variables. This repo contains the landing page and integrated
 dashboard; the other repo also contains a standalone dashboard. Start only one
 frontend on port 5173.
