@@ -5,6 +5,8 @@ node_modules/
 tmp/
 dist/
 coverage/
+# Private environment exports contain real credentials and must stay local.
+/output/private-env/
 *.log
 Thumbs.db
 .env
