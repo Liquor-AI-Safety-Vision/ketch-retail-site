@@ -10,6 +10,11 @@
     "test:browser": "node tests/browser-security.mjs",
     "lint": "eslint .",
     "preview": "vite preview",
+    "api:dev": "npm --prefix apps/api-go run dev",
+    "api:build": "npm --prefix apps/api-go run build",
+    "api:check": "npm --prefix apps/api-go run check",
+    "api:migrate": "npm --prefix apps/api-go run db:migrate",
+    "api:seed": "npm --prefix apps/api-go run db:seed",
     "deploy": "npm run build && npx wrangler pages deploy dist --project-name=ketch-enterprise --branch=main"
   },
   "dependencies": {

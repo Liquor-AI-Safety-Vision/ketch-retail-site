@@ -1,14 +1,23 @@
 # Ketch retail site — ketchenterprise.net
 
 The US retail / liquor-store pitch site for Ketch Enterprise, paired with the Liquor Store
-owner security dashboard. The landing page and public, read-only dashboard demo work without
-authentication or backend access. Only explicitly signed-in owners load data from the Go API.
+owner security dashboard and its Go backend. This single repository holds the landing page,
+the dashboard (`src/`), the Go API (`apps/api-go`) and the design/runbook documents (`docs/`).
+The landing page and public, read-only dashboard demo work without authentication or backend
+access. Only explicitly signed-in owners load data from the Go API.
+
+The system reports events for a human to judge. It does not classify anyone as a criminal
+and does not contact emergency services. Detection accuracy is not guaranteed; every alert
+requires human review.
 
 | | |
 |---|---|
 | Live at | **https://ketchenterprise.net** (+ www) |
 | Cloudflare Pages project | **`ketch-enterprise`** |
-| Stack | Vite 8 · React 19 · TypeScript · Tailwind v4 · Material UI · TanStack Query · HashRouter |
+| Frontend stack | Vite 8 · React 19 · TypeScript · Tailwind v4 · Material UI · TanStack Query · HashRouter |
+| Backend stack | Go 1.26.8 · `net/http` · pgx · JWT · Argon2id · PostgreSQL (embedded SQL migrations) |
+| Providers | Telegram Bot API, WhatsApp Cloud API |
+| Hosting | Frontend on Cloudflare Pages · Go API on Render · PostgreSQL on Neon |
 
 > ⚠ **`ketchenterprise.net` (no "s") is this site.** `ketchenterprises.net` (with an "s") is a
 > different site — the Vietnamese factory pitch — and lives in a different repo. They look
@@ -17,13 +26,10 @@ authentication or backend access. Only explicitly signed-in owners load data fro
 
 ## Run it
 
-For the Go backend, migrations, owner bootstrap and AI ingestion, use
-[thinhEden/LS-backend](https://github.com/thinhEden/LS-backend). Its
-[setup instructions](https://github.com/thinhEden/LS-backend#installation) and
-[environment reference](https://github.com/thinhEden/LS-backend/blob/main/docs/environment.md)
-describe the backend variables. This repo contains the landing page and integrated
-dashboard; the other repo also contains a standalone dashboard. Start only one
-frontend on port 5173.
+### Frontend
+
+The backend lives in this repo too: see [Backend](#backend-appsapi-go) below and the
+[environment reference](docs/environment.md).
 
 ```bash
 npm ci
@@ -57,7 +63,96 @@ npm run lint
 npm run test:security  # proxy, CSP and demo-isolation regression checks (Node 22)
 ```
 
+## Backend (`apps/api-go`)
+
+Owner authentication with store-scoped RBAC, an alert ingestion API for the external AI
+service (idempotent per source event), a notification worker (Telegram primary, WhatsApp
+fallback, with leases, retry, deduplication and an append-only attempt log) and expiring
+signed links for evidence playback.
+
+Requirements: Go 1.26.8+ (enforced by `go.mod`; the helpers in `scripts/` also accept a
+portable SDK at `.tools/go-1.26.8`), PostgreSQL 14+ and Git LFS (sample clips are LFS
+objects; without it a clone receives pointer files and video playback fails).
+
+```powershell
+git lfs install
+git lfs pull
+Copy-Item apps/api-go/.env.example apps/api-go/.env
+```
+
+Set `DATABASE_URL` and `DIRECT_URL` to a **development** database, generate your own
+`JWT_ACCESS_SECRET` (`node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"`)
+and temporarily set `REGISTER_ENABLED=true` to create the first local owner/store. Keep
+`NOTIFICATION_WORKER_ENABLED=false` and provider credentials blank for a first run. The
+[environment reference](docs/environment.md) explains every variable.
+
+```powershell
+npm run api:migrate     # applies migrations through DIRECT_URL
+npm run api:dev         # API on http://localhost:3000
+```
+
+Register the first owner against the **local** API (choose a local password of 12–128
+characters; this is not an existing production login), then seed sample data:
+
+```powershell
+$localPassword = Read-Host 'Choose a local owner password (12-128 characters)' -AsSecureString
+$registrationBody = @{
+  email = 'owner@example.test'
+  password = [System.Net.NetworkCredential]::new('', $localPassword).Password
+  displayName = 'Local Owner'
+  storeName = 'Local Demo Store'
+  storeCode = 'liquor-store-demo'
+} | ConvertTo-Json
+Invoke-RestMethod -Method Post -Uri 'http://localhost:3000/api/v1/auth/register' -Headers @{ Origin = 'http://localhost:5173' } -ContentType 'application/json' -Body $registrationBody
+npm run api:seed
+```
+
+`api:seed` expects the store code `liquor-store-demo` to exist (set `SEED_STORE_CODE` for a
+different code) and updates fixture rows, so use it only against a development database.
+Set `REGISTER_ENABLED=false` and restart the API once the local account exists. On
+macOS/Linux, run `go run ./cmd/migrate`, `go run ./cmd/api` and `go run ./cmd/seed` from
+`apps/api-go` instead of the `npm run api:*` helpers, which call Windows PowerShell.
+
+| Command | Action |
+|---|---|
+| `npm run api:dev` | Run the Go API |
+| `npm run api:build` | Build the API binary |
+| `npm run api:check` | Go tests (database/provider E2E tests are opt-in) |
+| `npm run api:migrate` | Apply migrations |
+| `npm run api:seed` | Load sample data, safe to repeat |
+
+Health: `http://localhost:3000/api/v1/health`. Swagger UI is available at `/docs` only with
+`SWAGGER_ENABLED=true`; keep it disabled in production. Full API contract:
+[docs/api-contract.md](docs/api-contract.md).
+
+| Document | Contents |
+|---|---|
+| [Environment reference](docs/environment.md) | Required, generated and privately shared configuration |
+| [AI integration](docs/ai-integration.md) | Local ingestion request, IDs, video evidence and retry semantics |
+| [Database design](docs/database-design.md) | Schema, relationships, retention |
+| [API contract](docs/api-contract.md) | Endpoints, payloads, error shapes |
+| [Authentication](docs/auth-design.md) | Sessions, refresh rotation, RBAC |
+| [Notification design](docs/notification-design.md) | Outbox, worker, retry, fallback |
+| [WhatsApp template](docs/whatsapp-emergency-template.md) | Template and parameters |
+| [Notification runbook](docs/emergency-notification-production.md) | Production procedure and diagnosis |
+| [Security hardening](docs/security-hardening.md) | Deployment checklist |
+| [Security audit](docs/security-audit-2026-09-05.md) | Findings, 05/09/2026 |
+| [Security fixes](docs/security-fixes-2026-09-05.md) | Patches and measured rollout |
+| [Streaming design](docs/streaming-design.md) | Planned near-real-time ingest |
+
+### Known limitations
+
+- WhatsApp delivery returns Meta error `131042`. The account's `health_status`
+  attributes it to business verification rather than billing. See the runbook.
+- Live RTSP ingest is designed but not implemented. The dashboard plays recorded footage only.
+
 ## Deploying
+
+The Go API deploys separately on Render with Root Directory `apps/api-go`, build command
+`go build -tags netgo -ldflags '-s -w' -o api ./cmd/api` and start command `./api`.
+Render must point at this repository (`apps/api-go` is its Root Directory).
+
+### Frontend
 
 **Push to `main`.** GitHub Actions builds and publishes to Cloudflare Pages
 (`.github/workflows/deploy.yml`). Nothing else is needed and no one has to run a command.
@@ -156,6 +251,10 @@ src/
   components/ui/              Button, Card, SectionShell, TierBadge
   pages/landing/              the landing page and its 13 sections
   security-dashboard/        Auth, owner shell, Overview, Alert, Camera, API client and theme
+apps/
+  api-go/                     Go API, notification worker, migrations, seed
+docs/                         Design documents, security audit, runbooks
+scripts/                      Security-header build step, Go toolchain helpers, tracking generator
 public/
   demo/                       landing imagery plus alert evidence clips and tracking data
   live-cameras/               looping camera-preview recordings and thumbnails

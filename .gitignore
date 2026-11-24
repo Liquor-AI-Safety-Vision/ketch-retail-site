@@ -26,3 +26,14 @@ dist-ssr
 !.vscode/extensions.json
 .idea
 *.sw?
+
+# Go backend
+/.tools/
+/tmp/
+/output/
+.pnpm-store/
+apps/api-go/bin/
+apps/api-go/api
+apps/api-go/api.exe
+*.test
+
