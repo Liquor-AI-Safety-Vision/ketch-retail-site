@@ -12,6 +12,7 @@ import fcntl
 
 from ai.src.common.stream_uri import redact_stream_credentials
 from ai.src.common.paths import schema_path
+from ai.src.infra.camera_metadata import camera_metadata_json
 
 
 @contextmanager
@@ -70,17 +71,18 @@ def seed_store_topology(db_path: str | Path, specs: list) -> None:
             for spec in specs:
                 conn.execute(
                     "INSERT INTO cameras "
-                    "(camera_id, store_id, display_name, camera_type, source_type, source_uri) "
-                    "VALUES (?, ?, ?, ?, ?, ?) "
+                    "(camera_id, store_id, display_name, camera_type, source_type, source_uri, metadata_json) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?) "
                     "ON CONFLICT (camera_id) DO UPDATE SET "
                     "store_id = excluded.store_id, display_name = excluded.display_name, "
                     "camera_type = excluded.camera_type, source_type = excluded.source_type, "
-                    "source_uri = excluded.source_uri",
+                    "source_uri = excluded.source_uri, metadata_json = excluded.metadata_json",
                     # Redacted: an rtsp:// source carries the camera password
                     # inline, and this row is read back by dashboards and
                     # copied into every backup of the database.
                     (spec.camera_id, spec.store_id, spec.display_name, spec.camera_type,
-                     spec.source_kind, redact_stream_credentials(spec.source_uri)),
+                     spec.source_kind, redact_stream_credentials(spec.source_uri),
+                     camera_metadata_json(spec)),
                 )
             conn.commit()
     finally:

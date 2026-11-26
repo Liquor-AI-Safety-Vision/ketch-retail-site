@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"golang.org/x/crypto/argon2"
+	"golang.org/x/crypto/bcrypt"
 )
 
 const (
@@ -30,7 +31,23 @@ func HashPassword(password string) (string, error) {
 		base64.RawStdEncoding.EncodeToString(salt), base64.RawStdEncoding.EncodeToString(hash)), nil
 }
 
+// Highest bcrypt cost accepted from the database. The AI service's former
+// owner seeding (Python bcrypt.gensalt()) used 12; anything far above that is
+// either tampering or a mistake, and verifying it would let one login request
+// burn seconds of CPU.
+const maxLegacyBcryptCost = 14
+
+// IsLegacyHash reports whether encoded is a bcrypt hash, the format owner
+// accounts were created with before logins moved to this API. Such a hash
+// still verifies, and is replaced with Argon2id on the next successful login.
+func IsLegacyHash(encoded string) bool {
+	return strings.HasPrefix(encoded, "$2a$") || strings.HasPrefix(encoded, "$2b$") || strings.HasPrefix(encoded, "$2y$")
+}
+
 func VerifyPassword(password, encoded string) (bool, error) {
+	if IsLegacyHash(encoded) {
+		return verifyBcrypt(password, encoded)
+	}
 	parts := strings.Split(encoded, "$")
 	if len(parts) != 6 || parts[1] != "argon2id" || parts[2] != "v=19" {
 		return false, errors.New("unsupported password hash format")
@@ -72,4 +89,27 @@ func VerifyPassword(password, encoded string) (bool, error) {
 	// #nosec G115 -- ParseUint used a 32-bit ceiling and the stricter bounds above are enforced before conversion.
 	actual := argon2.IDKey([]byte(password), salt, uint32(iterations), uint32(memory), uint8(parallelism), uint32(len(expected)))
 	return subtle.ConstantTimeCompare(actual, expected) == 1, nil
+}
+
+func verifyBcrypt(password, encoded string) (bool, error) {
+	cost, err := bcrypt.Cost([]byte(encoded))
+	if err != nil {
+		return false, errors.New("invalid bcrypt hash")
+	}
+	if cost > maxLegacyBcryptCost {
+		return false, errors.New("bcrypt cost is above the accepted maximum")
+	}
+	// bcrypt only reads the first 72 bytes. Refuse rather than compare a
+	// truncated prefix, so a long password never matches by its first 72 bytes.
+	if len(password) > 72 {
+		return false, nil
+	}
+	switch err := bcrypt.CompareHashAndPassword([]byte(encoded), []byte(password)); {
+	case err == nil:
+		return true, nil
+	case errors.Is(err, bcrypt.ErrMismatchedHashAndPassword):
+		return false, nil
+	default:
+		return false, errors.New("invalid bcrypt hash")
+	}
 }

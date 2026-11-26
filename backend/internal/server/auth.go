@@ -19,13 +19,14 @@ import (
 // #nosec G101 -- this public test hash is used only to equalize failed-login timing and cannot authenticate any account.
 const dummyPasswordHash = "$argon2id$v=19$m=65536,p=4,t=3$tRJklxOdZO9aABYGMhSuPQ$efdf+S6xCWV0Qd61ZJlhMSYxZUR4weZFzfXrlb2FE9A"
 
+// Registration links a new owner to a store that already exists. Stores are
+// created by the AI service from its manifest (ai/config/stores/*.json), so
+// there is nothing for this API to create. Only mounted when REGISTER_ENABLED.
 type registerRequest struct {
-	Email       string  `json:"email"`
-	Password    string  `json:"password"`
-	DisplayName string  `json:"displayName"`
-	StoreName   string  `json:"storeName"`
-	StoreCode   string  `json:"storeCode"`
-	Address     *string `json:"address"`
+	Email       string `json:"email"`
+	Password    string `json:"password"`
+	DisplayName string `json:"displayName"`
+	StoreID     string `json:"storeId"`
 }
 
 type loginRequest struct {
@@ -45,11 +46,9 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 	}
 	input.Email = strings.ToLower(strings.TrimSpace(input.Email))
 	input.DisplayName = strings.TrimSpace(input.DisplayName)
-	input.StoreName = strings.TrimSpace(input.StoreName)
-	input.StoreCode = strings.TrimSpace(input.StoreCode)
+	input.StoreID = strings.TrimSpace(input.StoreID)
 	if !validEmail(input.Email) || len(input.Password) < 12 || len(input.Password) > 128 ||
-		!validLength(input.DisplayName, 2, 100) || !validLength(input.StoreName, 2, 120) || !storeCodePattern.MatchString(input.StoreCode) ||
-		(input.Address != nil && !validLength(*input.Address, 0, 500)) {
+		!validLength(input.DisplayName, 2, 100) || !validLength(input.StoreID, 1, 200) {
 		writeError(w, http.StatusBadRequest, "Bad Request", "Registration details are invalid.")
 		return
 	}
@@ -59,36 +58,38 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, err)
 		return
 	}
-	user := authUser{ID: uuid.NewString(), Email: input.Email, DisplayName: input.DisplayName, PasswordHash: passwordHash, Status: "ACTIVE"}
-	storeID := uuid.NewString()
+	ownerID, err := newOwnerID()
+	if err != nil {
+		s.internalError(w, err)
+		return
+	}
+	user := authUser{ID: ownerID, Email: input.Email, DisplayName: input.DisplayName, PasswordHash: passwordHash, Status: ownerActive}
 	tx, err := s.db.Begin(r.Context())
 	if err != nil {
 		s.internalError(w, err)
 		return
 	}
 	defer func() { _ = tx.Rollback(r.Context()) }()
-	if _, err = tx.Exec(r.Context(), `INSERT INTO "users" ("id", "email", "passwordHash", "displayName", "status", "updatedAt") VALUES ($1,$2,$3,$4,'ACTIVE',NOW())`, user.ID, user.Email, passwordHash, user.DisplayName); err != nil {
+	var storeExists bool
+	if err := tx.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM stores WHERE store_id=$1)`, input.StoreID).Scan(&storeExists); err != nil {
+		s.internalError(w, err)
+		return
+	}
+	if !storeExists {
+		writeError(w, http.StatusNotFound, "Not Found", "Store was not found. Stores come from the AI service's manifest; start it once to create the store.")
+		return
+	}
+	now := isoNow()
+	if _, err = tx.Exec(r.Context(), `INSERT INTO owners (owner_id, display_name, email, password_hash, status, metadata_json, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,'{}',$6,$6)`,
+		user.ID, user.DisplayName, user.Email, passwordHash, ownerActive, now); err != nil {
 		if uniqueViolation(err) {
-			writeError(w, http.StatusConflict, "Conflict", "Email or store code is already in use.")
+			writeError(w, http.StatusConflict, "Conflict", "Email is already in use.")
 			return
 		}
 		s.internalError(w, err)
 		return
 	}
-	var address any
-	if input.Address != nil {
-		trimmed := strings.TrimSpace(*input.Address)
-		address = trimmed
-	}
-	if _, err = tx.Exec(r.Context(), `INSERT INTO "stores" ("id", "name", "code", "address", "updatedAt") VALUES ($1,$2,$3,$4,NOW())`, storeID, input.StoreName, input.StoreCode, address); err != nil {
-		if uniqueViolation(err) {
-			writeError(w, http.StatusConflict, "Conflict", "Email or store code is already in use.")
-			return
-		}
-		s.internalError(w, err)
-		return
-	}
-	if _, err = tx.Exec(r.Context(), `INSERT INTO "store_memberships" ("id", "userId", "storeId", "role", "updatedAt") VALUES ($1,$2,$3,'OWNER',NOW())`, uuid.NewString(), user.ID, storeID); err != nil {
+	if _, err = tx.Exec(r.Context(), `INSERT INTO owner_stores (owner_id, store_id, role, created_at) VALUES ($1,$2,$3,$4)`, user.ID, input.StoreID, roleOwner, now); err != nil {
 		s.internalError(w, err)
 		return
 	}
@@ -117,7 +118,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var user authUser
-	err := s.db.QueryRow(r.Context(), `SELECT "id", "email", "displayName", "passwordHash", "status" FROM "users" WHERE "email"=$1`, input.Email).
+	err := s.db.QueryRow(r.Context(), `SELECT owner_id, email, display_name, password_hash, status FROM owners WHERE lower(email)=$1`, input.Email).
 		Scan(&user.ID, &user.Email, &user.DisplayName, &user.PasswordHash, &user.Status)
 	if err != nil {
 		if err == pgx.ErrNoRows {
@@ -129,9 +130,19 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	verified, verifyErr := security.VerifyPassword(input.Password, user.PasswordHash)
-	if verifyErr != nil || !verified || user.Status != "ACTIVE" {
+	if verifyErr != nil || !verified || user.Status != ownerActive {
 		writeError(w, http.StatusUnauthorized, "Unauthorized", "Invalid email or password.")
 		return
+	}
+	if security.IsLegacyHash(user.PasswordHash) {
+		// An account created before logins moved here (bcrypt, by the AI
+		// service's seeding). The password was just proven, so replace the
+		// hash with Argon2id; failing to is logged, never a failed login.
+		if rehashed, err := security.HashPassword(input.Password); err == nil {
+			if _, err := s.db.Exec(r.Context(), `UPDATE owners SET password_hash=$1, updated_at=$2 WHERE owner_id=$3 AND password_hash=$4`, rehashed, isoNow(), user.ID, user.PasswordHash); err != nil {
+				s.log.Warn("could not upgrade legacy password hash", "owner", user.ID, "error", err)
+			}
+		}
 	}
 	session, refreshToken, err := s.createSession(r.Context(), user, r)
 	if err != nil {
@@ -157,13 +168,13 @@ func (s *Server) refresh(w http.ResponseWriter, r *http.Request) {
 
 	var userID string
 	err = tx.QueryRow(r.Context(), `UPDATE "refresh_sessions" SET "revokedAt"=NOW(), "updatedAt"=NOW()
-		WHERE "tokenHash"=$1 AND "revokedAt" IS NULL AND "expiresAt">NOW() RETURNING "userId"`, hashRefreshToken(cookie.Value)).Scan(&userID)
+		WHERE "tokenHash"=$1 AND "revokedAt" IS NULL AND "expiresAt">NOW() RETURNING "ownerId"`, hashRefreshToken(cookie.Value)).Scan(&userID)
 	if err != nil {
 		writeError(w, http.StatusUnauthorized, "Unauthorized", "Refresh token is invalid or expired.")
 		return
 	}
 	var user authUser
-	err = tx.QueryRow(r.Context(), `SELECT "id", "email", "displayName", "passwordHash", "status" FROM "users" WHERE "id"=$1 AND "status"='ACTIVE'`, userID).
+	err = tx.QueryRow(r.Context(), `SELECT owner_id, email, display_name, password_hash, status FROM owners WHERE owner_id=$1 AND status='active'`, userID).
 		Scan(&user.ID, &user.Email, &user.DisplayName, &user.PasswordHash, &user.Status)
 	if err != nil {
 		writeError(w, http.StatusUnauthorized, "Unauthorized", "Refresh token is invalid or expired.")
@@ -206,13 +217,13 @@ func (s *Server) authMe(w http.ResponseWriter, r *http.Request, userPrincipal pr
 
 func (s *Server) userProfile(w http.ResponseWriter, r *http.Request, user principal) {
 	var response struct {
-		ID          string    `json:"id"`
-		Email       string    `json:"email"`
-		DisplayName string    `json:"displayName"`
-		Status      string    `json:"status"`
-		CreatedAt   time.Time `json:"createdAt"`
+		ID          string `json:"id"`
+		Email       string `json:"email"`
+		DisplayName string `json:"displayName"`
+		Status      string `json:"status"`
+		CreatedAt   string `json:"createdAt"`
 	}
-	err := s.db.QueryRow(r.Context(), `SELECT "id", "email", "displayName", "status", "createdAt" FROM "users" WHERE "id"=$1`, user.ID).
+	err := s.db.QueryRow(r.Context(), `SELECT owner_id, email, display_name, status, created_at FROM owners WHERE owner_id=$1`, user.ID).
 		Scan(&response.ID, &response.Email, &response.DisplayName, &response.Status, &response.CreatedAt)
 	if err != nil {
 		if err == pgx.ErrNoRows {
@@ -242,7 +253,7 @@ func (s *Server) updateUserProfile(w http.ResponseWriter, r *http.Request, user 
 		Email       string `json:"email"`
 		DisplayName string `json:"displayName"`
 	}
-	err := s.db.QueryRow(r.Context(), `UPDATE "users" SET "displayName"=$1, "updatedAt"=NOW() WHERE "id"=$2 RETURNING "id", "email", "displayName"`, input.DisplayName, user.ID).
+	err := s.db.QueryRow(r.Context(), `UPDATE owners SET display_name=$1, updated_at=$2 WHERE owner_id=$3 RETURNING owner_id, email, display_name`, input.DisplayName, isoNow(), user.ID).
 		Scan(&response.ID, &response.Email, &response.DisplayName)
 	if err != nil {
 		if err == pgx.ErrNoRows {
@@ -276,7 +287,7 @@ func (s *Server) createSessionWith(ctx context.Context, store sessionStore, user
 	if len(userAgent) > 500 {
 		userAgent = userAgent[:500]
 	}
-	if _, err := store.Exec(ctx, `INSERT INTO "refresh_sessions" ("id", "userId", "tokenHash", "expiresAt", "ipAddress", "userAgent", "updatedAt") VALUES ($1,$2,$3,$4,$5,$6,NOW())`, uuid.NewString(), user.ID, hashRefreshToken(refreshToken), expiresAt, s.clientIP(r), userAgent); err != nil {
+	if _, err := store.Exec(ctx, `INSERT INTO "refresh_sessions" ("id", "ownerId", "tokenHash", "expiresAt", "ipAddress", "userAgent", "updatedAt") VALUES ($1,$2,$3,$4,$5,$6,NOW())`, uuid.NewString(), user.ID, hashRefreshToken(refreshToken), expiresAt, s.clientIP(r), userAgent); err != nil {
 		return sessionResponse{}, "", err
 	}
 	accessToken, err := s.signAccessToken(user)
@@ -297,10 +308,10 @@ func (s *Server) loadCurrentUser(ctx context.Context, userID string) (currentUse
 func (s *Server) loadCurrentUserWith(ctx context.Context, store sessionStore, userID string) (currentUser, error) {
 	var user currentUser
 	var status string
-	if err := store.QueryRow(ctx, `SELECT "id", "email", "displayName", "status" FROM "users" WHERE "id"=$1 AND "status"='ACTIVE'`, userID).Scan(&user.ID, &user.Email, &user.DisplayName, &status); err != nil {
+	if err := store.QueryRow(ctx, `SELECT owner_id, email, display_name, status FROM owners WHERE owner_id=$1 AND status='active'`, userID).Scan(&user.ID, &user.Email, &user.DisplayName, &status); err != nil {
 		return currentUser{}, err
 	}
-	rows, err := store.Query(ctx, `SELECT sm."storeId", s."name", s."code", sm."role" FROM "store_memberships" sm JOIN "stores" s ON s."id"=sm."storeId" WHERE sm."userId"=$1 ORDER BY s."name"`, userID)
+	rows, err := store.Query(ctx, `SELECT os.store_id, s.display_name, COALESCE(s.store_code, s.store_id), os.role FROM owner_stores os JOIN stores s ON s.store_id=os.store_id WHERE os.owner_id=$1 ORDER BY s.display_name`, userID)
 	if err != nil {
 		return currentUser{}, err
 	}

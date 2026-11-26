@@ -28,36 +28,29 @@ type membership struct {
 }
 
 type storeResponse struct {
-	ID        string     `json:"id"`
-	Name      string     `json:"name"`
-	Code      string     `json:"code"`
-	Address   *string    `json:"address"`
-	Timezone  string     `json:"timezone"`
-	Role      string     `json:"role,omitempty"`
-	CreatedAt *time.Time `json:"createdAt,omitempty"`
-	UpdatedAt *time.Time `json:"updatedAt,omitempty"`
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Code     string `json:"code"`
+	Timezone string `json:"timezone"`
+	Role     string `json:"role,omitempty"`
 }
 
+// A row of the AI service's cameras table. source_uri is deliberately absent.
 type cameraResponse struct {
-	ID               string    `json:"id"`
-	Name             string    `json:"name"`
-	Location         string    `json:"location"`
-	Protocol         string    `json:"protocol"`
-	StreamGatewayRef string    `json:"streamGatewayRef"`
-	Status           string    `json:"status"`
-	IsEnabled        bool      `json:"isEnabled"`
-	CreatedAt        time.Time `json:"createdAt"`
-	UpdatedAt        time.Time `json:"updatedAt"`
+	ID         string   `json:"id"`
+	StoreID    string   `json:"storeId"`
+	Name       string   `json:"name"`
+	CameraType string   `json:"cameraType"`
+	SourceType string   `json:"sourceType"`
+	IsActive   bool     `json:"isActive"`
+	Pipelines  []string `json:"pipelines"`
 }
 
 type zoneResponse struct {
-	ID                     string          `json:"id"`
-	Name                   string          `json:"name"`
-	Kind                   string          `json:"kind"`
-	ExpectedPersonCategory *string         `json:"expectedPersonCategory"`
-	Polygon                json.RawMessage `json:"polygon"`
-	DwellThresholdSeconds  *int            `json:"dwellThresholdSeconds"`
-	IsEnabled              bool            `json:"isEnabled"`
+	PipelineID string      `json:"pipelineId"`
+	Name       string      `json:"name"`
+	Type       string      `json:"type"`
+	PointsNorm [][]float64 `json:"pointsNorm"`
 }
 
 type alertResponse struct {

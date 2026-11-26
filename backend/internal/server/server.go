@@ -72,10 +72,10 @@ func (s *Server) Handler() http.Handler {
 	s.protected(mux, "GET /api/v1/users/me", s.userProfile)
 	s.protected(mux, "PATCH /api/v1/users/me", s.updateUserProfile)
 
+	// Stores, cameras and zones are read-only: the AI service writes them from
+	// its manifest at every start (see stores.go, cameras.go).
 	s.protected(mux, "GET /api/v1/stores", s.listStores)
-	s.protected(mux, "POST /api/v1/stores", s.createStore)
 	s.protected(mux, "GET /api/v1/stores/{storeId}", s.findStore)
-	s.protected(mux, "PATCH /api/v1/stores/{storeId}", s.updateStore)
 	if s.config.MembersEnabled {
 		s.protected(mux, "GET /api/v1/stores/{storeId}/members", s.listMembers)
 		s.protected(mux, "POST /api/v1/stores/{storeId}/members", s.addMember)
@@ -84,15 +84,8 @@ func (s *Server) Handler() http.Handler {
 	}
 
 	s.protected(mux, "GET /api/v1/stores/{storeId}/cameras", s.listCameras)
-	s.protected(mux, "POST /api/v1/stores/{storeId}/cameras", s.createCamera)
 	s.protected(mux, "GET /api/v1/stores/{storeId}/cameras/{cameraId}", s.findCamera)
-	s.protected(mux, "PATCH /api/v1/stores/{storeId}/cameras/{cameraId}", s.updateCamera)
-	s.protected(mux, "DELETE /api/v1/stores/{storeId}/cameras/{cameraId}", s.removeCamera)
 	s.protected(mux, "GET /api/v1/stores/{storeId}/cameras/{cameraId}/zones", s.listZones)
-	s.protected(mux, "POST /api/v1/stores/{storeId}/cameras/{cameraId}/zones", s.createZone)
-	s.protected(mux, "GET /api/v1/stores/{storeId}/cameras/{cameraId}/zones/{zoneId}", s.findZone)
-	s.protected(mux, "PATCH /api/v1/stores/{storeId}/cameras/{cameraId}/zones/{zoneId}", s.updateZone)
-	s.protected(mux, "DELETE /api/v1/stores/{storeId}/cameras/{cameraId}/zones/{zoneId}", s.removeZone)
 
 	s.protected(mux, "GET /api/v1/stores/{storeId}/alerts", s.listAlerts)
 	s.protected(mux, "GET /api/v1/stores/{storeId}/alerts/{alertId}", s.findAlert)
@@ -128,7 +121,7 @@ func (s *Server) protected(mux *http.ServeMux, pattern string, handler func(http
 			return
 		}
 		var active bool
-		if err := s.db.QueryRow(r.Context(), `SELECT "status"='ACTIVE' FROM "users" WHERE "id"=$1`, user.ID).Scan(&active); err != nil {
+		if err := s.db.QueryRow(r.Context(), `SELECT status='active' FROM owners WHERE owner_id=$1`, user.ID).Scan(&active); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				writeError(w, http.StatusUnauthorized, "Unauthorized", "Account is unavailable.")
 			} else {

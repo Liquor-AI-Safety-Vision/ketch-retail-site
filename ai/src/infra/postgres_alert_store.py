@@ -13,6 +13,7 @@ from typing import Any
 
 from ai.src.common.stream_uri import redact_stream_credentials
 from ai.src.common.paths import schema_path
+from ai.src.infra.camera_metadata import camera_metadata_json
 
 
 def seed_store_topology_pg(dsn: str, specs: list) -> None:
@@ -42,16 +43,17 @@ def seed_store_topology_pg(dsn: str, specs: list) -> None:
             for spec in specs:
                 cur.execute(
                     "INSERT INTO cameras "
-                    "(camera_id, store_id, display_name, camera_type, source_type, source_uri) "
-                    "VALUES (%s, %s, %s, %s, %s, %s) "
+                    "(camera_id, store_id, display_name, camera_type, source_type, source_uri, metadata_json) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s) "
                     "ON CONFLICT (camera_id) DO UPDATE SET "
                     "store_id = excluded.store_id, display_name = excluded.display_name, "
                     "camera_type = excluded.camera_type, source_type = excluded.source_type, "
-                    "source_uri = excluded.source_uri",
+                    "source_uri = excluded.source_uri, metadata_json = excluded.metadata_json",
                     # Redacted for the same reason as the SQLite path: the
                     # camera password must not be written to the cloud DB.
                     (spec.camera_id, spec.store_id, spec.display_name, spec.camera_type,
-                     spec.source_kind, redact_stream_credentials(spec.source_uri)),
+                     spec.source_kind, redact_stream_credentials(spec.source_uri),
+                     camera_metadata_json(spec)),
                 )
         conn.commit()
     finally:

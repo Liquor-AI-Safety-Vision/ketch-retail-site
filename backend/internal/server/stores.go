@@ -5,17 +5,17 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
 
-var roleRank = map[string]int{"OPERATOR": 1, "MANAGER": 2, "OWNER": 3}
+// Stores are read-only here. They are created and renamed by the AI service
+// from its manifest (ai/config/stores/*.json) every time it starts, so an edit
+// made through this API would be overwritten on the next pipeline start.
 
 func (s *Server) requireRole(w http.ResponseWriter, ctx context.Context, userID, storeID, minimum string) bool {
 	var role string
-	err := s.db.QueryRow(ctx, `SELECT sm."role" FROM "store_memberships" sm JOIN "users" u ON u."id"=sm."userId" WHERE sm."userId"=$1 AND sm."storeId"=$2 AND u."status"='ACTIVE'`, userID, storeID).Scan(&role)
+	err := s.db.QueryRow(ctx, `SELECT os.role FROM owner_stores os JOIN owners o ON o.owner_id=os.owner_id WHERE os.owner_id=$1 AND os.store_id=$2 AND o.status='active'`, userID, storeID).Scan(&role)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			writeError(w, http.StatusNotFound, "Not Found", "Store was not found.")
@@ -32,7 +32,7 @@ func (s *Server) requireRole(w http.ResponseWriter, ctx context.Context, userID,
 }
 
 func (s *Server) listStores(w http.ResponseWriter, r *http.Request, user principal) {
-	rows, err := s.db.Query(r.Context(), `SELECT s."id", s."name", s."code", s."address", s."timezone", sm."role" FROM "stores" s JOIN "store_memberships" sm ON sm."storeId"=s."id" WHERE sm."userId"=$1 ORDER BY s."name"`, user.ID)
+	rows, err := s.db.Query(r.Context(), `SELECT s.store_id, s.display_name, COALESCE(s.store_code, s.store_id), s.timezone, os.role FROM stores s JOIN owner_stores os ON os.store_id=s.store_id WHERE os.owner_id=$1 ORDER BY s.display_name`, user.ID)
 	if err != nil {
 		s.internalError(w, err)
 		return
@@ -41,7 +41,7 @@ func (s *Server) listStores(w http.ResponseWriter, r *http.Request, user princip
 	items := []storeResponse{}
 	for rows.Next() {
 		var item storeResponse
-		if err := rows.Scan(&item.ID, &item.Name, &item.Code, &item.Address, &item.Timezone, &item.Role); err != nil {
+		if err := rows.Scan(&item.ID, &item.Name, &item.Code, &item.Timezone, &item.Role); err != nil {
 			s.internalError(w, err)
 			return
 		}
@@ -54,123 +54,14 @@ func (s *Server) listStores(w http.ResponseWriter, r *http.Request, user princip
 	writeJSON(w, http.StatusOK, items)
 }
 
-func (s *Server) createStore(w http.ResponseWriter, r *http.Request, user principal) {
-	// Bootstrap is handled by the explicitly enabled registration route. Creating
-	// additional stores requires an existing active owner, never just a JWT.
-	var input struct {
-		Name    string  `json:"name"`
-		Code    string  `json:"code"`
-		Address *string `json:"address"`
-	}
-	if !decodeJSON(w, r, &input) {
-		return
-	}
-	input.Name, input.Code = strings.TrimSpace(input.Name), strings.TrimSpace(input.Code)
-	if !validLength(input.Name, 2, 120) || !storeCodePattern.MatchString(input.Code) || (input.Address != nil && !validLength(*input.Address, 0, 500)) {
-		writeError(w, http.StatusBadRequest, "Bad Request", "Store details are invalid.")
-		return
-	}
-	storeID := uuid.NewString()
-	tx, err := s.db.Begin(r.Context())
-	if err != nil {
-		s.internalError(w, err)
-		return
-	}
-	defer func() { _ = tx.Rollback(r.Context()) }()
-	// Hold the authorizing membership and account until commit so concurrent
-	// suspension or membership removal cannot race the creation.
-	var membershipID string
-	if err := tx.QueryRow(r.Context(), `SELECT sm."id" FROM "store_memberships" sm JOIN "users" u ON u."id"=sm."userId" WHERE sm."userId"=$1 AND sm."role"='OWNER' AND u."status"='ACTIVE' ORDER BY sm."id" LIMIT 1 FOR SHARE OF sm,u`, user.ID).Scan(&membershipID); err != nil {
-		if err == pgx.ErrNoRows {
-			writeError(w, http.StatusForbidden, "Forbidden", "Only an active store owner can create another store.")
-		} else {
-			s.internalError(w, err)
-		}
-		return
-	}
-	var address any
-	if input.Address != nil {
-		address = strings.TrimSpace(*input.Address)
-	}
-	if _, err = tx.Exec(r.Context(), `INSERT INTO "stores" ("id","name","code","address","updatedAt") VALUES ($1,$2,$3,$4,NOW())`, storeID, input.Name, input.Code, address); err != nil {
-		if uniqueViolation(err) {
-			writeError(w, http.StatusConflict, "Conflict", "This store code is already in use.")
-			return
-		}
-		s.internalError(w, err)
-		return
-	}
-	if _, err = tx.Exec(r.Context(), `INSERT INTO "store_memberships" ("id","userId","storeId","role","updatedAt") VALUES ($1,$2,$3,'OWNER',NOW())`, uuid.NewString(), user.ID, storeID); err != nil {
-		s.internalError(w, err)
-		return
-	}
-	if err = tx.Commit(r.Context()); err != nil {
-		s.internalError(w, err)
-		return
-	}
-	s.writeStore(w, r.Context(), storeID, http.StatusCreated)
-}
-
 func (s *Server) findStore(w http.ResponseWriter, r *http.Request, user principal) {
 	storeID := r.PathValue("storeId")
-	if !s.requireRole(w, r.Context(), user.ID, storeID, "OPERATOR") {
+	if !s.requireRole(w, r.Context(), user.ID, storeID, roleOperator) {
 		return
 	}
-	s.writeStore(w, r.Context(), storeID, http.StatusOK)
-}
-
-func (s *Server) updateStore(w http.ResponseWriter, r *http.Request, user principal) {
-	storeID := r.PathValue("storeId")
-	if !s.requireRole(w, r.Context(), user.ID, storeID, "OWNER") {
-		return
-	}
-	var input struct {
-		Name     *string `json:"name"`
-		Address  *string `json:"address"`
-		Timezone *string `json:"timezone"`
-	}
-	if !decodeJSON(w, r, &input) {
-		return
-	}
-	if input.Name != nil && !validLength(*input.Name, 2, 120) {
-		writeError(w, http.StatusBadRequest, "Bad Request", "name must contain 2 to 120 characters.")
-		return
-	}
-	if input.Address != nil && !validLength(*input.Address, 0, 500) {
-		writeError(w, http.StatusBadRequest, "Bad Request", "address must be at most 500 characters.")
-		return
-	}
-	if input.Timezone != nil && !validLength(*input.Timezone, 1, 64) {
-		writeError(w, http.StatusBadRequest, "Bad Request", "timezone must be at most 64 characters.")
-		return
-	}
-	query := `UPDATE "stores" SET "updatedAt"=NOW()`
-	args := []any{}
-	if input.Name != nil {
-		args = append(args, strings.TrimSpace(*input.Name))
-		query += `, "name"=$` + itoa(len(args))
-	}
-	if input.Address != nil {
-		args = append(args, strings.TrimSpace(*input.Address))
-		query += `, "address"=$` + itoa(len(args))
-	}
-	if input.Timezone != nil {
-		args = append(args, strings.TrimSpace(*input.Timezone))
-		query += `, "timezone"=$` + itoa(len(args))
-	}
-	args = append(args, storeID)
-	query += ` WHERE "id"=$` + itoa(len(args))
-	if _, err := s.db.Exec(r.Context(), query, args...); err != nil {
-		s.internalError(w, err)
-		return
-	}
-	s.writeStore(w, r.Context(), storeID, http.StatusOK)
-}
-
-func (s *Server) writeStore(w http.ResponseWriter, ctx context.Context, storeID string, status int) {
 	var item storeResponse
-	err := s.db.QueryRow(ctx, `SELECT "id", "name", "code", "address", "timezone", "createdAt", "updatedAt" FROM "stores" WHERE "id"=$1`, storeID).
-		Scan(&item.ID, &item.Name, &item.Code, &item.Address, &item.Timezone, &item.CreatedAt, &item.UpdatedAt)
+	err := s.db.QueryRow(r.Context(), `SELECT s.store_id, s.display_name, COALESCE(s.store_code, s.store_id), s.timezone, os.role FROM stores s JOIN owner_stores os ON os.store_id=s.store_id WHERE s.store_id=$1 AND os.owner_id=$2`, storeID, user.ID).
+		Scan(&item.ID, &item.Name, &item.Code, &item.Timezone, &item.Role)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			writeError(w, http.StatusNotFound, "Not Found", "Store was not found.")
@@ -179,23 +70,23 @@ func (s *Server) writeStore(w http.ResponseWriter, ctx context.Context, storeID 
 		s.internalError(w, err)
 		return
 	}
-	writeJSON(w, status, item)
+	writeJSON(w, http.StatusOK, item)
 }
 
 func (s *Server) listMembers(w http.ResponseWriter, r *http.Request, user principal) {
 	storeID := r.PathValue("storeId")
-	if !s.requireRole(w, r.Context(), user.ID, storeID, "MANAGER") {
+	if !s.requireRole(w, r.Context(), user.ID, storeID, roleManager) {
 		return
 	}
 	type memberResponse struct {
-		ID          string    `json:"id"`
-		Email       string    `json:"email"`
-		DisplayName string    `json:"displayName"`
-		Status      string    `json:"status"`
-		Role        string    `json:"role"`
-		CreatedAt   time.Time `json:"createdAt"`
+		ID          string `json:"id"`
+		Email       string `json:"email"`
+		DisplayName string `json:"displayName"`
+		Status      string `json:"status"`
+		Role        string `json:"role"`
+		CreatedAt   string `json:"createdAt"`
 	}
-	rows, err := s.db.Query(r.Context(), `SELECT u."id",u."email",u."displayName",u."status",sm."role",sm."createdAt" FROM "store_memberships" sm JOIN "users" u ON u."id"=sm."userId" WHERE sm."storeId"=$1 ORDER BY sm."role",u."displayName"`, storeID)
+	rows, err := s.db.Query(r.Context(), `SELECT o.owner_id, o.email, o.display_name, o.status, os.role, os.created_at FROM owner_stores os JOIN owners o ON o.owner_id=os.owner_id WHERE os.store_id=$1 ORDER BY os.role, o.display_name`, storeID)
 	if err != nil {
 		s.internalError(w, err)
 		return
@@ -210,12 +101,16 @@ func (s *Server) listMembers(w http.ResponseWriter, r *http.Request, user princi
 		}
 		items = append(items, item)
 	}
+	if err := rows.Err(); err != nil {
+		s.internalError(w, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, items)
 }
 
 func (s *Server) addMember(w http.ResponseWriter, r *http.Request, user principal) {
 	storeID := r.PathValue("storeId")
-	if !s.requireRole(w, r.Context(), user.ID, storeID, "OWNER") {
+	if !s.requireRole(w, r.Context(), user.ID, storeID, roleOwner) {
 		return
 	}
 	var input struct {
@@ -226,12 +121,12 @@ func (s *Server) addMember(w http.ResponseWriter, r *http.Request, user principa
 		return
 	}
 	input.Email = strings.ToLower(strings.TrimSpace(input.Email))
-	if !validEmail(input.Email) || !oneOf(input.Role, "MANAGER", "OPERATOR") {
+	if !validEmail(input.Email) || !oneOf(input.Role, roleManager, roleOperator) {
 		writeError(w, http.StatusBadRequest, "Bad Request", "Member details are invalid.")
 		return
 	}
 	var memberID string
-	if err := s.db.QueryRow(r.Context(), `SELECT "id" FROM "users" WHERE "email"=$1`, input.Email).Scan(&memberID); err != nil {
+	if err := s.db.QueryRow(r.Context(), `SELECT owner_id FROM owners WHERE lower(email)=$1`, input.Email).Scan(&memberID); err != nil {
 		if err == pgx.ErrNoRows {
 			writeError(w, http.StatusNotFound, "Not Found", "The invited user must register first.")
 			return
@@ -239,7 +134,7 @@ func (s *Server) addMember(w http.ResponseWriter, r *http.Request, user principa
 		s.internalError(w, err)
 		return
 	}
-	_, err := s.db.Exec(r.Context(), `INSERT INTO "store_memberships" ("id","userId","storeId","role","updatedAt") VALUES ($1,$2,$3,$4,NOW())`, uuid.NewString(), memberID, storeID, input.Role)
+	_, err := s.db.Exec(r.Context(), `INSERT INTO owner_stores (owner_id, store_id, role, created_at) VALUES ($1,$2,$3,$4)`, memberID, storeID, input.Role, isoNow())
 	if err != nil {
 		if uniqueViolation(err) {
 			writeError(w, http.StatusConflict, "Conflict", "This user already belongs to the store.")
@@ -253,7 +148,7 @@ func (s *Server) addMember(w http.ResponseWriter, r *http.Request, user principa
 
 func (s *Server) updateMember(w http.ResponseWriter, r *http.Request, user principal) {
 	storeID, memberID := r.PathValue("storeId"), r.PathValue("memberId")
-	if !s.requireRole(w, r.Context(), user.ID, storeID, "OWNER") {
+	if !s.requireRole(w, r.Context(), user.ID, storeID, roleOwner) {
 		return
 	}
 	var input struct {
@@ -262,8 +157,8 @@ func (s *Server) updateMember(w http.ResponseWriter, r *http.Request, user princ
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	if !oneOf(input.Role, "MANAGER", "OPERATOR") {
-		writeError(w, http.StatusBadRequest, "Bad Request", "role must be MANAGER or OPERATOR.")
+	if !oneOf(input.Role, roleManager, roleOperator) {
+		writeError(w, http.StatusBadRequest, "Bad Request", "role must be manager or operator.")
 		return
 	}
 	if !s.memberCanChange(w, r.Context(), storeID, memberID) {
@@ -273,7 +168,7 @@ func (s *Server) updateMember(w http.ResponseWriter, r *http.Request, user princ
 		UserID string `json:"userId"`
 		Role   string `json:"role"`
 	}
-	err := s.db.QueryRow(r.Context(), `UPDATE "store_memberships" SET "role"=$1,"updatedAt"=NOW() WHERE "storeId"=$2 AND "userId"=$3 RETURNING "userId","role"`, input.Role, storeID, memberID).Scan(&response.UserID, &response.Role)
+	err := s.db.QueryRow(r.Context(), `UPDATE owner_stores SET role=$1 WHERE store_id=$2 AND owner_id=$3 RETURNING owner_id, role`, input.Role, storeID, memberID).Scan(&response.UserID, &response.Role)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			writeError(w, http.StatusNotFound, "Not Found", "Store member was not found.")
@@ -287,7 +182,7 @@ func (s *Server) updateMember(w http.ResponseWriter, r *http.Request, user princ
 
 func (s *Server) removeMember(w http.ResponseWriter, r *http.Request, user principal) {
 	storeID, memberID := r.PathValue("storeId"), r.PathValue("memberId")
-	if !s.requireRole(w, r.Context(), user.ID, storeID, "OWNER") {
+	if !s.requireRole(w, r.Context(), user.ID, storeID, roleOwner) {
 		return
 	}
 	if memberID == user.ID {
@@ -297,7 +192,7 @@ func (s *Server) removeMember(w http.ResponseWriter, r *http.Request, user princ
 	if !s.memberCanChange(w, r.Context(), storeID, memberID) {
 		return
 	}
-	result, err := s.db.Exec(r.Context(), `DELETE FROM "store_memberships" WHERE "storeId"=$1 AND "userId"=$2`, storeID, memberID)
+	result, err := s.db.Exec(r.Context(), `DELETE FROM owner_stores WHERE store_id=$1 AND owner_id=$2`, storeID, memberID)
 	if err != nil {
 		s.internalError(w, err)
 		return
@@ -311,7 +206,7 @@ func (s *Server) removeMember(w http.ResponseWriter, r *http.Request, user princ
 
 func (s *Server) memberCanChange(w http.ResponseWriter, ctx context.Context, storeID, memberID string) bool {
 	var role string
-	err := s.db.QueryRow(ctx, `SELECT "role" FROM "store_memberships" WHERE "storeId"=$1 AND "userId"=$2`, storeID, memberID).Scan(&role)
+	err := s.db.QueryRow(ctx, `SELECT role FROM owner_stores WHERE store_id=$1 AND owner_id=$2`, storeID, memberID).Scan(&role)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			writeError(w, http.StatusNotFound, "Not Found", "Store member was not found.")
@@ -320,7 +215,7 @@ func (s *Server) memberCanChange(w http.ResponseWriter, ctx context.Context, sto
 		s.internalError(w, err)
 		return false
 	}
-	if role == "OWNER" {
+	if role == roleOwner {
 		writeError(w, http.StatusConflict, "Conflict", "Owner membership cannot be changed or removed.")
 		return false
 	}

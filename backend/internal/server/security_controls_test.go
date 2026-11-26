@@ -16,12 +16,12 @@ func TestTerminalAlertDecisionPermissions(t *testing.T) {
 		from, to, role string
 		want           int
 	}{
-		{"NEW", "ACKNOWLEDGED", "OPERATOR", 0}, {"NEW", "DISMISSED", "OPERATOR", 0},
-		{"NEW", "RESOLVED", "OPERATOR", 403}, {"ACKNOWLEDGED", "RESOLVED", "MANAGER", 0},
-		{"RESOLVED", "DISMISSED", "OPERATOR", 403}, {"DISMISSED", "RESOLVED", "OPERATOR", 403},
-		{"RESOLVED", "DISMISSED", "MANAGER", 0}, {"RESOLVED", "DISMISSED", "OWNER", 0},
-		{"DISMISSED", "RESOLVED", "OWNER", 0}, {"RESOLVED", "ACKNOWLEDGED", "OWNER", 409},
-		{"RESOLVED", "RESOLVED", "OWNER", 409}, {"NEW", "DISMISSED", "", 403},
+		{"NEW", "ACKNOWLEDGED", roleOperator, 0}, {"NEW", "DISMISSED", roleOperator, 0},
+		{"NEW", "RESOLVED", roleOperator, 403}, {"ACKNOWLEDGED", "RESOLVED", roleManager, 0},
+		{"RESOLVED", "DISMISSED", roleOperator, 403}, {"DISMISSED", "RESOLVED", roleOperator, 403},
+		{"RESOLVED", "DISMISSED", roleManager, 0}, {"RESOLVED", "DISMISSED", roleOwner, 0},
+		{"DISMISSED", "RESOLVED", roleOwner, 0}, {"RESOLVED", "ACKNOWLEDGED", roleOwner, 409},
+		{"RESOLVED", "RESOLVED", roleOwner, 409}, {"NEW", "DISMISSED", "", 403},
 	} {
 		if got := alertTransitionStatus(tc.from, tc.to, tc.role); got != tc.want {
 			t.Errorf("%+v: got %d", tc, got)

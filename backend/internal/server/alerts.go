@@ -28,7 +28,7 @@ type alertDetailResponse struct {
 
 func (s *Server) listAlerts(w http.ResponseWriter, r *http.Request, user principal) {
 	storeID := r.PathValue("storeId")
-	if !s.requireRole(w, r.Context(), user.ID, storeID, "OPERATOR") {
+	if !s.requireRole(w, r.Context(), user.ID, storeID, roleOperator) {
 		return
 	}
 	query, values, limit, ok := buildAlertQuery(w, r.URL.Query(), storeID)
@@ -141,7 +141,7 @@ func scanAlert(row rowScanner, item *alertResponse) error {
 
 func (s *Server) findAlert(w http.ResponseWriter, r *http.Request, user principal) {
 	storeID, alertID := r.PathValue("storeId"), r.PathValue("alertId")
-	if !s.requireRole(w, r.Context(), user.ID, storeID, "OPERATOR") {
+	if !s.requireRole(w, r.Context(), user.ID, storeID, roleOperator) {
 		return
 	}
 	detail, err := s.loadAlertDetail(r.Context(), storeID, alertID)
@@ -179,13 +179,13 @@ func (s *Server) loadAlertDetail(ctx context.Context, storeID, alertID string) (
 }
 
 func (s *Server) acknowledgeAlert(w http.ResponseWriter, r *http.Request, user principal) {
-	s.changeAlertStatus(w, r, user, "ACKNOWLEDGED", "OPERATOR")
+	s.changeAlertStatus(w, r, user, "ACKNOWLEDGED", roleOperator)
 }
 func (s *Server) dismissAlert(w http.ResponseWriter, r *http.Request, user principal) {
-	s.changeAlertStatus(w, r, user, "DISMISSED", "OPERATOR")
+	s.changeAlertStatus(w, r, user, "DISMISSED", roleOperator)
 }
 func (s *Server) resolveAlert(w http.ResponseWriter, r *http.Request, user principal) {
-	s.changeAlertStatus(w, r, user, "RESOLVED", "MANAGER")
+	s.changeAlertStatus(w, r, user, "RESOLVED", roleManager)
 }
 
 func (s *Server) changeAlertStatus(w http.ResponseWriter, r *http.Request, user principal, status, minimumRole string) {
@@ -274,8 +274,8 @@ func (s *Server) changeAlertStatus(w http.ResponseWriter, r *http.Request, user 
 // Terminal decisions can only be corrected by management. Repeating a decision
 // never rewrites its actor/note; row locking serializes competing transitions.
 func alertTransitionStatus(from, to, role string) int {
-	if roleRank[role] < roleRank["OPERATOR"] || (to == "RESOLVED" && roleRank[role] < roleRank["MANAGER"]) ||
-		(oneOf(from, "RESOLVED", "DISMISSED") && roleRank[role] < roleRank["MANAGER"]) {
+	if roleRank[role] < roleRank[roleOperator] || (to == "RESOLVED" && roleRank[role] < roleRank[roleManager]) ||
+		(oneOf(from, "RESOLVED", "DISMISSED") && roleRank[role] < roleRank[roleManager]) {
 		return http.StatusForbidden
 	}
 	if from == to || !oneOf(from, "NEW", "ACKNOWLEDGED", "RESOLVED", "DISMISSED") || !oneOf(to, "ACKNOWLEDGED", "RESOLVED", "DISMISSED") ||

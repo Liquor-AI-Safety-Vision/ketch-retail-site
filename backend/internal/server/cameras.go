@@ -4,43 +4,71 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"strings"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
 
-type cameraCreateRequest struct {
-	Name             string `json:"name"`
-	Location         string `json:"location"`
-	Protocol         string `json:"protocol"`
-	StreamGatewayRef string `json:"streamGatewayRef"`
-	IsEnabled        *bool  `json:"isEnabled"`
+// Cameras are read-only here, like stores: the AI service upserts every row
+// from its manifest at startup, so an edit made through this API would be
+// overwritten on the next pipeline start. To add or change a camera, change
+// the manifest (ai/config/stores/*.json).
+//
+// source_uri is never selected. The AI service redacts the password before
+// writing it, but the camera's address is still not the dashboard's business.
+
+// cameraMetadata is what the AI service writes into cameras.metadata_json
+// (ai/src/infra/camera_metadata.py).
+type cameraMetadata struct {
+	Pipelines  []string       `json:"pipelines"`
+	Zones      []metadataZone `json:"zones"`
+	ZoneErrors []string       `json:"zone_errors"`
 }
 
-type cameraUpdateRequest struct {
-	Name             *string `json:"name"`
-	Location         *string `json:"location"`
-	Protocol         *string `json:"protocol"`
-	StreamGatewayRef *string `json:"streamGatewayRef"`
-	Status           *string `json:"status"`
-	IsEnabled        *bool   `json:"isEnabled"`
+type metadataZone struct {
+	PipelineID string      `json:"pipeline_id"`
+	Name       string      `json:"name"`
+	Type       string      `json:"type"`
+	PointsNorm [][]float64 `json:"points_norm"`
 }
 
-type zoneRequest struct {
-	Name                   *string         `json:"name"`
-	Kind                   *string         `json:"kind"`
-	ExpectedPersonCategory *string         `json:"expectedPersonCategory"`
-	Polygon                json.RawMessage `json:"polygon"`
-	DwellThresholdSeconds  *int            `json:"dwellThresholdSeconds"`
+const cameraColumns = `camera_id, store_id, display_name, camera_type, source_type, is_active <> 0, metadata_json`
+
+func scanCamera(row rowScanner, item *cameraResponse) error {
+	var rawMetadata string
+	if err := row.Scan(&item.ID, &item.StoreID, &item.Name, &item.CameraType, &item.SourceType, &item.IsActive, &rawMetadata); err != nil {
+		return err
+	}
+	meta := parseCameraMetadata(rawMetadata)
+	item.Pipelines = meta.Pipelines
+	return nil
+}
+
+func parseCameraMetadata(raw string) cameraMetadata {
+	var meta cameraMetadata
+	// A row seeded before metadata_json carried anything is '{}': no
+	// pipelines, no zones. Malformed JSON reads the same way rather than
+	// failing the whole camera list.
+	_ = json.Unmarshal([]byte(raw), &meta)
+	if meta.Pipelines == nil {
+		meta.Pipelines = []string{}
+	}
+	return meta
+}
+
+func (m cameraMetadata) zoneResponses() []zoneResponse {
+	out := make([]zoneResponse, 0, len(m.Zones))
+	for _, z := range m.Zones {
+		out = append(out, zoneResponse{PipelineID: z.PipelineID, Name: z.Name, Type: z.Type, PointsNorm: z.PointsNorm})
+	}
+	return out
 }
 
 func (s *Server) listCameras(w http.ResponseWriter, r *http.Request, user principal) {
 	storeID := r.PathValue("storeId")
-	if !s.requireRole(w, r.Context(), user.ID, storeID, "OPERATOR") {
+	if !s.requireRole(w, r.Context(), user.ID, storeID, roleOperator) {
 		return
 	}
-	rows, err := s.db.Query(r.Context(), `SELECT "id","name","location","protocol","streamGatewayRef","status","isEnabled","createdAt","updatedAt" FROM "cameras" WHERE "storeId"=$1 ORDER BY "name"`, storeID)
+	rows, err := s.db.Query(r.Context(), `SELECT `+cameraColumns+` FROM cameras WHERE store_id=$1 ORDER BY display_name, camera_id`, storeID)
 	if err != nil {
 		s.internalError(w, err)
 		return
@@ -49,7 +77,7 @@ func (s *Server) listCameras(w http.ResponseWriter, r *http.Request, user princi
 	items := []cameraResponse{}
 	for rows.Next() {
 		var item cameraResponse
-		if err := rows.Scan(&item.ID, &item.Name, &item.Location, &item.Protocol, &item.StreamGatewayRef, &item.Status, &item.IsEnabled, &item.CreatedAt, &item.UpdatedAt); err != nil {
+		if err := scanCamera(rows, &item); err != nil {
 			s.internalError(w, err)
 			return
 		}
@@ -62,120 +90,31 @@ func (s *Server) listCameras(w http.ResponseWriter, r *http.Request, user princi
 	writeJSON(w, http.StatusOK, items)
 }
 
-func (s *Server) createCamera(w http.ResponseWriter, r *http.Request, user principal) {
-	storeID := r.PathValue("storeId")
-	if !s.requireRole(w, r.Context(), user.ID, storeID, "MANAGER") {
-		return
-	}
-	var input cameraCreateRequest
-	if !decodeJSON(w, r, &input) {
-		return
-	}
-	input.Name, input.Location, input.StreamGatewayRef = strings.TrimSpace(input.Name), strings.TrimSpace(input.Location), strings.TrimSpace(input.StreamGatewayRef)
-	if !validLength(input.Name, 2, 120) || !validLength(input.Location, 2, 120) || !validLength(input.StreamGatewayRef, 2, 200) || !oneOf(input.Protocol, "RTSP", "ONVIF", "HLS", "WEBRTC") {
-		writeError(w, http.StatusBadRequest, "Bad Request", "Camera details are invalid.")
-		return
-	}
-	enabled := true
-	if input.IsEnabled != nil {
-		enabled = *input.IsEnabled
-	}
-	cameraID := uuid.NewString()
-	_, err := s.db.Exec(r.Context(), `INSERT INTO "cameras" ("id","storeId","name","location","protocol","streamGatewayRef","isEnabled","updatedAt") VALUES ($1,$2,$3,$4,$5,$6,$7,NOW())`, cameraID, storeID, input.Name, input.Location, input.Protocol, input.StreamGatewayRef, enabled)
-	if err != nil {
-		if uniqueViolation(err) {
-			writeError(w, http.StatusConflict, "Conflict", "streamGatewayRef is already assigned to a camera.")
-			return
-		}
-		s.internalError(w, err)
-		return
-	}
-	s.writeCamera(w, r.Context(), storeID, cameraID, http.StatusCreated)
-}
-
 func (s *Server) findCamera(w http.ResponseWriter, r *http.Request, user principal) {
 	storeID, cameraID := r.PathValue("storeId"), r.PathValue("cameraId")
-	if !s.requireRole(w, r.Context(), user.ID, storeID, "OPERATOR") {
+	if !s.requireRole(w, r.Context(), user.ID, storeID, roleOperator) {
 		return
 	}
-	s.writeCamera(w, r.Context(), storeID, cameraID, http.StatusOK)
-}
-
-func (s *Server) updateCamera(w http.ResponseWriter, r *http.Request, user principal) {
-	storeID, cameraID := r.PathValue("storeId"), r.PathValue("cameraId")
-	if !s.requireRole(w, r.Context(), user.ID, storeID, "MANAGER") {
-		return
-	}
-	var input cameraUpdateRequest
-	if !decodeJSON(w, r, &input) {
-		return
-	}
-	if input.Name != nil && !validLength(*input.Name, 2, 120) || input.Location != nil && !validLength(*input.Location, 2, 120) || input.StreamGatewayRef != nil && !validLength(*input.StreamGatewayRef, 2, 200) || input.Protocol != nil && !oneOf(*input.Protocol, "RTSP", "ONVIF", "HLS", "WEBRTC") || input.Status != nil && !oneOf(*input.Status, "ONLINE", "OFFLINE", "DISABLED") {
-		writeError(w, http.StatusBadRequest, "Bad Request", "Camera details are invalid.")
-		return
-	}
-	query := `UPDATE "cameras" SET "updatedAt"=NOW()`
-	args := []any{}
-	add := func(column string, value any) {
-		args = append(args, value)
-		query += `, "` + column + `"=$` + itoa(len(args))
-	}
-	if input.Name != nil {
-		add("name", strings.TrimSpace(*input.Name))
-	}
-	if input.Location != nil {
-		add("location", strings.TrimSpace(*input.Location))
-	}
-	if input.Protocol != nil {
-		add("protocol", *input.Protocol)
-	}
-	if input.StreamGatewayRef != nil {
-		add("streamGatewayRef", strings.TrimSpace(*input.StreamGatewayRef))
-	}
-	if input.Status != nil {
-		add("status", *input.Status)
-	}
-	if input.IsEnabled != nil {
-		add("isEnabled", *input.IsEnabled)
-	}
-	args = append(args, cameraID, storeID)
-	query += ` WHERE "id"=$` + itoa(len(args)-1) + ` AND "storeId"=$` + itoa(len(args))
-	result, err := s.db.Exec(r.Context(), query, args...)
-	if err != nil {
-		if uniqueViolation(err) {
-			writeError(w, http.StatusConflict, "Conflict", "streamGatewayRef is already assigned to a camera.")
+	var item cameraResponse
+	if err := scanCamera(s.db.QueryRow(r.Context(), `SELECT `+cameraColumns+` FROM cameras WHERE store_id=$1 AND camera_id=$2`, storeID, cameraID), &item); err != nil {
+		if err == pgx.ErrNoRows {
+			writeError(w, http.StatusNotFound, "Not Found", "Camera was not found.")
 			return
 		}
 		s.internalError(w, err)
 		return
 	}
-	if result.RowsAffected() == 0 {
-		writeError(w, http.StatusNotFound, "Not Found", "Camera was not found.")
-		return
-	}
-	s.writeCamera(w, r.Context(), storeID, cameraID, http.StatusOK)
+	writeJSON(w, http.StatusOK, item)
 }
 
-func (s *Server) removeCamera(w http.ResponseWriter, r *http.Request, user principal) {
+// Zones as the AI pipelines use them, for drawing over the camera view.
+// points are fractions of frame width/height.
+func (s *Server) listZones(w http.ResponseWriter, r *http.Request, user principal) {
 	storeID, cameraID := r.PathValue("storeId"), r.PathValue("cameraId")
-	if !s.requireRole(w, r.Context(), user.ID, storeID, "MANAGER") {
+	if !s.requireRole(w, r.Context(), user.ID, storeID, roleOperator) {
 		return
 	}
-	result, err := s.db.Exec(r.Context(), `DELETE FROM "cameras" WHERE "id"=$1 AND "storeId"=$2`, cameraID, storeID)
-	if err != nil {
-		s.internalError(w, err)
-		return
-	}
-	if result.RowsAffected() == 0 {
-		writeError(w, http.StatusNotFound, "Not Found", "Camera was not found.")
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
-}
-
-func (s *Server) writeCamera(w http.ResponseWriter, ctx context.Context, storeID, cameraID string, status int) {
-	var item cameraResponse
-	err := s.db.QueryRow(ctx, `SELECT "id","name","location","protocol","streamGatewayRef","status","isEnabled","createdAt","updatedAt" FROM "cameras" WHERE "id"=$1 AND "storeId"=$2`, cameraID, storeID).Scan(&item.ID, &item.Name, &item.Location, &item.Protocol, &item.StreamGatewayRef, &item.Status, &item.IsEnabled, &item.CreatedAt, &item.UpdatedAt)
+	meta, err := s.loadCameraMetadata(r.Context(), storeID, cameraID)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			writeError(w, http.StatusNotFound, "Not Found", "Camera was not found.")
@@ -184,169 +123,13 @@ func (s *Server) writeCamera(w http.ResponseWriter, ctx context.Context, storeID
 		s.internalError(w, err)
 		return
 	}
-	writeJSON(w, status, item)
+	writeJSON(w, http.StatusOK, meta.zoneResponses())
 }
 
-func (s *Server) requireCamera(w http.ResponseWriter, ctx context.Context, userID, storeID, cameraID, role string) bool {
-	if !s.requireRole(w, ctx, userID, storeID, role) {
-		return false
+func (s *Server) loadCameraMetadata(ctx context.Context, storeID, cameraID string) (cameraMetadata, error) {
+	var raw string
+	if err := s.db.QueryRow(ctx, `SELECT metadata_json FROM cameras WHERE store_id=$1 AND camera_id=$2`, storeID, cameraID).Scan(&raw); err != nil {
+		return cameraMetadata{}, err
 	}
-	var exists bool
-	err := s.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM "cameras" WHERE "id"=$1 AND "storeId"=$2)`, cameraID, storeID).Scan(&exists)
-	if err != nil {
-		s.internalError(w, err)
-		return false
-	}
-	if !exists {
-		writeError(w, http.StatusNotFound, "Not Found", "Camera was not found.")
-		return false
-	}
-	return true
-}
-
-func (s *Server) listZones(w http.ResponseWriter, r *http.Request, user principal) {
-	storeID, cameraID := r.PathValue("storeId"), r.PathValue("cameraId")
-	if !s.requireCamera(w, r.Context(), user.ID, storeID, cameraID, "OPERATOR") {
-		return
-	}
-	rows, err := s.db.Query(r.Context(), `SELECT "id","name","kind","expectedPersonCategory","polygon","dwellThresholdSeconds","isEnabled" FROM "camera_zones" WHERE "cameraId"=$1 ORDER BY "name"`, cameraID)
-	if err != nil {
-		s.internalError(w, err)
-		return
-	}
-	defer rows.Close()
-	items := []zoneResponse{}
-	for rows.Next() {
-		var item zoneResponse
-		if err := rows.Scan(&item.ID, &item.Name, &item.Kind, &item.ExpectedPersonCategory, &item.Polygon, &item.DwellThresholdSeconds, &item.IsEnabled); err != nil {
-			s.internalError(w, err)
-			return
-		}
-		items = append(items, item)
-	}
-	writeJSON(w, http.StatusOK, items)
-}
-
-func (s *Server) createZone(w http.ResponseWriter, r *http.Request, user principal) {
-	storeID, cameraID := r.PathValue("storeId"), r.PathValue("cameraId")
-	if !s.requireCamera(w, r.Context(), user.ID, storeID, cameraID, "MANAGER") {
-		return
-	}
-	var input zoneRequest
-	if !decodeJSON(w, r, &input) {
-		return
-	}
-	if !s.validZoneInput(w, input, true) {
-		return
-	}
-	zoneID := uuid.NewString()
-	var category any
-	if input.ExpectedPersonCategory != nil {
-		category = *input.ExpectedPersonCategory
-	}
-	_, err := s.db.Exec(r.Context(), `INSERT INTO "camera_zones" ("id","cameraId","name","kind","expectedPersonCategory","polygon","dwellThresholdSeconds","updatedAt") VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,NOW())`, zoneID, cameraID, strings.TrimSpace(*input.Name), *input.Kind, category, string(input.Polygon), input.DwellThresholdSeconds)
-	if err != nil {
-		s.internalError(w, err)
-		return
-	}
-	s.writeZone(w, r.Context(), cameraID, zoneID, http.StatusCreated)
-}
-
-func (s *Server) findZone(w http.ResponseWriter, r *http.Request, user principal) {
-	storeID, cameraID, zoneID := r.PathValue("storeId"), r.PathValue("cameraId"), r.PathValue("zoneId")
-	if !s.requireCamera(w, r.Context(), user.ID, storeID, cameraID, "OPERATOR") {
-		return
-	}
-	s.writeZone(w, r.Context(), cameraID, zoneID, http.StatusOK)
-}
-
-func (s *Server) updateZone(w http.ResponseWriter, r *http.Request, user principal) {
-	storeID, cameraID, zoneID := r.PathValue("storeId"), r.PathValue("cameraId"), r.PathValue("zoneId")
-	if !s.requireCamera(w, r.Context(), user.ID, storeID, cameraID, "MANAGER") {
-		return
-	}
-	var input zoneRequest
-	if !decodeJSON(w, r, &input) {
-		return
-	}
-	if !s.validZoneInput(w, input, false) {
-		return
-	}
-	query := `UPDATE "camera_zones" SET "updatedAt"=NOW()`
-	args := []any{}
-	add := func(column string, value any) {
-		args = append(args, value)
-		query += `, "` + column + `"=$` + itoa(len(args))
-	}
-	if input.Name != nil {
-		add("name", strings.TrimSpace(*input.Name))
-	}
-	if input.Kind != nil {
-		add("kind", *input.Kind)
-	}
-	if input.ExpectedPersonCategory != nil {
-		add("expectedPersonCategory", *input.ExpectedPersonCategory)
-	}
-	if len(input.Polygon) > 0 {
-		args = append(args, string(input.Polygon))
-		query += `, "polygon"=$` + itoa(len(args)) + `::jsonb`
-	}
-	if input.DwellThresholdSeconds != nil {
-		add("dwellThresholdSeconds", *input.DwellThresholdSeconds)
-	}
-	args = append(args, zoneID, cameraID)
-	query += ` WHERE "id"=$` + itoa(len(args)-1) + ` AND "cameraId"=$` + itoa(len(args))
-	result, err := s.db.Exec(r.Context(), query, args...)
-	if err != nil {
-		s.internalError(w, err)
-		return
-	}
-	if result.RowsAffected() == 0 {
-		writeError(w, http.StatusNotFound, "Not Found", "Camera zone was not found.")
-		return
-	}
-	s.writeZone(w, r.Context(), cameraID, zoneID, http.StatusOK)
-}
-
-func (s *Server) removeZone(w http.ResponseWriter, r *http.Request, user principal) {
-	storeID, cameraID, zoneID := r.PathValue("storeId"), r.PathValue("cameraId"), r.PathValue("zoneId")
-	if !s.requireCamera(w, r.Context(), user.ID, storeID, cameraID, "MANAGER") {
-		return
-	}
-	result, err := s.db.Exec(r.Context(), `DELETE FROM "camera_zones" WHERE "id"=$1 AND "cameraId"=$2`, zoneID, cameraID)
-	if err != nil {
-		s.internalError(w, err)
-		return
-	}
-	if result.RowsAffected() == 0 {
-		writeError(w, http.StatusNotFound, "Not Found", "Camera zone was not found.")
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
-}
-
-func (s *Server) writeZone(w http.ResponseWriter, ctx context.Context, cameraID, zoneID string, status int) {
-	var item zoneResponse
-	err := s.db.QueryRow(ctx, `SELECT "id","name","kind","expectedPersonCategory","polygon","dwellThresholdSeconds","isEnabled" FROM "camera_zones" WHERE "id"=$1 AND "cameraId"=$2`, zoneID, cameraID).Scan(&item.ID, &item.Name, &item.Kind, &item.ExpectedPersonCategory, &item.Polygon, &item.DwellThresholdSeconds, &item.IsEnabled)
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			writeError(w, http.StatusNotFound, "Not Found", "Camera zone was not found.")
-			return
-		}
-		s.internalError(w, err)
-		return
-	}
-	writeJSON(w, status, item)
-}
-
-func (s *Server) validZoneInput(w http.ResponseWriter, input zoneRequest, create bool) bool {
-	if create && (input.Name == nil || input.Kind == nil || len(input.Polygon) == 0) {
-		writeError(w, http.StatusBadRequest, "Bad Request", "name, kind, and polygon are required.")
-		return false
-	}
-	if input.Name != nil && !validLength(*input.Name, 1, 120) || input.Kind != nil && !oneOf(*input.Kind, "HIGH_VALUE", "CASHIER", "STOCKROOM", "ENTRANCE", "CUSTOM") || input.ExpectedPersonCategory != nil && !oneOf(*input.ExpectedPersonCategory, "EMPLOYEE", "CUSTOMER", "UNKNOWN") || len(input.Polygon) > 0 && !validNormalizedPolygon(input.Polygon) || input.DwellThresholdSeconds != nil && *input.DwellThresholdSeconds < 1 {
-		writeError(w, http.StatusBadRequest, "Bad Request", "Zone details are invalid. Polygon must use at least 3 normalized [x,y] points.")
-		return false
-	}
-	return true
+	return parseCameraMetadata(raw), nil
 }
