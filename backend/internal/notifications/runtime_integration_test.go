@@ -10,7 +10,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -19,6 +18,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/liquor-store/security-api/internal/testdb"
 )
 
 type scriptedSender struct {
@@ -77,22 +77,12 @@ func (s *scriptedSender) queue(err error) {
 }
 
 func TestNotificationRuntimePostgreSQL(t *testing.T) {
-	if os.Getenv("RUN_NOTIFICATION_RUNTIME_INTEGRATION_TESTS") != "1" {
-		t.Skip("set RUN_NOTIFICATION_RUNTIME_INTEGRATION_TESTS=1 with an explicit disposable database URL")
-	}
-	databaseURL := strings.TrimSpace(os.Getenv("NOTIFICATION_TEST_DATABASE_URL"))
-	if databaseURL == "" {
-		t.Skip("NOTIFICATION_TEST_DATABASE_URL is required; DATABASE_URL is intentionally ignored")
-	}
+	db := testdb.New(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	db, err := pgxpool.New(ctx, databaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(db.Close)
+	var err error
 
-	storeID := uuid.NewString()
+	storeID := "store_runtime"
 	ruleID := uuid.NewString()
 	telegramEndpointID := uuid.NewString()
 	telegramChannelID := uuid.NewString()
@@ -100,23 +90,9 @@ func TestNotificationRuntimePostgreSQL(t *testing.T) {
 	whatsAppChannelID := uuid.NewString()
 	fallbackTelegramEndpointID := uuid.NewString()
 	fallbackTelegramChannelID := uuid.NewString()
-	t.Cleanup(func() {
-		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cleanupCancel()
-		_, _ = db.Exec(cleanupCtx, `DELETE FROM "notification_video_links" WHERE "storeId"=$1`, storeID)
-		_, _ = db.Exec(cleanupCtx, `DELETE FROM "notification_deliveries" WHERE "storeId"=$1`, storeID)
-		_, _ = db.Exec(cleanupCtx, `DELETE FROM "alerts" WHERE "storeId"=$1`, storeID)
-		_, _ = db.Exec(cleanupCtx, `DELETE FROM "notification_rule_channels" WHERE "storeId"=$1`, storeID)
-		_, _ = db.Exec(cleanupCtx, `DELETE FROM "notification_rules" WHERE "storeId"=$1`, storeID)
-		_, _ = db.Exec(cleanupCtx, `DELETE FROM "notification_endpoints" WHERE "storeId"=$1`, storeID)
-		_, _ = db.Exec(cleanupCtx, `DELETE FROM "stores" WHERE "id"=$1`, storeID)
-	})
-
-	_, err = db.Exec(ctx, `INSERT INTO "stores" ("id","name","code","timezone","updatedAt") VALUES ($1,'Runtime Test',$2,'America/Chicago',NOW())`, storeID, "runtime-"+strings.ToLower(uuid.NewString()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = db.Exec(ctx, `INSERT INTO "notification_rules" ("id","storeId","name","minimumSeverity","alertTypes","cooldownSeconds","updatedAt") VALUES ($1,$2,'Emergency','CRITICAL',ARRAY['WEAPON_DETECTED']::"AlertType"[],0,NOW())`, ruleID, storeID)
+	testdb.Store(t, db, storeID, "Runtime Test", "America/Chicago")
+	testdb.Camera(t, db, "cam_runtime", storeID, "Whole store", "whole_store")
+	_, err = db.Exec(ctx, `INSERT INTO "notification_rules" ("id","storeId","name","minimumSeverity","alertTypes","cooldownSeconds","updatedAt") VALUES ($1,$2,'Emergency','critical',ARRAY['weapon_detected'],0,NOW())`, ruleID, storeID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -336,15 +312,15 @@ func TestNotificationRuntimePostgreSQL(t *testing.T) {
 		_, _ = w.Write([]byte("demo"))
 	}))
 	defer origin.Close()
-	reviews, err := NewSecureReviewService(db, "https://api.example.test", origin.URL+"/objects", "", 2*time.Second)
+	reviews, err := NewSecureReviewService(db, "https://api.example.test", fakeObjectSigner{base: origin.URL + "/objects"}, 2*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
-	link, err := reviews.CreateReviewLink(ctx, ReviewLinkInput{StoreID: storeID, AlertID: alertTwo, EvidenceID: evidenceTwo})
+	link, err := reviews.CreateReviewLink(ctx, ReviewLinkInput{StoreID: storeID, AlertID: alertTwo, MediaID: evidenceTwo})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(link, "runtime/") || strings.Contains(link, evidenceTwo) {
+	if strings.Contains(link, "alerts/") || strings.Contains(link, evidenceTwo) {
 		t.Fatalf("review URL leaks evidence locator/id: %s", link)
 	}
 	token := link[strings.LastIndex(link, "/")+1:]
@@ -363,7 +339,7 @@ func TestNotificationRuntimePostgreSQL(t *testing.T) {
 	if recorder.Code != http.StatusPartialContent || recorder.Body.String() != "demo" {
 		t.Fatalf("secure proxy response = %d %q", recorder.Code, recorder.Body.String())
 	}
-	if requestedRange != "bytes=0-3" || requestedPath != "/objects/runtime/"+evidenceTwo+"/clip%2001.mp4" {
+	if requestedRange != "bytes=0-3" || requestedPath != "/objects/alerts/"+alertTwo+"/clip%2001.mp4" {
 		t.Fatalf("origin request path/range = %q %q", requestedPath, requestedRange)
 	}
 	// Move the persisted deadline into the database's past instead of sleeping
@@ -378,18 +354,17 @@ func TestNotificationRuntimePostgreSQL(t *testing.T) {
 	}
 }
 
+// insertRuntimeAlert writes an alert and its clip the way the AI service's
+// CloudAlertSink does. The rule under test matches weapon_detected/critical.
 func insertRuntimeAlert(t *testing.T, ctx context.Context, db *pgxpool.Pool, storeID, correlationID string) (string, string) {
 	t.Helper()
-	alertID, evidenceID := uuid.NewString(), uuid.NewString()
-	_, err := db.Exec(ctx, `INSERT INTO "alerts" ("id","correlationId","storeId","type","severity","status","subjectPersonCategory","detectedAt","updatedAt") VALUES ($1,$2,$3,'WEAPON_DETECTED','CRITICAL','NEW','UNKNOWN',NOW(),NOW())`, alertID, correlationID, storeID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = db.Exec(ctx, `INSERT INTO "alert_evidence" ("id","alertId","storageKey","mimeType","durationSeconds","startsAt","endsAt") VALUES ($1,$2,$3,'video/mp4',15,NOW(),NOW()+interval '15 seconds')`, evidenceID, alertID, "runtime/"+evidenceID+"/clip 01.mp4")
-	if err != nil {
-		t.Fatal(err)
-	}
-	return alertID, evidenceID
+	alertID, mediaID := uuid.NewString(), uuid.NewString()
+	now := time.Now()
+	testdb.Alert(t, db, alertID, storeID, "cam_runtime", "weapon_v1", "weapon_detected", "critical", now, nil)
+	end := now.Add(15 * time.Second)
+	testdb.Media(t, db, mediaID, alertID, "clip", "alerts/"+alertID+"/clip 01.mp4", "video/mp4", &now, &end)
+	_ = correlationID // the AI schema has no correlation column; EnqueueAlertTx still takes one
+	return alertID, mediaID
 }
 
 func enqueueRuntimeAlert(t *testing.T, ctx context.Context, db *pgxpool.Pool, storeID, alertID, evidenceID, correlationID string) []DeliverySummary {
@@ -401,8 +376,8 @@ func enqueueRuntimeAlert(t *testing.T, ctx context.Context, db *pgxpool.Pool, st
 	defer func() { _ = tx.Rollback(ctx) }()
 	items, err := EnqueueAlertTx(ctx, tx, AlertNotificationInput{
 		StoreID: storeID, StoreName: "Runtime Test", StoreTimezone: "America/Chicago", AlertID: alertID,
-		CorrelationID: correlationID, AlertType: "WEAPON_DETECTED", Severity: "CRITICAL", DetectedAt: time.Now(),
-		CameraName: "Whole store", EvidenceID: evidenceID, StorageKey: "must-not-be-persisted",
+		CorrelationID: correlationID, AlertType: "weapon_detected", Severity: "critical", DetectedAt: time.Now(),
+		CameraID: "cam_runtime", CameraName: "Whole store", MediaID: evidenceID, StorageKey: "must-not-be-persisted",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -469,4 +444,15 @@ func TestOpaqueReviewTokenLength(t *testing.T) {
 	if len(token) != 43 {
 		t.Fatalf("256-bit raw-url token length = %d", len(token))
 	}
+}
+
+// fakeObjectSigner stands in for R2: it maps an object key onto a test
+// origin the way R2Presigner maps it onto endpoint/bucket.
+type fakeObjectSigner struct{ base string }
+
+func (f fakeObjectSigner) PresignGET(key string) (string, error) {
+	if err := validObjectKey(key); err != nil {
+		return "", err
+	}
+	return f.base + "/" + awsURIEncode(key, true), nil
 }

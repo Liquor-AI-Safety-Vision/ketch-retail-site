@@ -49,7 +49,7 @@ type Worker struct {
 
 type claimedDelivery struct {
 	ID, Kind, StoreID, EndpointID, Provider, TemplateVersion  string
-	AlertID, RuleID, EvidenceID                               *string
+	AlertID, RuleID, MediaID                                  *string
 	ProviderAccountRef, DestinationRef, CredentialRef         string
 	EndpointEnabled                                           bool
 	Config                                                    json.RawMessage
@@ -171,7 +171,7 @@ func (w *Worker) claim(ctx context.Context) ([]claimedDelivery, error) {
 SELECT d."id",d."deliveryKind"::text,d."storeId",d."alertId",d."ruleId",d."endpointId",d."provider"::text,
  d."priority",d."fallbackDelaySeconds",d."templateVersion",d."payload",d."attemptCount",d."maxAttempts",
  COALESCE(e."providerAccountRef",''),e."destinationRef",e."credentialRef",COALESCE(e."config",'{}'::jsonb),e."isEnabled",
- NULLIF(d."payload"->>'evidenceId','')
+ NULLIF(d."payload"->>'mediaId','')
 FROM claimed d JOIN "notification_endpoints" e ON e."id"=d."endpointId" AND e."storeId"=d."storeId"`, w.options.BatchSize, leaseSeconds)
 	if err != nil {
 		return nil, err
@@ -183,7 +183,7 @@ FROM claimed d JOIN "notification_endpoints" e ON e."id"=d."endpointId" AND e."s
 		var rawPayload []byte
 		if err := rows.Scan(&item.ID, &item.Kind, &item.StoreID, &item.AlertID, &item.RuleID, &item.EndpointID, &item.Provider,
 			&item.Priority, &item.FallbackDelaySeconds, &item.TemplateVersion, &rawPayload, &item.AttemptCount, &item.MaxAttempts,
-			&item.ProviderAccountRef, &item.DestinationRef, &item.CredentialRef, &item.Config, &item.EndpointEnabled, &item.EvidenceID); err != nil {
+			&item.ProviderAccountRef, &item.DestinationRef, &item.CredentialRef, &item.Config, &item.EndpointEnabled, &item.MediaID); err != nil {
 			return nil, err
 		}
 		if err := json.Unmarshal(rawPayload, &item.Payload); err != nil {
@@ -203,8 +203,8 @@ func (w *Worker) process(ctx context.Context, item claimedDelivery) error {
 	if sender == nil {
 		return w.finishFailure(ctx, item, started, &PermanentSendError{Code: WorkerCodeSenderUnavailable})
 	}
-	if item.Kind == DeliveryKindAlert && item.AlertID != nil && item.EvidenceID != nil && w.links != nil {
-		link, err := w.links.CreateReviewLink(ctx, ReviewLinkInput{StoreID: item.StoreID, AlertID: *item.AlertID, EvidenceID: *item.EvidenceID, DeliveryID: item.ID})
+	if item.Kind == DeliveryKindAlert && item.AlertID != nil && item.MediaID != nil && w.links != nil {
+		link, err := w.links.CreateReviewLink(ctx, ReviewLinkInput{StoreID: item.StoreID, AlertID: *item.AlertID, MediaID: *item.MediaID, DeliveryID: item.ID})
 		if err == nil {
 			item.Payload.ReviewURL = link
 		} else {

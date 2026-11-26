@@ -7,8 +7,10 @@ import (
 	"time"
 )
 
+// The AI service's severities, lowest first: storage and entrance alerts are
+// warning, counter alerts are high, critical is reserved for weapons.
 func TestSeverityRankOrdering(t *testing.T) {
-	order := []string{"LOW", "MEDIUM", "HIGH", "CRITICAL"}
+	order := []string{"warning", "high", "critical"}
 	for index, severity := range order {
 		if SeverityRank(severity) != index+1 {
 			t.Fatalf("%s rank = %d, want %d", severity, SeverityRank(severity), index+1)
@@ -17,38 +19,40 @@ func TestSeverityRankOrdering(t *testing.T) {
 			t.Fatalf("%s does not outrank %s", severity, order[index-1])
 		}
 	}
-	if SeverityRank("UNKNOWN") != 0 {
-		t.Fatal("unknown severities must rank 0")
+	for _, old := range []string{"LOW", "MEDIUM", "UNKNOWN", "info"} {
+		if SeverityRank(old) != 0 {
+			t.Fatalf("%q is not an AI severity and must rank 0", old)
+		}
 	}
-	if !SeverityMeets("CRITICAL", "HIGH") {
-		t.Fatal("CRITICAL must satisfy HIGH minimum")
+	if !SeverityMeets("critical", "high") || !SeverityMeets("high", "warning") {
+		t.Fatal("a higher severity must satisfy a lower minimum")
 	}
-	if SeverityMeets("LOW", "MEDIUM") {
-		t.Fatal("LOW must not satisfy MEDIUM minimum")
+	if SeverityMeets("warning", "high") {
+		t.Fatal("warning must not satisfy a high minimum")
 	}
-	if SeverityMeets("BOGUS", "HIGH") || SeverityMeets("HIGH", "BOGUS") {
+	if SeverityMeets("bogus", "high") || SeverityMeets("high", "bogus") {
 		t.Fatal("unknown severities must never match")
 	}
 }
 
 func TestRuleMatching(t *testing.T) {
-	rule := RuleSpec{ID: "rule-1", IsEnabled: true, MinimumSeverity: "CRITICAL", AlertTypes: []string{"WEAPON_DETECTED"}}
-	if !RuleMatches(rule, "CRITICAL", "WEAPON_DETECTED") {
+	rule := RuleSpec{ID: "rule-1", IsEnabled: true, MinimumSeverity: "critical", AlertTypes: []string{"weapon_detected"}}
+	if !RuleMatches(rule, "critical", "weapon_detected") {
 		t.Fatal("expected CRITICAL WEAPON_DETECTED to match")
 	}
-	if RuleMatches(rule, "HIGH", "WEAPON_DETECTED") {
+	if RuleMatches(rule, "high", "weapon_detected") {
 		t.Fatal("severity below minimum must not match")
 	}
-	if RuleMatches(rule, "CRITICAL", "SUSPICIOUS_CASH_HANDLING") {
+	if RuleMatches(rule, "critical", "suspected_cash_concealment") {
 		t.Fatal("alert type outside list must not match")
 	}
-	wildcard := RuleSpec{ID: "rule-2", IsEnabled: true, MinimumSeverity: "HIGH"}
-	if !RuleMatches(wildcard, "HIGH", "SUSPICIOUS_CASH_HANDLING") {
+	wildcard := RuleSpec{ID: "rule-2", IsEnabled: true, MinimumSeverity: "high"}
+	if !RuleMatches(wildcard, "high", "suspected_cash_concealment") {
 		t.Fatal("empty alertTypes must match any type passing severity")
 	}
 	disabled := rule
 	disabled.IsEnabled = false
-	if RuleMatches(disabled, "CRITICAL", "WEAPON_DETECTED") {
+	if RuleMatches(disabled, "critical", "weapon_detected") {
 		t.Fatal("disabled rules must be excluded")
 	}
 }
@@ -56,10 +60,10 @@ func TestRuleMatching(t *testing.T) {
 func TestMatchingRulesFiltersAndPreservesOrder(t *testing.T) {
 	rules := []RuleSpec{
 		{ID: "a", IsEnabled: false, MinimumSeverity: "LOW"},
-		{ID: "b", IsEnabled: true, MinimumSeverity: "HIGH", AlertTypes: []string{"WEAPON_DETECTED"}},
-		{ID: "c", IsEnabled: true, MinimumSeverity: "CRITICAL", AlertTypes: []string{"POS_VOID_OR_REFUND"}},
+		{ID: "b", IsEnabled: true, MinimumSeverity: "high", AlertTypes: []string{"weapon_detected"}},
+		{ID: "c", IsEnabled: true, MinimumSeverity: "critical", AlertTypes: []string{"unknown_entry"}},
 	}
-	matched := MatchingRules(rules, "CRITICAL", "WEAPON_DETECTED")
+	matched := MatchingRules(rules, "critical", "weapon_detected")
 	if len(matched) != 1 || matched[0].ID != "b" {
 		t.Fatalf("unexpected matches: %+v", matched)
 	}
@@ -143,13 +147,13 @@ func TestBuildAlertPayloadIsOwnerSafe(t *testing.T) {
 		StoreTimezone:         "Asia/Ho_Chi_Minh",
 		AlertID:               "alert-1",
 		CorrelationID:         "corr-1",
-		AlertType:             "WEAPON_DETECTED",
+		AlertType:             "weapon_detected",
 		Severity:              "CRITICAL",
 		DetectedAt:            time.Date(2026, 8, 24, 9, 42, 0, 0, time.UTC),
 		SubjectPersonCategory: "UNKNOWN",
 		CameraID:              "camera-1",
 		CameraName:            "Whole store",
-		EvidenceID:            "evidence-1",
+		MediaID:               "evidence-1",
 		StorageKey:            "evidence/alert-1/clip.mp4",
 	})
 	encoded, err := json.Marshal(payload)
@@ -167,7 +171,7 @@ func TestBuildAlertPayloadIsOwnerSafe(t *testing.T) {
 			t.Fatalf("payload leaks storage locator %q: %s", forbidden, text)
 		}
 	}
-	for _, required := range []string{`"alertId":"alert-1"`, `"evidenceId":"evidence-1"`, `"dashboardPath":"/#/alerts?alertId=alert-1"`, `Emergency security review`} {
+	for _, required := range []string{`"alertId":"alert-1"`, `"mediaId":"evidence-1"`, `"dashboardPath":"/#/alerts?alertId=alert-1"`, `Emergency security review`} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("payload missing %s: %s", required, text)
 		}

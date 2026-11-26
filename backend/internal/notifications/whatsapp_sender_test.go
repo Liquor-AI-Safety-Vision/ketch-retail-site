@@ -74,7 +74,7 @@ func whatsAppAlertRequest() SendRequest {
 		DetectedAt:    time.Date(2026, 8, 24, 21, 42, 0, 0, time.UTC),
 		CameraID:      "camera-1",
 		CameraName:    "Whole store",
-		EvidenceID:    "evidence-1",
+		MediaID:       "evidence-1",
 	})
 	payload.ReviewURL = fakeWhatsAppVideo
 	return SendRequest{

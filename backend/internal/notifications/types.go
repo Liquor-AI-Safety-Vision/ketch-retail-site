@@ -73,9 +73,12 @@ type AlertNotificationInput struct {
 	SubjectPersonCategory string
 	CameraID              string
 	CameraName            string
-	EvidenceID            string
-	StorageKey            string
-	ThumbnailStorageKey   string
+	// identity_label as the AI service wrote it ("Staff A", "Unknown", a
+	// watchlist name); empty when the pipeline does no identification.
+	IdentityLabel       string
+	MediaID             string
+	StorageKey          string
+	ThumbnailStorageKey string
 }
 
 type RenderPayload struct {
@@ -96,7 +99,7 @@ type RenderPayload struct {
 	Timezone              string `json:"timezone,omitempty"`
 	SubjectPersonCategory string `json:"subjectPersonCategory,omitempty"`
 	DashboardPath         string `json:"dashboardPath,omitempty"`
-	EvidenceID            string `json:"evidenceId,omitempty"`
+	MediaID               string `json:"mediaId,omitempty"`
 	// ReviewURL is generated immediately before a provider call. It is never
 	// serialized into the durable delivery payload.
 	ReviewURL string `json:"-"`

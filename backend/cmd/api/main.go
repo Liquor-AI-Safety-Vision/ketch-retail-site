@@ -44,11 +44,18 @@ func main() {
 	runtimeContext, stopRuntime := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stopRuntime()
 
+	// Clip and snapshot playback: an expiring link to this API, which fetches
+	// the object from R2 with a one-minute presigned URL.
 	var reviewService *notifications.SecureReviewService
-	if cfg.PublicAPIBaseURL != "" && cfg.EvidenceOriginBaseURL != "" {
-		reviewService, err = notifications.NewSecureReviewService(db, cfg.PublicAPIBaseURL, cfg.EvidenceOriginBaseURL, cfg.EvidenceOriginAuthToken, cfg.SecureVideoLinkTTL)
+	if cfg.PublicAPIBaseURL != "" && cfg.R2.Configured() {
+		presigner, err := notifications.NewR2Presigner(cfg.R2, time.Minute)
 		if err != nil {
-			logger.Error("configure secure evidence review", "error", err)
+			logger.Error("configure R2 media access", "error", err)
+			os.Exit(1)
+		}
+		reviewService, err = notifications.NewSecureReviewService(db, cfg.PublicAPIBaseURL, presigner, cfg.SecureVideoLinkTTL)
+		if err != nil {
+			logger.Error("configure secure media review", "error", err)
 			os.Exit(1)
 		}
 	}
@@ -73,6 +80,11 @@ func main() {
 			PollInterval: cfg.NotificationPollInterval, LeaseDuration: cfg.NotificationLeaseDuration, BatchSize: cfg.NotificationBatchSize,
 		})
 		go worker.Run(runtimeContext)
+		dispatcher := notifications.NewAlertDispatcher(db, logger, notifications.DispatcherOptions{
+			PollInterval: cfg.NotificationPollInterval, BatchSize: cfg.NotificationBatchSize,
+			MaxAlertAge: cfg.NotificationMaxAlertAge, ClipWait: cfg.NotificationClipWait,
+		})
+		go dispatcher.Run(runtimeContext)
 		logger.Info("notification worker enabled", "batchSize", cfg.NotificationBatchSize, "secureReviewLinks", reviewService != nil)
 	}
 	go func() {

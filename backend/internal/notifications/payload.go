@@ -69,7 +69,7 @@ func BuildAlertPayload(input AlertNotificationInput) RenderPayload {
 		AlertType:             SanitizeText(input.AlertType, 64),
 		Severity:              SanitizeText(input.Severity, 16),
 		Title:                 "Emergency security review",
-		Description:           "A potential emergency was detected. Please review the footage and follow your store's emergency procedure.",
+		Description:           AlertDescription(input.AlertType, input.IdentityLabel),
 		StoreID:               SanitizeText(input.StoreID, 64),
 		StoreName:             SanitizeText(input.StoreName, 120),
 		CameraID:              SanitizeText(input.CameraID, 64),
@@ -77,12 +77,39 @@ func BuildAlertPayload(input AlertNotificationInput) RenderPayload {
 		DetectedAt:            FormatDetectedAt(input.DetectedAt, input.StoreTimezone),
 		Timezone:              SanitizeText(input.StoreTimezone, 64),
 		SubjectPersonCategory: SanitizeText(input.SubjectPersonCategory, 32),
-		EvidenceID:            SanitizeText(input.EvidenceID, 64),
+		MediaID:               SanitizeText(input.MediaID, 64),
 	}
 	if alertID != "" {
 		payload.DashboardPath = "/#/alerts?alertId=" + url.QueryEscape(alertID)
 	}
 	return payload
+}
+
+// AlertDescription says what the AI pipeline that raised the alert saw, in
+// the words an owner reads on a phone. event_type values are the AI
+// service's (ai/src/pipelines/*.py).
+func AlertDescription(eventType, identityLabel string) string {
+	who := SanitizeText(identityLabel, 80)
+	switch strings.ToLower(strings.TrimSpace(eventType)) {
+	case "suspected_cash_concealment":
+		return "Possible cash concealment at the counter: a hand moved from the open cash drawer to the body. Please review the footage."
+	case "unknown_entry":
+		return "An unrecognized person entered the storage area. Please review the footage."
+	case "staff_outside_schedule":
+		if who != "" {
+			return who + " entered the storage area outside the allowed hours. Please review the footage."
+		}
+		return "A staff member entered the storage area outside the allowed hours. Please review the footage."
+	case "watchlist_match":
+		if who != "" {
+			return "A person matching the watchlist entry \"" + who + "\" entered the store. Please review the footage."
+		}
+		return "A person on the store's watchlist entered the store. Please review the footage."
+	case "weapon_detected":
+		return "A possible weapon was detected. Please review the footage and follow your store's emergency procedure."
+	default:
+		return "A potential security event was detected. Please review the footage."
+	}
 }
 
 func BuildTestPayload(provider Provider) RenderPayload {

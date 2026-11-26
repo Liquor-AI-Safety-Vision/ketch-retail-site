@@ -1,10 +1,5 @@
 package server
 
-import (
-	"encoding/json"
-	"time"
-)
-
 type authUser struct {
 	ID           string
 	Email        string
@@ -51,33 +46,4 @@ type zoneResponse struct {
 	Name       string      `json:"name"`
 	Type       string      `json:"type"`
 	PointsNorm [][]float64 `json:"pointsNorm"`
-}
-
-type alertResponse struct {
-	ID                    string          `json:"id"`
-	SourceEventID         *string         `json:"sourceEventId"`
-	CorrelationID         *string         `json:"correlationId"`
-	Type                  string          `json:"type"`
-	Severity              string          `json:"severity"`
-	Status                string          `json:"status"`
-	SubjectPersonCategory string          `json:"subjectPersonCategory"`
-	Confidence            *float64        `json:"confidence"`
-	DetectedAt            time.Time       `json:"detectedAt"`
-	AcknowledgedAt        *time.Time      `json:"acknowledgedAt"`
-	ResolutionNote        *string         `json:"resolutionNote"`
-	Metadata              json.RawMessage `json:"metadata"`
-	CameraID              *string         `json:"cameraId"`
-	CameraName            *string         `json:"cameraName"`
-	ZoneID                *string         `json:"zoneId"`
-	ZoneName              *string         `json:"zoneName"`
-	HasVideoEvidence      bool            `json:"hasVideoEvidence"`
-}
-
-type evidenceResponse struct {
-	ID              string    `json:"id"`
-	StorageKey      string    `json:"-"`
-	MimeType        string    `json:"mimeType"`
-	DurationSeconds int       `json:"durationSeconds"`
-	StartsAt        time.Time `json:"startsAt"`
-	EndsAt          time.Time `json:"endsAt"`
 }

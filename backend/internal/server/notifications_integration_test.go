@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -18,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/liquor-store/security-api/internal/config"
 	"github.com/liquor-store/security-api/internal/notifications"
+	"github.com/liquor-store/security-api/internal/testdb"
 )
 
 type notifyTestClient struct {
@@ -32,7 +32,7 @@ type notificationTestCredentials struct {
 	Email     string
 	Password  string
 	StoreName string
-	StoreCode string
+	StoreID   string
 }
 
 func newNotificationTestCredentials(label string) notificationTestCredentials {
@@ -41,19 +41,13 @@ func newNotificationTestCredentials(label string) notificationTestCredentials {
 		Email:     "go-notify-" + suffix + "@example.test",
 		Password:  "Notify-only-" + suffix,
 		StoreName: "Go Notify Store " + label,
-		StoreCode: "go-notify-" + suffix,
+		StoreID:   "store_notify_" + suffix,
 	}
 }
 
 func newNotifyTestServer(t *testing.T, membersEnabled bool) *notifyTestClient {
 	t.Helper()
-	if os.Getenv("RUN_INTEGRATION_TESTS") != "1" {
-		t.Skip("set RUN_INTEGRATION_TESTS=1 to run notification database tests")
-	}
-	disposableURL := os.Getenv("NOTIFICATION_TEST_DATABASE_URL")
-	if strings.TrimSpace(disposableURL) == "" {
-		t.Skip("NOTIFICATION_TEST_DATABASE_URL must point to an explicitly disposable PostgreSQL database; refusing to run against DATABASE_URL or any shared environment")
-	}
+	pool := newTestDB(t)
 	cfg := config.Config{
 		JWTAccessSecret: "notification-test-secret-that-is-long-enough",
 		JWTAccessTTL:    15 * time.Minute,
@@ -61,15 +55,9 @@ func newNotifyTestServer(t *testing.T, membersEnabled bool) *notifyTestClient {
 		JWTAudience:     "liquor-store-owner-dashboard",
 		RefreshTTLDays:  30,
 		WebOrigin:       "http://localhost:5173",
-		AIIngestToken:   testAIIngestToken,
 	}
 	cfg.RegisterEnabled = true
 	cfg.MembersEnabled = membersEnabled
-	pool, err := pgxpool.New(context.Background(), disposableURL)
-	if err != nil {
-		t.Fatalf("connect disposable database: %v", err)
-	}
-	t.Cleanup(pool.Close)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	api := New(cfg, pool, logger)
 	testServer := httptest.NewServer(api.Handler())
@@ -83,10 +71,16 @@ func newNotifyTestServer(t *testing.T, membersEnabled bool) *notifyTestClient {
 
 func (c *notifyTestClient) registerNotificationUser(t *testing.T, creds notificationTestCredentials) (string, string) {
 	t.Helper()
+	// The store exists first because the AI service creates stores.
+	if _, err := c.pool.Exec(context.Background(), `INSERT INTO stores (store_id, display_name, timezone) VALUES ($1,$2,'America/Chicago')`, creds.StoreID, creds.StoreName); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.pool.Exec(context.Background(), `INSERT INTO cameras (camera_id, store_id, display_name, camera_type, source_type, source_uri) VALUES ($1,$2,'Whole store','whole_store','rtsp','rtsp://redacted')`, creds.StoreID+"_cam", creds.StoreID); err != nil {
+		t.Fatal(err)
+	}
 	var registered sessionResponse
 	doJSON(t, c.http, http.MethodPost, c.base+"/api/v1/auth/register", "", map[string]any{
-		"email": creds.Email, "password": creds.Password, "displayName": "Go Notify Owner",
-		"storeName": creds.StoreName, "storeCode": creds.StoreCode,
+		"email": creds.Email, "password": creds.Password, "displayName": "Go Notify Owner", "storeId": creds.StoreID,
 	}, http.StatusCreated, &registered)
 	if registered.User.ID == "" || len(registered.User.Stores) == 0 || registered.User.Stores[0].StoreID == "" {
 		t.Fatalf("register response is missing user or store identifiers: %s", mustMarshalNotification(t, registered))
@@ -116,92 +110,7 @@ func TestNotificationConfigurationFlow(t *testing.T) {
 
 	owner := newNotificationTestCredentials("")
 	operator := newNotificationTestCredentials("-op")
-	ownerUserID, ownerStoreID := "", ""
-	operatorUserID, operatorStoreID := "", ""
-
-	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		tx, cleanupErr := client.pool.Begin(ctx)
-		if cleanupErr != nil {
-			t.Errorf("begin cleanup: %v", cleanupErr)
-			return
-		}
-		defer func() { _ = tx.Rollback(ctx) }()
-		resolveUserID := func(creds notificationTestCredentials, target *string) {
-			if *target != "" {
-				return
-			}
-			var found string
-			if err := tx.QueryRow(ctx, `SELECT "id" FROM "users" WHERE "email"=$1`, creds.Email).Scan(&found); err == nil {
-				*target = found
-			}
-		}
-		resolveStoreID := func(creds notificationTestCredentials, userID string, target *string) {
-			if *target != "" {
-				return
-			}
-			var found string
-			if err := tx.QueryRow(ctx, `SELECT "id" FROM "stores" WHERE "code"=$1`, creds.StoreCode).Scan(&found); err == nil {
-				*target = found
-				return
-			}
-			if userID != "" {
-				const constrainedMembership = `SELECT s."id" FROM "store_memberships" sm JOIN "stores" s ON s."id"=sm."storeId" WHERE sm."userId"=$1 AND s."code"=$2`
-				if err := tx.QueryRow(ctx, constrainedMembership, userID, creds.StoreCode).Scan(&found); err == nil {
-					*target = found
-				}
-			}
-		}
-		resolveUserID(owner, &ownerUserID)
-		resolveStoreID(owner, ownerUserID, &ownerStoreID)
-		resolveUserID(operator, &operatorUserID)
-		resolveStoreID(operator, operatorUserID, &operatorStoreID)
-
-		storeTargets := []string{}
-		seenStores := map[string]bool{}
-		for _, id := range []string{ownerStoreID, operatorStoreID} {
-			if id != "" && !seenStores[id] {
-				seenStores[id] = true
-				storeTargets = append(storeTargets, id)
-			}
-		}
-		userTargets := []string{}
-		seenUsers := map[string]bool{}
-		for _, id := range []string{ownerUserID, operatorUserID} {
-			if id != "" && !seenUsers[id] {
-				seenUsers[id] = true
-				userTargets = append(userTargets, id)
-			}
-		}
-		if len(storeTargets) > 0 {
-			if _, cleanupErr = tx.Exec(ctx, `DELETE FROM "notification_deliveries" WHERE "storeId" = ANY($1::uuid[])`, storeTargets); cleanupErr != nil {
-				abortCleanup(t, cleanupErr)
-				return
-			}
-			if _, cleanupErr = tx.Exec(ctx, `DELETE FROM "alerts" WHERE "storeId" = ANY($1::uuid[])`, storeTargets); cleanupErr != nil {
-				abortCleanup(t, cleanupErr)
-				return
-			}
-		}
-		if len(storeTargets) > 0 {
-			if _, cleanupErr = tx.Exec(ctx, `DELETE FROM "stores" WHERE "id" = ANY($1::uuid[])`, storeTargets); cleanupErr != nil {
-				abortCleanup(t, cleanupErr)
-				return
-			}
-		}
-		if len(userTargets) > 0 {
-			if _, cleanupErr = tx.Exec(ctx, `DELETE FROM "users" WHERE "id" = ANY($1::uuid[])`, userTargets); cleanupErr != nil {
-				abortCleanup(t, cleanupErr)
-				return
-			}
-		}
-		if cleanupErr = tx.Commit(ctx); cleanupErr != nil {
-			abortCleanup(t, cleanupErr)
-		}
-	})
-
-	ownerUserID, ownerStoreID = client.registerNotificationUser(t, owner)
+	_, ownerStoreID := client.registerNotificationUser(t, owner)
 	client.token = client.login(t, owner.Email, owner.Password)
 	base := client.base
 
@@ -246,7 +155,7 @@ func TestNotificationConfigurationFlow(t *testing.T) {
 	doJSON(t, client.http, http.MethodPost, base+"/api/v1/stores/"+ownerStoreID+"/notification-rules", client.token, map[string]any{
 		"name": "Emergency alerts",
 	}, http.StatusCreated, &rule)
-	if rule.MinimumSeverity != "CRITICAL" || len(rule.AlertTypes) != 0 || rule.CooldownSeconds != 0 || !rule.IsEnabled {
+	if rule.MinimumSeverity != "critical" || len(rule.AlertTypes) != 0 || rule.CooldownSeconds != 0 || !rule.IsEnabled {
 		t.Fatalf("rule create defaults wrong: %+v", rule)
 	}
 
@@ -322,19 +231,18 @@ func TestNotificationConfigurationFlow(t *testing.T) {
 		t.Fatalf("TEST delivery not pinned to endpoint: endpointId=%s kind=%s", storedEndpointID, storedKind)
 	}
 
-	ctx := context.Background()
 	insertAlert := func(alertID, correlationID string) {
 		t.Helper()
-		sourceEvent := "task3-" + alertID
-		if _, err := client.pool.Exec(ctx, `INSERT INTO "alerts" ("id","sourceEventId","correlationId","storeId","type","severity","detectedAt","updatedAt") VALUES ($1,$2,$3,$4,'WEAPON_DETECTED','CRITICAL',NOW(),NOW())`, alertID, sourceEvent, correlationID, ownerStoreID); err != nil {
-			t.Fatal(err)
-		}
+		// As CloudAlertSink writes it. The AI schema has no correlation
+		// column; EnqueueAlertTx is still given one, as the dispatcher would.
+		_ = correlationID
+		testdb.Alert(t, client.pool, alertID, ownerStoreID, ownerStoreID+"_cam", "weapon_v1", "weapon_detected", "critical", time.Now(), nil)
 	}
 	newAlertInput := func(alertID, correlationID string) notifications.AlertNotificationInput {
 		return notifications.AlertNotificationInput{
 			StoreID: ownerStoreID, StoreName: "Go Notify Store", StoreTimezone: "America/Chicago",
-			AlertID: alertID, CorrelationID: correlationID, AlertType: "WEAPON_DETECTED",
-			Severity: "CRITICAL", DetectedAt: time.Now().UTC(), CameraName: "Whole store",
+			AlertID: alertID, CorrelationID: correlationID, AlertType: "weapon_detected",
+			Severity: "critical", DetectedAt: time.Now().UTC(), CameraID: ownerStoreID + "_cam", CameraName: "Whole store",
 		}
 	}
 
@@ -391,20 +299,16 @@ func TestNotificationConfigurationFlow(t *testing.T) {
 	doJSON(t, client.http, http.MethodDelete, base+"/api/v1/stores/"+ownerStoreID+"/notification-rules/"+rule.ID, client.token, nil, http.StatusConflict, &map[string]any{})
 	doJSON(t, client.http, http.MethodDelete, channelsPath+"/"+whatsappChannel.ID, client.token, nil, http.StatusConflict, &map[string]any{})
 
-	operatorUserID, operatorStoreID = client.registerNotificationUser(t, operator)
+	client.registerNotificationUser(t, operator)
 	doJSON(t, client.http, http.MethodPost, base+"/api/v1/stores/"+ownerStoreID+"/members", client.token, map[string]any{
-		"email": operator.Email, "role": "OPERATOR",
+		"email": operator.Email, "role": roleOperator,
 	}, http.StatusCreated, &map[string]any{})
 	operatorToken := client.login(t, operator.Email, operator.Password)
 	doJSON(t, client.http, http.MethodGet, base+"/api/v1/stores/"+ownerStoreID+"/notification-endpoints", operatorToken, nil, http.StatusForbidden, &map[string]any{})
 	doJSON(t, client.http, http.MethodPost, base+"/api/v1/stores/"+ownerStoreID+"/notification-endpoints/"+endpoint.ID+"/test", operatorToken, map[string]any{"requestId": uuid.NewString()}, http.StatusForbidden, &map[string]any{})
-	randomStoreID := uuid.NewString()
+	randomStoreID := "store_nobody_" + uuid.NewString()
 	doJSON(t, client.http, http.MethodGet, base+"/api/v1/stores/"+randomStoreID+"/notification-endpoints", client.token, nil, http.StatusNotFound, &map[string]any{})
 	doJSON(t, client.http, http.MethodPatch, base+"/api/v1/stores/"+randomStoreID+"/notification-rules/"+rule.ID, client.token, map[string]any{"isEnabled": false}, http.StatusNotFound, &map[string]any{})
-}
-
-func abortCleanup(t *testing.T, err error) {
-	t.Errorf("clean notification data: %v", err)
 }
 
 func endpointUnchanged(t *testing.T, client *notifyTestClient, storeID, endpointID, expectedDestination, expectedLabel string) bool {

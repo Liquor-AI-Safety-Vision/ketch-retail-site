@@ -7,8 +7,6 @@ import (
 	"io"
 	"os"
 	"strings"
-
-	"github.com/google/uuid"
 )
 
 const (
@@ -49,6 +47,21 @@ func providerCredentialRef(provider Provider, ref string) bool {
 	return isValidEnvironmentName(name) && (name == prefix || strings.HasPrefix(name, prefix+"_"))
 }
 
+// validStoreID accepts the AI manifests' store ids (store_test_01,
+// local_dev_store, ...): letters, digits, '_', '-', '.'. A binding with
+// anything else is a configuration mistake and fails closed.
+func validStoreID(value string) bool {
+	if value == "" || len(value) > 200 {
+		return false
+	}
+	for _, c := range value {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '-' || c == '.') {
+			return false
+		}
+	}
+	return true
+}
+
 func ParseCredentialBindings(raw string) ([]CredentialBinding, error) {
 	if strings.TrimSpace(raw) == "" {
 		return nil, nil
@@ -61,7 +74,8 @@ func ParseCredentialBindings(raw string) ([]CredentialBinding, error) {
 	}
 	seen := map[CredentialBinding]bool{}
 	for _, binding := range bindings {
-		if _, err := uuid.Parse(binding.StoreID); err != nil || !providerCredentialRef(binding.Provider, binding.CredentialRef) || seen[binding] ||
+		// StoreID is the AI schema's TEXT store_id ("store_test_01"), not a UUID.
+		if !validStoreID(binding.StoreID) || !providerCredentialRef(binding.Provider, binding.CredentialRef) || seen[binding] ||
 			len(binding.ProviderAccountRef) > 200 || binding.ProviderAccountRef != strings.TrimSpace(binding.ProviderAccountRef) ||
 			(binding.Provider == ProviderWhatsApp && strings.TrimSpace(binding.ProviderAccountRef) == "") {
 			return nil, errors.New("NOTIFICATION_CREDENTIAL_BINDINGS contains an invalid or duplicate binding")

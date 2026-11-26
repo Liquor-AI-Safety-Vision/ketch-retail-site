@@ -15,7 +15,27 @@ import (
 	"github.com/liquor-store/security-api/internal/notifications"
 )
 
-const productionRuleName = "Emergency notifications"
+// Configures one store's notification routing: Telegram primary, WhatsApp
+// fallback when its variables are set, and one rule covering the AI
+// service's alerts.
+//
+//	APPLY_PRODUCTION_NOTIFICATION_CONFIG=1   required, this writes routing
+//	STORE_ID                                 the AI manifest's store_id
+//	TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID     required
+//	NOTIFICATION_RULE_MIN_SEVERITY           warning | high | critical (default warning:
+//	                                         every AI alert; storage and entrance
+//	                                         alerts are warning, counter alerts high)
+//	NOTIFICATION_RULE_ALERT_TYPES            comma-separated event_type values
+//	                                         (default empty = all types)
+//	WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_WABA_ID,
+//	WHATSAPP_RECIPIENT_PHONE, WHATSAPP_OPT_IN_CAPTURED_AT
+//	                                         optional; all or none
+const productionRuleName = "AI alerts"
+
+var aiEventTypes = map[string]bool{
+	"suspected_cash_concealment": true, "unknown_entry": true, "staff_outside_schedule": true,
+	"watchlist_match": true, "weapon_detected": true,
+}
 
 func main() {
 	if os.Getenv("APPLY_PRODUCTION_NOTIFICATION_CONFIG") != "1" {
@@ -25,29 +45,58 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
-	telegramToken := requiredEnv("TELEGRAM_BOT_TOKEN")
+	storeID := requiredEnv("STORE_ID")
+	requiredEnv("TELEGRAM_BOT_TOKEN")
 	telegramChatID := requiredEnv("TELEGRAM_CHAT_ID")
-	whatsAppToken := requiredEnv("WHATSAPP_ACCESS_TOKEN")
-	phoneNumberID := requiredEnv("WHATSAPP_PHONE_NUMBER_ID")
-	wabaID := requiredEnv("WHATSAPP_WABA_ID")
-	recipientPhone := requiredEnv("WHATSAPP_RECIPIENT_PHONE")
-	optInCapturedAt := requiredEnv("WHATSAPP_OPT_IN_CAPTURED_AT")
-	if telegramToken == "" || whatsAppToken == "" {
-		fatal(errors.New("provider credentials are required"))
+	minimumSeverity := strings.ToLower(strings.TrimSpace(os.Getenv("NOTIFICATION_RULE_MIN_SEVERITY")))
+	if minimumSeverity == "" {
+		minimumSeverity = "warning"
 	}
-	if _, err := time.Parse(time.RFC3339, optInCapturedAt); err != nil {
-		fatal(errors.New("WHATSAPP_OPT_IN_CAPTURED_AT must be RFC3339"))
+	if !notifications.ValidSeverity(minimumSeverity) {
+		fatal(errors.New("NOTIFICATION_RULE_MIN_SEVERITY must be warning, high or critical"))
 	}
-	whatsAppConfig, err := json.Marshal(map[string]any{
-		"wabaId": wabaID, "templateName": notifications.WhatsAppLinkedTemplateName,
-		"templateLanguage": notifications.WhatsAppTemplateLanguage, "templateVersion": notifications.WhatsAppLinkedTemplateVersion,
-		"optIn": map[string]any{"capturedAt": optInCapturedAt, "source": "OWNER_PRODUCTION_CONFIGURATION", "policyVersion": "whatsapp-emergency-alerts-v1"},
-	})
-	if err != nil {
-		fatal(err)
+	alertTypes := []string{}
+	for _, value := range strings.Split(os.Getenv("NOTIFICATION_RULE_ALERT_TYPES"), ",") {
+		value = strings.ToLower(strings.TrimSpace(value))
+		if value == "" {
+			continue
+		}
+		if !aiEventTypes[value] {
+			fatal(fmt.Errorf("NOTIFICATION_RULE_ALERT_TYPES: %q is not an AI event type", value))
+		}
+		alertTypes = append(alertTypes, value)
 	}
-	if err := notifications.ValidateWhatsAppEnableConfig(phoneNumberID, recipientPhone, whatsAppConfig); err != nil {
-		fatal(err)
+
+	whatsAppNames := []string{"WHATSAPP_ACCESS_TOKEN", "WHATSAPP_PHONE_NUMBER_ID", "WHATSAPP_WABA_ID", "WHATSAPP_RECIPIENT_PHONE", "WHATSAPP_OPT_IN_CAPTURED_AT"}
+	whatsAppSet := 0
+	for _, name := range whatsAppNames {
+		if strings.TrimSpace(os.Getenv(name)) != "" {
+			whatsAppSet++
+		}
+	}
+	if whatsAppSet != 0 && whatsAppSet != len(whatsAppNames) {
+		fatal(errors.New("set all WhatsApp variables or none"))
+	}
+	useWhatsApp := whatsAppSet == len(whatsAppNames)
+	var whatsAppConfig json.RawMessage
+	var phoneNumberID, recipientPhone string
+	if useWhatsApp {
+		phoneNumberID, recipientPhone = requiredEnv("WHATSAPP_PHONE_NUMBER_ID"), requiredEnv("WHATSAPP_RECIPIENT_PHONE")
+		optInCapturedAt := requiredEnv("WHATSAPP_OPT_IN_CAPTURED_AT")
+		if _, err := time.Parse(time.RFC3339, optInCapturedAt); err != nil {
+			fatal(errors.New("WHATSAPP_OPT_IN_CAPTURED_AT must be RFC3339"))
+		}
+		whatsAppConfig, err = json.Marshal(map[string]any{
+			"wabaId": requiredEnv("WHATSAPP_WABA_ID"), "templateName": notifications.WhatsAppLinkedTemplateName,
+			"templateLanguage": notifications.WhatsAppTemplateLanguage, "templateVersion": notifications.WhatsAppLinkedTemplateVersion,
+			"optIn": map[string]any{"capturedAt": optInCapturedAt, "source": "OWNER_PRODUCTION_CONFIGURATION", "policyVersion": "whatsapp-emergency-alerts-v1"},
+		})
+		if err != nil {
+			fatal(err)
+		}
+		if err := notifications.ValidateWhatsAppEnableConfig(phoneNumberID, recipientPhone, whatsAppConfig); err != nil {
+			fatal(err)
+		}
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
@@ -63,56 +112,39 @@ func main() {
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	storeID, err := onlyStore(ctx, tx)
-	if err != nil {
+	var storeExists bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM stores WHERE store_id=$1)`, storeID).Scan(&storeExists); err != nil {
 		fatal(err)
+	}
+	if !storeExists {
+		fatal(fmt.Errorf("store %q does not exist; the AI service creates stores from its manifest at startup", storeID))
 	}
 	telegramConfig := json.RawMessage(`{"parseMode":"HTML"}`)
 	telegramID, err := configureEndpoint(ctx, tx, storeID, string(notifications.ProviderTelegram), "Owner Telegram", "", telegramChatID, "env://TELEGRAM_BOT_TOKEN", telegramConfig)
 	if err != nil {
 		fatal(err)
 	}
-	whatsAppID, err := configureEndpoint(ctx, tx, storeID, string(notifications.ProviderWhatsApp), "Owner WhatsApp", phoneNumberID, recipientPhone, "env://WHATSAPP_ACCESS_TOKEN", whatsAppConfig)
-	if err != nil {
-		fatal(err)
-	}
-	ruleID, err := configureRule(ctx, tx, storeID)
+	ruleID, err := configureRule(ctx, tx, storeID, minimumSeverity, alertTypes)
 	if err != nil {
 		fatal(err)
 	}
 	if err := configureChannel(ctx, tx, storeID, ruleID, telegramID, 1, 0); err != nil {
 		fatal(err)
 	}
-	if err := configureChannel(ctx, tx, storeID, ruleID, whatsAppID, 2, 60); err != nil {
-		fatal(err)
+	if useWhatsApp {
+		whatsAppID, err := configureEndpoint(ctx, tx, storeID, string(notifications.ProviderWhatsApp), "Owner WhatsApp", phoneNumberID, recipientPhone, "env://WHATSAPP_ACCESS_TOKEN", whatsAppConfig)
+		if err != nil {
+			fatal(err)
+		}
+		if err := configureChannel(ctx, tx, storeID, ruleID, whatsAppID, 2, 60); err != nil {
+			fatal(err)
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		fatal(err)
 	}
-	fmt.Println("Configured one emergency rule with Telegram primary and WhatsApp fallback; no credentials or destinations were printed.")
-}
-
-func onlyStore(ctx context.Context, tx pgx.Tx) (string, error) {
-	rows, err := tx.Query(ctx, `SELECT "id" FROM "stores" ORDER BY "createdAt","id" LIMIT 2`)
-	if err != nil {
-		return "", err
-	}
-	defer rows.Close()
-	ids := []string{}
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return "", err
-		}
-		ids = append(ids, id)
-	}
-	if err := rows.Err(); err != nil {
-		return "", err
-	}
-	if len(ids) != 1 {
-		return "", fmt.Errorf("expected exactly one production store, found %d; set up routing through the owner API instead", len(ids))
-	}
-	return ids[0], nil
+	fmt.Printf("Configured rule %q (minimum severity %s, types %v) with Telegram primary, WhatsApp fallback: %v. No credentials or destinations were printed.\n",
+		productionRuleName, minimumSeverity, alertTypes, useWhatsApp)
 }
 
 func configureEndpoint(ctx context.Context, tx pgx.Tx, storeID, provider, label, providerAccountRef, destinationRef, credentialRef string, endpointConfig json.RawMessage) (string, error) {
@@ -150,7 +182,7 @@ func configureEndpoint(ctx context.Context, tx pgx.Tx, storeID, provider, label,
 	return id, err
 }
 
-func configureRule(ctx context.Context, tx pgx.Tx, storeID string) (string, error) {
+func configureRule(ctx context.Context, tx pgx.Tx, storeID, minimumSeverity string, alertTypes []string) (string, error) {
 	var id string
 	err := tx.QueryRow(ctx, `SELECT "id" FROM "notification_rules" WHERE "storeId"=$1 AND "name"=$2 ORDER BY "createdAt","id" LIMIT 1`, storeID, productionRuleName).Scan(&id)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
@@ -158,10 +190,10 @@ func configureRule(ctx context.Context, tx pgx.Tx, storeID string) (string, erro
 	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		id = uuid.NewString()
-		_, err = tx.Exec(ctx, `INSERT INTO "notification_rules" ("id","storeId","name","minimumSeverity","alertTypes","cooldownSeconds","isEnabled","updatedAt") VALUES ($1,$2,$3,'CRITICAL',ARRAY['WEAPON_DETECTED']::"AlertType"[],0,true,NOW())`, id, storeID, productionRuleName)
+		_, err = tx.Exec(ctx, `INSERT INTO "notification_rules" ("id","storeId","name","minimumSeverity","alertTypes","cooldownSeconds","isEnabled","updatedAt") VALUES ($1,$2,$3,$4,$5,0,true,NOW())`, id, storeID, productionRuleName, minimumSeverity, alertTypes)
 		return id, err
 	}
-	_, err = tx.Exec(ctx, `UPDATE "notification_rules" SET "minimumSeverity"='CRITICAL',"alertTypes"=ARRAY['WEAPON_DETECTED']::"AlertType"[],"cooldownSeconds"=0,"isEnabled"=true,"updatedAt"=NOW() WHERE "id"=$1 AND "storeId"=$2`, id, storeID)
+	_, err = tx.Exec(ctx, `UPDATE "notification_rules" SET "minimumSeverity"=$3,"alertTypes"=$4,"cooldownSeconds"=0,"isEnabled"=true,"updatedAt"=NOW() WHERE "id"=$1 AND "storeId"=$2`, id, storeID, minimumSeverity, alertTypes)
 	return id, err
 }
 

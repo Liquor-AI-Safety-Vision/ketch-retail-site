@@ -44,3 +44,27 @@ const (
 )
 
 var roleRank = map[string]int{roleOperator: 1, roleManager: 2, roleOwner: 3}
+
+// alerts.event_type values the AI pipelines write (ai/src/pipelines/*.py).
+// weapon_detected has no pipeline yet; it is accepted so a weapon module can
+// start writing it without an API change.
+const (
+	eventCashConcealment      = "suspected_cash_concealment" // counter_cash_theft_v1
+	eventUnknownEntry         = "unknown_entry"              // storage/cold_storage_intrusion_v1
+	eventStaffOutsideSchedule = "staff_outside_schedule"     // storage/cold_storage_intrusion_v1
+	eventWatchlistMatch       = "watchlist_match"            // entrance_face_capture_v1
+	eventWeaponDetected       = "weapon_detected"            // reserved for the weapon module
+)
+
+var alertEventTypes = []string{eventCashConcealment, eventUnknownEntry, eventStaffOutsideSchedule, eventWatchlistMatch, eventWeaponDetected}
+
+// alerts.severity: ai/ writes warning and high; critical is reserved.
+var alertSeverities = []string{"warning", "high", "critical"}
+
+// alerts.status: ai/ inserts 'open'; everything after is a review decision.
+const (
+	statusOpen         = "open"
+	statusAcknowledged = "acknowledged"
+	statusConfirmed    = "confirmed"
+	statusDismissed    = "dismissed"
+)

@@ -58,11 +58,11 @@ func TestUnrelatedSecretCannotReachProvider(t *testing.T) {
 }
 
 func TestCredentialBindingConfigurationFailsClosed(t *testing.T) {
-	good := `[{"storeId":"11111111-1111-4111-8111-111111111111","provider":"TELEGRAM","providerAccountRef":"","credentialRef":"env://TELEGRAM_BOT_TOKEN"}]`
+	good := `[{"storeId":"store_test_01","provider":"TELEGRAM","providerAccountRef":"","credentialRef":"env://TELEGRAM_BOT_TOKEN"}]`
 	if _, err := ParseCredentialBindings(good); err != nil {
 		t.Fatal(err)
 	}
-	for _, raw := range []string{good + " garbage", strings.ReplaceAll(good, "TELEGRAM_BOT_TOKEN", "JWT_ACCESS_SECRET"), strings.ReplaceAll(good, "11111111-1111-4111-8111-111111111111", "*"), `[{"extra":true}]`} {
+	for _, raw := range []string{good + " garbage", strings.ReplaceAll(good, "TELEGRAM_BOT_TOKEN", "JWT_ACCESS_SECRET"), strings.ReplaceAll(good, "store_test_01", "*"), strings.ReplaceAll(good, "store_test_01", ""), `[{"extra":true}]`} {
 		if _, err := ParseCredentialBindings(raw); err == nil {
 			t.Fatal("invalid binding config accepted")
 		}

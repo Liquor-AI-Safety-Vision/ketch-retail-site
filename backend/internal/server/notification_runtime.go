@@ -72,19 +72,22 @@ func (s *Server) reviewNotificationEvidence(w http.ResponseWriter, r *http.Reque
 	s.review.ServeToken(w, r, r.PathValue("token"))
 }
 
-func (s *Server) createEvidencePlaybackURL(w http.ResponseWriter, r *http.Request, user principal) {
-	storeID, alertID, evidenceID := r.PathValue("storeId"), r.PathValue("alertId"), r.PathValue("evidenceId")
-	if !s.requireRole(w, r.Context(), user.ID, storeID, "OPERATOR") {
+// An expiring link to one clip or snapshot of an alert. The link points at
+// this API (/notification-review/{token}), which fetches the object from R2;
+// the bucket itself is never exposed.
+func (s *Server) createMediaPlaybackURL(w http.ResponseWriter, r *http.Request, user principal) {
+	storeID, alertID, mediaID := r.PathValue("storeId"), r.PathValue("alertId"), r.PathValue("mediaId")
+	if !s.requireRole(w, r.Context(), user.ID, storeID, roleOperator) {
 		return
 	}
 	if s.review == nil {
-		writeError(w, http.StatusServiceUnavailable, "Service Unavailable", "Secure evidence playback is not configured.")
+		writeError(w, http.StatusServiceUnavailable, "Service Unavailable", "Secure media playback is not configured (PUBLIC_API_BASE_URL and R2_* are required).")
 		return
 	}
-	link, err := s.review.CreateReviewLink(r.Context(), notifications.ReviewLinkInput{StoreID: storeID, AlertID: alertID, EvidenceID: evidenceID})
+	link, err := s.review.CreateReviewLink(r.Context(), notifications.ReviewLinkInput{StoreID: storeID, AlertID: alertID, MediaID: mediaID})
 	if err != nil {
 		if err == notifications.ErrSecureLinkNotFound || err == pgx.ErrNoRows {
-			writeError(w, http.StatusNotFound, "Not Found", "Alert evidence was not found.")
+			writeError(w, http.StatusNotFound, "Not Found", "Alert media was not found.")
 			return
 		}
 		s.internalError(w, err)
@@ -95,7 +98,7 @@ func (s *Server) createEvidencePlaybackURL(w http.ResponseWriter, r *http.Reques
 
 func (s *Server) listNotificationDeliveries(w http.ResponseWriter, r *http.Request, user principal) {
 	storeID := r.PathValue("storeId")
-	if !s.requireRole(w, r.Context(), user.ID, storeID, "OWNER") {
+	if !s.requireRole(w, r.Context(), user.ID, storeID, roleOwner) {
 		return
 	}
 	conditions := []string{`d."storeId"=$1`}
@@ -184,7 +187,7 @@ func (s *Server) listNotificationDeliveries(w http.ResponseWriter, r *http.Reque
 
 func (s *Server) findNotificationDelivery(w http.ResponseWriter, r *http.Request, user principal) {
 	storeID, deliveryID := r.PathValue("storeId"), r.PathValue("deliveryId")
-	if !s.requireRole(w, r.Context(), user.ID, storeID, "OWNER") {
+	if !s.requireRole(w, r.Context(), user.ID, storeID, roleOwner) {
 		return
 	}
 	var item notificationDeliveryResponse

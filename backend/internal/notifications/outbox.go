@@ -134,9 +134,9 @@ func cooldownSuppresses(ctx context.Context, tx pgx.Tx, rule RuleSpec, input Ale
 	}
 	var suppressed bool
 	err := tx.QueryRow(ctx, `SELECT EXISTS (
-  SELECT 1 FROM "notification_deliveries" d JOIN "alerts" a ON a."id"=d."alertId" AND a."storeId"=d."storeId"
-  WHERE d."storeId"=$1 AND d."ruleId"=$2 AND a."id"<>$3 AND a."correlationId"=$4
-    AND COALESCE(a."cameraId"::text,'')=$5 AND a."type"::text=$6
+  SELECT 1 FROM "notification_deliveries" d JOIN alerts a ON a.alert_id=d."alertId" AND a.store_id=d."storeId"
+  WHERE d."storeId"=$1 AND d."ruleId"=$2 AND a.alert_id<>$3 AND d."payload"->>'correlationId'=$4
+    AND a.camera_id=$5 AND a.event_type=$6
     AND d."createdAt">NOW()-make_interval(secs=>$7::double precision)
 )`, input.StoreID, rule.ID, input.AlertID, correlationID, input.CameraID, input.AlertType, rule.CooldownSeconds).Scan(&suppressed)
 	return suppressed, err

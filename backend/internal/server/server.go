@@ -53,9 +53,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/notification-review/{token}", s.reviewNotificationEvidence)
 	mux.HandleFunc("GET /api/v1/webhooks/whatsapp", s.verifyWhatsAppWebhook)
 	mux.HandleFunc("POST /api/v1/webhooks/whatsapp", s.receiveWhatsAppWebhook)
-	if s.config.AIIngestToken != "" {
-		mux.Handle("POST /api/v1/internal/ai/alerts", s.aiIngestEndpoint(http.HandlerFunc(s.ingestAIAlert)))
-	}
+	// No alert ingestion route: the AI service writes alerts and media
+	// straight into the shared database (see alerts.go).
 	if s.config.RegisterEnabled {
 		mux.Handle("POST /api/v1/auth/register", s.authEndpoint("register", 3, time.Hour, http.HandlerFunc(s.register)))
 	}
@@ -91,8 +90,8 @@ func (s *Server) Handler() http.Handler {
 	s.protected(mux, "GET /api/v1/stores/{storeId}/alerts/{alertId}", s.findAlert)
 	s.protected(mux, "POST /api/v1/stores/{storeId}/alerts/{alertId}/acknowledge", s.acknowledgeAlert)
 	s.protected(mux, "POST /api/v1/stores/{storeId}/alerts/{alertId}/dismiss", s.dismissAlert)
-	s.protected(mux, "POST /api/v1/stores/{storeId}/alerts/{alertId}/resolve", s.resolveAlert)
-	s.protected(mux, "GET /api/v1/stores/{storeId}/alerts/{alertId}/evidence/{evidenceId}/playback-url", s.createEvidencePlaybackURL)
+	s.protected(mux, "POST /api/v1/stores/{storeId}/alerts/{alertId}/confirm", s.confirmAlert)
+	s.protected(mux, "GET /api/v1/stores/{storeId}/alerts/{alertId}/media/{mediaId}/playback-url", s.createMediaPlaybackURL)
 
 	s.protected(mux, "GET /api/v1/stores/{storeId}/notification-endpoints", s.listNotificationEndpoints)
 	s.protected(mux, "POST /api/v1/stores/{storeId}/notification-endpoints", s.createNotificationEndpoint)

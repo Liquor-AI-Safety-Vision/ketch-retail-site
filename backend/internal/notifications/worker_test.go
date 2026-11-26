@@ -2,6 +2,7 @@ package notifications
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -58,22 +59,28 @@ func TestSafeResponseMetadataUsesAllowlist(t *testing.T) {
 	}
 }
 
-func TestSecureReviewOriginIsFixedAndTraversalSafe(t *testing.T) {
-	origin, err := parseFixedOrigin("https://media.example.test/private")
+// The object fetched for a review link is always inside the configured
+// bucket: alert_media.path is used as a key, never as a URL or a path that
+// climbs out of it.
+func TestSecureReviewObjectKeysAreTraversalSafe(t *testing.T) {
+	p, err := NewR2Presigner(R2Config{Endpoint: "https://acct.r2.cloudflarestorage.com", Bucket: "private",
+		AccessKeyID: "AK", SecretAccessKey: "SK"}, time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
-	service := &SecureReviewService{evidenceOrigin: origin}
-	got, err := service.originURL("alerts/clip 01.mp4")
+	got, err := p.PresignGET("alerts/clip 01.mp4")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != "https://media.example.test/private/alerts/clip%2001.mp4" {
-		t.Fatalf("origin URL = %q", got)
+	if !strings.HasPrefix(got, "https://acct.r2.cloudflarestorage.com/private/alerts/clip%2001.mp4?") {
+		t.Fatalf("object URL = %q", got)
 	}
 	for _, key := range []string{"https://attacker.test/video", "../secret", "/absolute", `folder\\secret`, "folder//clip"} {
-		if _, err := service.originURL(key); err == nil {
+		if _, err := p.PresignGET(key); err == nil {
 			t.Fatalf("storage key %q should be rejected", key)
 		}
+	}
+	if _, err := parseFixedOrigin("https://api.example.test/?q=1"); err == nil {
+		t.Fatal("a public base URL with a query was accepted")
 	}
 }

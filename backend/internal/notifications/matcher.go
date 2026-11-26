@@ -2,10 +2,12 @@ package notifications
 
 import "strings"
 
-var severityRank = map[string]int{"LOW": 1, "MEDIUM": 2, "HIGH": 3, "CRITICAL": 4}
+// alerts.severity as the AI service writes it: warning (storage, entrance)
+// and high (counter). critical is reserved for the weapon module.
+var severityRank = map[string]int{"warning": 1, "high": 2, "critical": 3}
 
 func SeverityRank(severity string) int {
-	return severityRank[strings.ToUpper(strings.TrimSpace(severity))]
+	return severityRank[strings.ToLower(strings.TrimSpace(severity))]
 }
 
 func SeverityMeets(actual, minimum string) bool {

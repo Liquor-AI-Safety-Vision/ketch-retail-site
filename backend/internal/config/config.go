@@ -30,17 +30,22 @@ type Config struct {
 	SwaggerEnabled                 bool
 	TrustProxy                     bool
 	TrustedProxyCIDRs              []netip.Prefix
-	AIIngestToken                  string
 	NotificationCredentialBindings []notifications.CredentialBinding
 
-	NotificationWorkerEnabled  bool
-	NotificationPollInterval   time.Duration
-	NotificationLeaseDuration  time.Duration
-	NotificationBatchSize      int
-	PublicAPIBaseURL           string
-	SecureVideoLinkTTL         time.Duration
-	EvidenceOriginBaseURL      string
-	EvidenceOriginAuthToken    string
+	NotificationWorkerEnabled bool
+	NotificationPollInterval  time.Duration
+	NotificationLeaseDuration time.Duration
+	NotificationBatchSize     int
+	// The dispatcher that turns new AI alerts into deliveries: alerts older
+	// than MaxAlertAge are never notified, and one without a clip waits up to
+	// ClipWait for it.
+	NotificationMaxAlertAge time.Duration
+	NotificationClipWait    time.Duration
+	PublicAPIBaseURL        string
+	SecureVideoLinkTTL      time.Duration
+	// The bucket the AI service uploads clips and snapshots to. Same variable
+	// names as the AI service's .env, so one file configures both.
+	R2                         notifications.R2Config
 	WhatsAppWebhookVerifyToken string
 	WhatsAppAppSecret          string
 }
@@ -63,6 +68,14 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	leaseDuration, err := positiveDuration("NOTIFICATION_LEASE_DURATION", "45s")
+	if err != nil {
+		return Config{}, err
+	}
+	maxAlertAge, err := positiveDuration("NOTIFICATION_MAX_ALERT_AGE", "15m")
+	if err != nil {
+		return Config{}, err
+	}
+	clipWait, err := positiveDuration("NOTIFICATION_CLIP_WAIT", "90s")
 	if err != nil {
 		return Config{}, err
 	}
@@ -107,16 +120,21 @@ func Load() (Config, error) {
 		MembersEnabled:                 boolValue("MEMBER_MANAGEMENT_ENABLED", false),
 		SwaggerEnabled:                 boolValue("SWAGGER_ENABLED", environment != "production"),
 		TrustProxy:                     boolValue("TRUST_PROXY", false),
-		AIIngestToken:                  strings.TrimSpace(os.Getenv("AI_INGEST_TOKEN")),
 
-		NotificationWorkerEnabled:  boolValue("NOTIFICATION_WORKER_ENABLED", false),
-		NotificationPollInterval:   pollInterval,
-		NotificationLeaseDuration:  leaseDuration,
-		NotificationBatchSize:      batchSize,
-		PublicAPIBaseURL:           strings.TrimRight(strings.TrimSpace(os.Getenv("PUBLIC_API_BASE_URL")), "/"),
-		SecureVideoLinkTTL:         secureVideoTTL,
-		EvidenceOriginBaseURL:      strings.TrimRight(strings.TrimSpace(os.Getenv("EVIDENCE_ORIGIN_BASE_URL")), "/"),
-		EvidenceOriginAuthToken:    strings.TrimSpace(os.Getenv("EVIDENCE_ORIGIN_AUTH_TOKEN")),
+		NotificationWorkerEnabled: boolValue("NOTIFICATION_WORKER_ENABLED", false),
+		NotificationPollInterval:  pollInterval,
+		NotificationLeaseDuration: leaseDuration,
+		NotificationBatchSize:     batchSize,
+		NotificationMaxAlertAge:   maxAlertAge,
+		NotificationClipWait:      clipWait,
+		PublicAPIBaseURL:          strings.TrimRight(strings.TrimSpace(os.Getenv("PUBLIC_API_BASE_URL")), "/"),
+		SecureVideoLinkTTL:        secureVideoTTL,
+		R2: notifications.R2Config{
+			Endpoint:        strings.TrimSpace(os.Getenv("R2_ENDPOINT")),
+			Bucket:          strings.TrimSpace(os.Getenv("R2_BUCKET")),
+			AccessKeyID:     strings.TrimSpace(os.Getenv("R2_ACCESS_KEY_ID")),
+			SecretAccessKey: strings.TrimSpace(os.Getenv("R2_SECRET_ACCESS_KEY")),
+		},
 		WhatsAppWebhookVerifyToken: strings.TrimSpace(os.Getenv("WHATSAPP_WEBHOOK_VERIFY_TOKEN")),
 		WhatsAppAppSecret:          strings.TrimSpace(os.Getenv("WHATSAPP_APP_SECRET")),
 	}
@@ -137,11 +155,8 @@ func Load() (Config, error) {
 	if cfg.NotificationWorkerEnabled && cfg.NotificationLeaseDuration <= 10*time.Second {
 		return Config{}, errors.New("NOTIFICATION_LEASE_DURATION must be greater than 10s when the notification worker is enabled")
 	}
-	if cfg.AIIngestToken != "" && len(cfg.AIIngestToken) < 32 {
-		return Config{}, errors.New("AI_INGEST_TOKEN must be at least 32 characters when configured")
-	}
-	if cfg.NotificationWorkerEnabled && (cfg.PublicAPIBaseURL == "" || cfg.EvidenceOriginBaseURL == "") {
-		return Config{}, errors.New("PUBLIC_API_BASE_URL and EVIDENCE_ORIGIN_BASE_URL are required when the notification worker is enabled")
+	if cfg.NotificationWorkerEnabled && (cfg.PublicAPIBaseURL == "" || !cfg.R2.Configured()) {
+		return Config{}, errors.New("PUBLIC_API_BASE_URL and R2_ENDPOINT/R2_BUCKET/R2_ACCESS_KEY_ID/R2_SECRET_ACCESS_KEY are required when the notification worker is enabled")
 	}
 	if cfg.NotificationWorkerEnabled && len(cfg.NotificationCredentialBindings) == 0 {
 		return Config{}, errors.New("NOTIFICATION_CREDENTIAL_BINDINGS is required when the notification worker is enabled")
@@ -150,8 +165,8 @@ func Load() (Config, error) {
 		return Config{}, errors.New("WHATSAPP_WEBHOOK_VERIFY_TOKEN and WHATSAPP_APP_SECRET must be configured together")
 	}
 	for name, value := range map[string]string{
-		"PUBLIC_API_BASE_URL":      cfg.PublicAPIBaseURL,
-		"EVIDENCE_ORIGIN_BASE_URL": cfg.EvidenceOriginBaseURL,
+		"PUBLIC_API_BASE_URL": cfg.PublicAPIBaseURL,
+		"R2_ENDPOINT":         cfg.R2.Endpoint,
 	} {
 		if value == "" {
 			continue

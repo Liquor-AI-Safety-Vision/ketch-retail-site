@@ -10,26 +10,15 @@ func setMinimumTestEnvironment(t *testing.T) {
 	t.Setenv("NODE_ENV", "development")
 	t.Setenv("DATABASE_URL", "postgresql://user:password@example.test/database")
 	t.Setenv("DIRECT_URL", "")
-	t.Setenv("AI_INGEST_TOKEN", "")
 	t.Setenv("NOTIFICATION_CREDENTIAL_BINDINGS", "")
 	t.Setenv("TRUSTED_PROXY_CIDRS", "")
 	t.Setenv("NOTIFICATION_WORKER_ENABLED", "false")
 	t.Setenv("PUBLIC_API_BASE_URL", "")
-	t.Setenv("EVIDENCE_ORIGIN_BASE_URL", "")
+	for _, name := range []string{"R2_ENDPOINT", "R2_BUCKET", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"} {
+		t.Setenv(name, "")
+	}
 	t.Setenv("WHATSAPP_WEBHOOK_VERIFY_TOKEN", "")
 	t.Setenv("WHATSAPP_APP_SECRET", "")
-}
-
-func TestAIIngestTokenLengthValidation(t *testing.T) {
-	setMinimumTestEnvironment(t)
-	t.Setenv("AI_INGEST_TOKEN", "too-short")
-	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "AI_INGEST_TOKEN") {
-		t.Fatalf("expected short AI token to fail, got %v", err)
-	}
-	t.Setenv("AI_INGEST_TOKEN", "a-production-style-ai-ingest-token-value")
-	if _, err := Load(); err != nil {
-		t.Fatalf("valid AI token rejected: %v", err)
-	}
 }
 
 func TestNotificationWorkerRequiresSecureReviewOrigins(t *testing.T) {
@@ -39,11 +28,17 @@ func TestNotificationWorkerRequiresSecureReviewOrigins(t *testing.T) {
 		t.Fatalf("expected missing review origins to fail, got %v", err)
 	}
 	t.Setenv("PUBLIC_API_BASE_URL", "https://api.example.test")
-	t.Setenv("EVIDENCE_ORIGIN_BASE_URL", "https://evidence.example.test")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "R2_ENDPOINT") {
+		t.Fatalf("worker without R2 must fail to start (review links read clips from R2): %v", err)
+	}
+	t.Setenv("R2_ENDPOINT", "https://acct.r2.cloudflarestorage.com")
+	t.Setenv("R2_BUCKET", "liquir")
+	t.Setenv("R2_ACCESS_KEY_ID", "AK")
+	t.Setenv("R2_SECRET_ACCESS_KEY", "SK")
 	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "NOTIFICATION_CREDENTIAL_BINDINGS") {
 		t.Fatalf("unscoped worker must fail to start: %v", err)
 	}
-	t.Setenv("NOTIFICATION_CREDENTIAL_BINDINGS", `[{"storeId":"11111111-1111-4111-8111-111111111111","provider":"TELEGRAM","providerAccountRef":"","credentialRef":"env://TELEGRAM_BOT_TOKEN"}]`)
+	t.Setenv("NOTIFICATION_CREDENTIAL_BINDINGS", `[{"storeId":"store_test_01","provider":"TELEGRAM","providerAccountRef":"","credentialRef":"env://TELEGRAM_BOT_TOKEN"}]`)
 	if _, err := Load(); err != nil {
 		t.Fatalf("valid worker origins rejected: %v", err)
 	}

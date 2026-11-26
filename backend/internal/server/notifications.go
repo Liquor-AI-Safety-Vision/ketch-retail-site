@@ -120,6 +120,16 @@ func (input notificationRuleChannelUpdateInput) provided() bool {
 	return input.Priority != nil || input.FallbackDelaySeconds != nil || input.IsEnabled != nil
 }
 
+// requirePathIDs checks a store id (the AI schema's TEXT id) and any number of
+// this API's own UUID ids. Either kind failing reads as not found.
+func requirePathIDs(w http.ResponseWriter, storeID string, uuids ...string) bool {
+	if !validLength(storeID, 1, 200) {
+		writeError(w, http.StatusNotFound, "Not Found", "Resource was not found.")
+		return false
+	}
+	return requireUUIDPath(w, uuids...)
+}
+
 func requireUUIDPath(w http.ResponseWriter, values ...string) bool {
 	for _, value := range values {
 		if _, err := uuid.Parse(value); err != nil {
@@ -201,7 +211,7 @@ func scanNotificationEndpoint(row rowScanner, item *notificationEndpointResponse
 
 func (s *Server) listNotificationEndpoints(w http.ResponseWriter, r *http.Request, user principal) {
 	storeID := r.PathValue("storeId")
-	if !requireUUIDPath(w, storeID) || !s.requireRole(w, r.Context(), user.ID, storeID, "OWNER") {
+	if !requirePathIDs(w, storeID) || !s.requireRole(w, r.Context(), user.ID, storeID, roleOwner) {
 		return
 	}
 	rows, err := s.db.Query(r.Context(), `SELECT "id","provider"::text,"label","providerAccountRef","destinationRef","credentialRef","config","isEnabled","createdAt","updatedAt" FROM "notification_endpoints" WHERE "storeId"=$1 ORDER BY "createdAt","id"`, storeID)
@@ -228,7 +238,7 @@ func (s *Server) listNotificationEndpoints(w http.ResponseWriter, r *http.Reques
 
 func (s *Server) createNotificationEndpoint(w http.ResponseWriter, r *http.Request, user principal) {
 	storeID := r.PathValue("storeId")
-	if !requireUUIDPath(w, storeID) || !s.requireRole(w, r.Context(), user.ID, storeID, "OWNER") {
+	if !requirePathIDs(w, storeID) || !s.requireRole(w, r.Context(), user.ID, storeID, roleOwner) {
 		return
 	}
 	var input notificationEndpointInput
@@ -297,7 +307,7 @@ func writeNotificationEndpoint(w http.ResponseWriter, ctx context.Context, s *Se
 
 func (s *Server) updateNotificationEndpoint(w http.ResponseWriter, r *http.Request, user principal) {
 	storeID, endpointID := r.PathValue("storeId"), r.PathValue("endpointId")
-	if !requireUUIDPath(w, storeID, endpointID) || !s.requireRole(w, r.Context(), user.ID, storeID, "OWNER") {
+	if !requirePathIDs(w, storeID, endpointID) || !s.requireRole(w, r.Context(), user.ID, storeID, roleOwner) {
 		return
 	}
 	var input notificationEndpointUpdateInput
@@ -397,7 +407,7 @@ func derefString(value *string) string {
 
 func (s *Server) removeNotificationEndpoint(w http.ResponseWriter, r *http.Request, user principal) {
 	storeID, endpointID := r.PathValue("storeId"), r.PathValue("endpointId")
-	if !requireUUIDPath(w, storeID, endpointID) || !s.requireRole(w, r.Context(), user.ID, storeID, "OWNER") {
+	if !requirePathIDs(w, storeID, endpointID) || !s.requireRole(w, r.Context(), user.ID, storeID, roleOwner) {
 		return
 	}
 	var referenced bool
@@ -427,7 +437,7 @@ func (s *Server) removeNotificationEndpoint(w http.ResponseWriter, r *http.Reque
 
 func (s *Server) testNotificationEndpoint(w http.ResponseWriter, r *http.Request, user principal) {
 	storeID, endpointID := r.PathValue("storeId"), r.PathValue("endpointId")
-	if !requireUUIDPath(w, storeID, endpointID) || !s.requireRole(w, r.Context(), user.ID, storeID, "OWNER") {
+	if !requirePathIDs(w, storeID, endpointID) || !s.requireRole(w, r.Context(), user.ID, storeID, roleOwner) {
 		return
 	}
 	var input struct {
@@ -485,8 +495,8 @@ func normalizeAlertTypes(values []string) ([]string, string) {
 	normalized := []string{}
 	seen := map[string]bool{}
 	for _, value := range values {
-		candidate := strings.ToUpper(strings.TrimSpace(value))
-		if !oneOf(candidate, alertTypeValues...) {
+		candidate := strings.ToLower(strings.TrimSpace(value))
+		if !oneOf(candidate, alertEventTypes...) {
 			return nil, "alertTypes contains an unknown alert type."
 		}
 		if !seen[candidate] {
@@ -512,9 +522,9 @@ func resolveRuleCreate(input notificationRuleInput) (resolvedRule, error) {
 	if !validName(name) {
 		return resolvedRule{}, errors.New("name must contain 1 to 120 characters.")
 	}
-	minimumSeverity := "CRITICAL"
+	minimumSeverity := "critical"
 	if input.MinimumSeverity != nil {
-		minimumSeverity = strings.ToUpper(strings.TrimSpace(*input.MinimumSeverity))
+		minimumSeverity = strings.ToLower(strings.TrimSpace(*input.MinimumSeverity))
 	}
 	alertTypes := []string{}
 	if input.AlertTypes != nil {
@@ -546,7 +556,7 @@ func applyRuleUpdate(current resolvedRule, input notificationRuleInput) (resolve
 		merged.Name = strings.TrimSpace(*input.Name)
 	}
 	if input.MinimumSeverity != nil {
-		merged.MinimumSeverity = strings.ToUpper(strings.TrimSpace(*input.MinimumSeverity))
+		merged.MinimumSeverity = strings.ToLower(strings.TrimSpace(*input.MinimumSeverity))
 	}
 	if input.AlertTypes != nil {
 		normalized, message := normalizeAlertTypes(*input.AlertTypes)
@@ -572,7 +582,7 @@ func validateResolvedRule(rule resolvedRule) error {
 		return errors.New("name must contain 1 to 120 characters.")
 	}
 	if !notifications.ValidSeverity(rule.MinimumSeverity) {
-		return errors.New("minimumSeverity must be LOW, MEDIUM, HIGH or CRITICAL.")
+		return errors.New("minimumSeverity must be warning, high or critical.")
 	}
 	if rule.CooldownSeconds < 0 || rule.CooldownSeconds > 86400 {
 		return errors.New("cooldownSeconds must be between 0 and 86400.")
@@ -592,7 +602,7 @@ func scanNotificationRule(row rowScanner, item *notificationRuleResponse) error 
 
 func (s *Server) listNotificationRules(w http.ResponseWriter, r *http.Request, user principal) {
 	storeID := r.PathValue("storeId")
-	if !requireUUIDPath(w, storeID) || !s.requireRole(w, r.Context(), user.ID, storeID, "OWNER") {
+	if !requirePathIDs(w, storeID) || !s.requireRole(w, r.Context(), user.ID, storeID, roleOwner) {
 		return
 	}
 	rows, err := s.db.Query(r.Context(), `SELECT "id","name","minimumSeverity"::text,"alertTypes","cooldownSeconds","isEnabled","createdAt","updatedAt" FROM "notification_rules" WHERE "storeId"=$1 ORDER BY "createdAt","id"`, storeID)
@@ -619,7 +629,7 @@ func (s *Server) listNotificationRules(w http.ResponseWriter, r *http.Request, u
 
 func (s *Server) createNotificationRule(w http.ResponseWriter, r *http.Request, user principal) {
 	storeID := r.PathValue("storeId")
-	if !requireUUIDPath(w, storeID) || !s.requireRole(w, r.Context(), user.ID, storeID, "OWNER") {
+	if !requirePathIDs(w, storeID) || !s.requireRole(w, r.Context(), user.ID, storeID, roleOwner) {
 		return
 	}
 	var input notificationRuleInput
@@ -645,7 +655,7 @@ func (s *Server) createNotificationRule(w http.ResponseWriter, r *http.Request, 
 
 func (s *Server) updateNotificationRule(w http.ResponseWriter, r *http.Request, user principal) {
 	storeID, ruleID := r.PathValue("storeId"), r.PathValue("ruleId")
-	if !requireUUIDPath(w, storeID, ruleID) || !s.requireRole(w, r.Context(), user.ID, storeID, "OWNER") {
+	if !requirePathIDs(w, storeID, ruleID) || !s.requireRole(w, r.Context(), user.ID, storeID, roleOwner) {
 		return
 	}
 	var input notificationRuleInput
@@ -686,7 +696,7 @@ func (s *Server) updateNotificationRule(w http.ResponseWriter, r *http.Request, 
 
 func (s *Server) removeNotificationRule(w http.ResponseWriter, r *http.Request, user principal) {
 	storeID, ruleID := r.PathValue("storeId"), r.PathValue("ruleId")
-	if !requireUUIDPath(w, storeID, ruleID) || !s.requireRole(w, r.Context(), user.ID, storeID, "OWNER") {
+	if !requirePathIDs(w, storeID, ruleID) || !s.requireRole(w, r.Context(), user.ID, storeID, roleOwner) {
 		return
 	}
 	var referenced bool
@@ -750,7 +760,7 @@ func requireStoreEndpoint(w http.ResponseWriter, ctx context.Context, s *Server,
 
 func (s *Server) listNotificationRuleChannels(w http.ResponseWriter, r *http.Request, user principal) {
 	storeID, ruleID := r.PathValue("storeId"), r.PathValue("ruleId")
-	if !requireUUIDPath(w, storeID, ruleID) || !s.requireRole(w, r.Context(), user.ID, storeID, "OWNER") || !requireStoreRule(w, r.Context(), s, storeID, ruleID) {
+	if !requirePathIDs(w, storeID, ruleID) || !s.requireRole(w, r.Context(), user.ID, storeID, roleOwner) || !requireStoreRule(w, r.Context(), s, storeID, ruleID) {
 		return
 	}
 	rows, err := s.db.Query(r.Context(), `SELECT `+channelSelectColumns+` FROM "notification_rule_channels" rc JOIN "notification_endpoints" e ON e."id"=rc."endpointId" WHERE rc."ruleId"=$1 AND rc."storeId"=$2 ORDER BY rc."priority",e."id"`, ruleID, storeID)
@@ -791,7 +801,7 @@ func ruleChannelConflict(err error) (string, bool) {
 
 func (s *Server) createNotificationRuleChannel(w http.ResponseWriter, r *http.Request, user principal) {
 	storeID, ruleID := r.PathValue("storeId"), r.PathValue("ruleId")
-	if !requireUUIDPath(w, storeID, ruleID) || !s.requireRole(w, r.Context(), user.ID, storeID, "OWNER") || !requireStoreRule(w, r.Context(), s, storeID, ruleID) {
+	if !requirePathIDs(w, storeID, ruleID) || !s.requireRole(w, r.Context(), user.ID, storeID, roleOwner) || !requireStoreRule(w, r.Context(), s, storeID, ruleID) {
 		return
 	}
 	var input notificationRuleChannelInput
@@ -851,7 +861,7 @@ func (s *Server) createNotificationRuleChannel(w http.ResponseWriter, r *http.Re
 
 func (s *Server) updateNotificationRuleChannel(w http.ResponseWriter, r *http.Request, user principal) {
 	storeID, ruleID, channelID := r.PathValue("storeId"), r.PathValue("ruleId"), r.PathValue("channelId")
-	if !requireUUIDPath(w, storeID, ruleID, channelID) || !s.requireRole(w, r.Context(), user.ID, storeID, "OWNER") {
+	if !requirePathIDs(w, storeID, ruleID, channelID) || !s.requireRole(w, r.Context(), user.ID, storeID, roleOwner) {
 		return
 	}
 	var input notificationRuleChannelUpdateInput
@@ -900,7 +910,7 @@ func (s *Server) updateNotificationRuleChannel(w http.ResponseWriter, r *http.Re
 
 func (s *Server) removeNotificationRuleChannel(w http.ResponseWriter, r *http.Request, user principal) {
 	storeID, ruleID, channelID := r.PathValue("storeId"), r.PathValue("ruleId"), r.PathValue("channelId")
-	if !requireUUIDPath(w, storeID, ruleID, channelID) || !s.requireRole(w, r.Context(), user.ID, storeID, "OWNER") {
+	if !requirePathIDs(w, storeID, ruleID, channelID) || !s.requireRole(w, r.Context(), user.ID, storeID, roleOwner) {
 		return
 	}
 	var referenced bool

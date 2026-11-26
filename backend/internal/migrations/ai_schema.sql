@@ -150,6 +150,8 @@ ALTER TABLE alerts ADD COLUMN IF NOT EXISTS reviewed_at TEXT;
 -- The dashboard lists a store's alerts newest first, optionally by status.
 -- opened_at is ISO-8601 UTC text written by ai/, so text order is time order.
 CREATE INDEX IF NOT EXISTS idx_alerts_store_opened ON alerts(store_id, opened_at);
+-- The Go API's notification dispatcher scans recent alerts across stores.
+CREATE INDEX IF NOT EXISTS idx_alerts_opened ON alerts(opened_at);
 CREATE INDEX IF NOT EXISTS idx_alerts_store_status_opened ON alerts(store_id, status, opened_at);
 CREATE INDEX IF NOT EXISTS idx_alert_media_alert ON alert_media(alert_id);
 

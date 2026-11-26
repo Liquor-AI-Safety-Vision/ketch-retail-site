@@ -35,15 +35,23 @@ func TestValidateEndpointTextFields(t *testing.T) {
 }
 
 func TestNormalizeAlertTypesValidation(t *testing.T) {
-	normalized, message := normalizeAlertTypes([]string{"weapon_detected", " WEAPON_DETECTED ", "POS_VOID_OR_REFUND"})
+	// The AI service's event_type values; casing and spacing are forgiven.
+	normalized, message := normalizeAlertTypes([]string{"weapon_detected", " WEAPON_DETECTED ", "unknown_entry"})
 	if message != "" {
 		t.Fatalf("unexpected error: %s", message)
 	}
-	if len(normalized) != 2 || normalized[0] != "WEAPON_DETECTED" || normalized[1] != "POS_VOID_OR_REFUND" {
+	if len(normalized) != 2 || normalized[0] != "weapon_detected" || normalized[1] != "unknown_entry" {
 		t.Fatalf("duplicates must normalize preserving order: %v", normalized)
 	}
-	if _, message = normalizeAlertTypes([]string{"NOT_A_TYPE"}); message == "" {
-		t.Fatal("unknown alert type must be rejected")
+	for _, old := range []string{"NOT_A_TYPE", "POS_VOID_OR_REFUND", "SUSPICIOUS_CASH_HANDLING"} {
+		if _, message = normalizeAlertTypes([]string{old}); message == "" {
+			t.Fatalf("%q is not an AI event type and must be rejected", old)
+		}
+	}
+	for _, aiType := range []string{"suspected_cash_concealment", "unknown_entry", "staff_outside_schedule", "watchlist_match", "weapon_detected"} {
+		if _, message = normalizeAlertTypes([]string{aiType}); message != "" {
+			t.Fatalf("AI event type %q rejected: %s", aiType, message)
+		}
 	}
 	if _, message = normalizeAlertTypes(nil); message != "" {
 		t.Fatalf("nil alert types are valid: %s", message)
@@ -55,10 +63,10 @@ func TestResolveRuleCreateAppliesDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("minimal create rejected: %v", err)
 	}
-	if resolved.MinimumSeverity != "CRITICAL" || resolved.AlertTypes == nil || len(resolved.AlertTypes) != 0 || resolved.CooldownSeconds != 0 || !resolved.IsEnabled {
+	if resolved.MinimumSeverity != "critical" || resolved.AlertTypes == nil || len(resolved.AlertTypes) != 0 || resolved.CooldownSeconds != 0 || !resolved.IsEnabled {
 		t.Fatalf("unexpected defaults: %+v", resolved)
 	}
-	severity := "HIGH"
+	severity := "HIGH" // normalized to the AI's lowercase
 	cooldown := 600
 	disabled := false
 	resolved, err = resolveRuleCreate(notificationRuleInput{
@@ -68,15 +76,17 @@ func TestResolveRuleCreateAppliesDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("explicit create rejected: %v", err)
 	}
-	if resolved.MinimumSeverity != "HIGH" || len(resolved.AlertTypes) != 1 || resolved.CooldownSeconds != 600 || resolved.IsEnabled {
+	if resolved.MinimumSeverity != "high" || len(resolved.AlertTypes) != 1 || resolved.CooldownSeconds != 600 || resolved.IsEnabled {
 		t.Fatalf("explicit values not honored: %+v", resolved)
 	}
 	if _, err = resolveRuleCreate(notificationRuleInput{}); err == nil {
 		t.Fatal("missing name must be rejected")
 	}
-	badSeverity := "EXTREME"
-	if _, err = resolveRuleCreate(notificationRuleInput{Name: strPtr("X"), MinimumSeverity: &badSeverity}); err == nil {
-		t.Fatal("invalid severity must be rejected")
+	for _, bad := range []string{"EXTREME", "LOW", "MEDIUM", "info"} {
+		badSeverity := bad
+		if _, err = resolveRuleCreate(notificationRuleInput{Name: strPtr("X"), MinimumSeverity: &badSeverity}); err == nil {
+			t.Fatalf("severity %q is not an AI severity and must be rejected", bad)
+		}
 	}
 	negativeCooldown := -1
 	if _, err = resolveRuleCreate(notificationRuleInput{Name: strPtr("X"), CooldownSeconds: &negativeCooldown}); err == nil {
@@ -85,7 +95,7 @@ func TestResolveRuleCreateAppliesDefaults(t *testing.T) {
 }
 
 func TestApplyRuleUpdateStaysPartial(t *testing.T) {
-	current := resolvedRule{Name: "Existing", MinimumSeverity: "HIGH", AlertTypes: []string{"WEAPON_DETECTED"}, CooldownSeconds: 300, IsEnabled: true}
+	current := resolvedRule{Name: "Existing", MinimumSeverity: "high", AlertTypes: []string{"weapon_detected"}, CooldownSeconds: 300, IsEnabled: true}
 	merged, err := applyRuleUpdate(current, notificationRuleInput{Name: strPtr("Renamed")})
 	if err != nil {
 		t.Fatalf("partial update rejected: %v", err)
@@ -93,7 +103,7 @@ func TestApplyRuleUpdateStaysPartial(t *testing.T) {
 	if merged.Name != "Renamed" {
 		t.Fatalf("name not updated: %+v", merged)
 	}
-	if merged.MinimumSeverity != "HIGH" || len(merged.AlertTypes) != 1 || merged.CooldownSeconds != 300 || !merged.IsEnabled {
+	if merged.MinimumSeverity != "high" || len(merged.AlertTypes) != 1 || merged.CooldownSeconds != 300 || !merged.IsEnabled {
 		t.Fatalf("PATCH applied create defaults to omitted fields: %+v", merged)
 	}
 	emptyName := "   "
@@ -211,13 +221,13 @@ func TestTemplateVersionResolutionForEndpoints(t *testing.T) {
 }
 
 func TestNotificationRoutesRequireAuthenticationAndRegistration(t *testing.T) {
-	storeID := "00000000-0000-0000-0000-000000000001"
+	storeID := "store_test_01"
 	endpointID := "00000000-0000-0000-0000-000000000002"
 	ruleID := "00000000-0000-0000-0000-000000000003"
 	channelID := "00000000-0000-0000-0000-000000000004"
 	deliveryID := "00000000-0000-0000-0000-000000000005"
 	alertID := "00000000-0000-0000-0000-000000000006"
-	evidenceID := "00000000-0000-0000-0000-000000000007"
+	mediaID := "00000000-0000-0000-0000-000000000007"
 	routes := []struct {
 		method string
 		path   string
@@ -237,7 +247,7 @@ func TestNotificationRoutesRequireAuthenticationAndRegistration(t *testing.T) {
 		{http.MethodDelete, "/api/v1/stores/" + storeID + "/notification-rules/" + ruleID + "/channels/" + channelID},
 		{http.MethodGet, "/api/v1/stores/" + storeID + "/notification-deliveries"},
 		{http.MethodGet, "/api/v1/stores/" + storeID + "/notification-deliveries/" + deliveryID},
-		{http.MethodGet, "/api/v1/stores/" + storeID + "/alerts/" + alertID + "/evidence/" + evidenceID + "/playback-url"},
+		{http.MethodGet, "/api/v1/stores/" + storeID + "/alerts/" + alertID + "/media/" + mediaID + "/playback-url"},
 	}
 	handler := newTestHandler()
 	if len(routes) != 16 {
@@ -280,7 +290,7 @@ func TestOpenAPIDocumentsNotificationPaths(t *testing.T) {
 		"/api/v1/stores/{storeId}/notification-rules/{ruleId}/channels/{channelId}",
 		"/api/v1/stores/{storeId}/notification-deliveries",
 		"/api/v1/stores/{storeId}/notification-deliveries/{deliveryId}",
-		"/api/v1/stores/{storeId}/alerts/{alertId}/evidence/{evidenceId}/playback-url",
+		"/api/v1/stores/{storeId}/alerts/{alertId}/media/{mediaId}/playback-url",
 		"/api/v1/notification-review/{token}",
 		"/api/v1/webhooks/whatsapp",
 	} {
