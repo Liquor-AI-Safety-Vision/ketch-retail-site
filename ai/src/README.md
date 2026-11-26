@@ -1,24 +1,15 @@
 # Source Layout
 
-Code backend mới sẽ được viết trong khu vực này.
-
-Đề xuất package layout:
-
 ```text
 src/
-├── app/
-├── api/
-├── domain/
-├── runtime/
-├── pipelines/
-├── adapters/
-└── infra/
+├── app/         entry point: run_split_pipeline.py, build_staff_db.py
+├── common/      paths, logging, timing, stream URI helpers
+├── domain/      contracts và entities, không phụ thuộc ONNX/OpenCV
+├── perception/  detector, tracker, zone, FSM, face, till
+├── pipelines/   logic nghiệp vụ theo pipeline_id
+├── runtime/     decode / inference / face / business tier, ring buffer, outbox
+└── infra/       SQLite, Neon, filesystem, R2, config loading
 ```
 
-Nguyên tắc:
-- `domain/`: contracts và entities, không phụ thuộc ONNX/OpenCV.
-- `adapters/`: detector/tracker/face/till wrappers.
-- `pipelines/`: logic nghiệp vụ theo camera/pipeline type.
-- `runtime/`: supervisor, worker, evidence buffer, dispatch.
-- `infra/`: SQLite, Neon, filesystem, R2, config loading.
-- `api/`: control plane và frontend feed.
+Không có HTTP API ở đây. Dịch vụ AI chỉ phát hiện và ghi kết quả (alert vào
+Neon, clip/snapshot vào R2); dashboard đọc chúng qua Go API trong `backend/`.

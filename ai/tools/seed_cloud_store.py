@@ -1,6 +1,6 @@
-"""Put one store, its staff faces and its owner into NeonDB.
+"""Put one store and its staff/watchlist faces into NeonDB.
 
-Everything a cloud-db run and the dashboard API need to exist beforehand:
+Everything a cloud-db run needs to exist beforehand:
 
   stores / cameras        from the manifest, via the same seed_store_topology_pg
                           the pipeline runs at startup (idempotent)
@@ -11,7 +11,6 @@ Everything a cloud-db run and the dashboard API need to exist beforehand:
                           staff_b (storage_2.mp4, the storage camera) --
                           re-registered under this store's store_id/company_id,
                           which FaceGallery.match() filters on
-  owners / owner_stores   the dashboard login, linked to the store
   watchlist               optional: one non-staff person ("Regular shoplifter")
                           whose embedding is ArcFace on a 112x112 image. Use a
                           crop that is NOT a real person's face: flagging a real,
@@ -21,23 +20,21 @@ Everything a cloud-db run and the dashboard API need to exist beforehand:
 
 Re-runnable: rows are upserted, and each staff member's embeddings are
 replaced rather than appended, so a second run does not double the candidates
-match() compares against. The owner's password is only set when the owner is
-first created or --reset-password is passed; it is generated if not given and
-printed once.
+match() compares against.
+
+Owner accounts are not created here. Logins belong to the Go API in backend/
+(Argon2id hashes, roles, sessions); a bcrypt hash written from Python would not
+verify there. Create the owner through backend/ and link it to this store_id.
 
     python ai/tools/seed_cloud_store.py \\
-        --manifest ai/config/stores/store_test_01.json \\
-        --owner-email owner.test01@liquir.local --owner-name "Owner Test 01"
+        --manifest ai/config/stores/store_test_01.json
 """
 from __future__ import annotations
 
 import argparse
 import json
 import os
-import secrets
 import sys
-import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -67,11 +64,6 @@ def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--manifest", required=True)
     p.add_argument("--export", default=str(ai_root() / "data/_gallery_export.json"))
-    p.add_argument("--owner-email", required=True)
-    p.add_argument("--owner-name", required=True)
-    p.add_argument("--owner-password", default=None,
-                   help="omit to generate one; it is printed once")
-    p.add_argument("--reset-password", action="store_true")
     p.add_argument("--watchlist-chip", default=None,
                    help="112x112 face chip to register as a non-staff watchlist person")
     p.add_argument("--watchlist-name", default="Regular shoplifter")
@@ -82,9 +74,7 @@ def main() -> None:
     if not dsn:
         raise SystemExit("DATABASE_URL is not set (environment or .env)")
 
-    import bcrypt
     import numpy as np
-    import psycopg2
 
     from ai.src.infra.local_config import camera_specs_from_manifest
     from ai.src.infra.postgres_alert_store import seed_store_topology_pg
@@ -121,43 +111,6 @@ def main() -> None:
 
     if args.watchlist_chip:
         _seed_watchlist(args, dsn, store_id, company_id, gallery)
-
-    now = datetime.now(timezone.utc).isoformat()
-    generated = None
-    conn = psycopg2.connect(dsn, connect_timeout=10)
-    try:
-        with conn.cursor() as cur:
-            cur.execute("SELECT owner_id FROM owners WHERE email = %s", (args.owner_email,))
-            row = cur.fetchone()
-            password = args.owner_password
-            if row is None or args.reset_password:
-                if password is None:
-                    password = generated = secrets.token_urlsafe(12)
-                password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
-            if row is None:
-                owner_id = f"owner_{uuid.uuid4().hex[:12]}"
-                cur.execute(
-                    "INSERT INTO owners (owner_id, display_name, email, password_hash, "
-                    " metadata_json, created_at, updated_at) VALUES (%s, %s, %s, %s, '{}', %s, %s)",
-                    (owner_id, args.owner_name, args.owner_email, password_hash, now, now))
-                action = "created"
-            else:
-                owner_id = row[0]
-                cur.execute("UPDATE owners SET display_name = %s, updated_at = %s WHERE owner_id = %s",
-                            (args.owner_name, now, owner_id))
-                if args.reset_password:
-                    cur.execute("UPDATE owners SET password_hash = %s WHERE owner_id = %s",
-                                (password_hash, owner_id))
-                action = "updated"
-            cur.execute(
-                "INSERT INTO owner_stores (owner_id, store_id, created_at) VALUES (%s, %s, %s) "
-                "ON CONFLICT (owner_id, store_id) DO NOTHING", (owner_id, store_id, now))
-        conn.commit()
-    finally:
-        conn.close()
-    print(f"owner  {owner_id} {args.owner_name} <{args.owner_email}> {action}, linked to {store_id}")
-    if generated:
-        print(f"       generated password (shown once): {generated}")
 
 
 def _seed_watchlist(args, dsn, store_id, company_id, gallery) -> None:
