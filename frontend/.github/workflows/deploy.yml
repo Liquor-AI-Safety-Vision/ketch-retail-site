@@ -1,0 +1,50 @@
+# Push to main → the retail site goes live at ketchenterprise.net.
+#
+# Needs two repository secrets (Settings → Secrets and variables → Actions):
+#   CLOUDFLARE_API_TOKEN   scoped token, Account → Cloudflare Pages → Edit
+#   CLOUDFLARE_ACCOUNT_ID  the Ketch Cloudflare account id
+#
+# Run it by hand first (Actions → Deploy → Run workflow) with environment
+# "preview" to get a throwaway *.pages.dev URL that is NOT the live domain.
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Where to deploy
+        type: choice
+        options: [production, preview]
+        default: preview
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build
+      - run: npm run lint
+      - run: npm run test:security
+
+      # --branch=main is what makes a deployment the production one for this
+      # project. Anything else lands on a preview URL and leaves the live site
+      # untouched.
+      - uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: >-
+            pages deploy dist
+            --project-name=ketch-enterprise
+            --branch=${{ (github.event_name == 'push' || inputs.environment == 'production') && 'main' || 'preview' }}

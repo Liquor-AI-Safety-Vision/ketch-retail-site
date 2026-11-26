@@ -1,0 +1,143 @@
+{
+  "video_file": "data/clips/02178030010445400000000000000000000ffffc0a8a4e081d07d.mp4",
+  "total_frames": 241,
+  "fps": 24.0,
+  "clip_id": "seedance_liquor_01",
+  "title": "CAM 04 \u00b7 Front Counter \u2014 Exit Watch",
+  "mode": "store",
+  "duration": 10.041666666666666,
+  "frame_width": 1280,
+  "frame_height": 720,
+  "zones": {
+    "hv_spirits": [
+      [
+        3,
+        97
+      ],
+      [
+        536,
+        139
+      ],
+      [
+        634,
+        141
+      ],
+      [
+        634,
+        258
+      ],
+      [
+        630,
+        430
+      ],
+      [
+        630,
+        716
+      ],
+      [
+        9,
+        710
+      ],
+      [
+        3,
+        97
+      ]
+    ],
+    "checkout_lane": [
+      [
+        637,
+        449
+      ],
+      [
+        659,
+        716
+      ],
+      [
+        1223,
+        716
+      ],
+      [
+        1044,
+        502
+      ],
+      [
+        1156,
+        464
+      ],
+      [
+        1091,
+        407
+      ],
+      [
+        635,
+        447
+      ]
+    ],
+    "exit_door": [
+      [
+        952,
+        421
+      ],
+      [
+        872,
+        351
+      ],
+      [
+        971,
+        313
+      ],
+      [
+        1039,
+        313
+      ],
+      [
+        1084,
+        339
+      ],
+      [
+        1165,
+        396
+      ],
+      [
+        953,
+        420
+      ]
+    ]
+  },
+  "events": [
+    {
+      "frame": 72,
+      "timestamp": "00:00:03",
+      "behavior": "loitering",
+      "tier": 2,
+      "label": "Loitering \u2014 high-value area",
+      "confidence": 0.8958607316017151,
+      "bbox": [
+        495.6806335449219,
+        199.39242553710938,
+        645.48876953125,
+        650.96435546875
+      ],
+      "track_id": 1,
+      "thumbnail": "thumbs/frame_72.jpg",
+      "how_it_knows": "The tracked person stayed essentially stationary inside the high-value spirits zone for 3 s+ (dwell timer gated on low movement)."
+    },
+    {
+      "frame": 150,
+      "timestamp": "00:00:06",
+      "behavior": "exit_departure",
+      "tier": 1,
+      "label": "Lingered at premium-spirits shelf, now at exit",
+      "confidence": 0.7826187610626221,
+      "bbox": [
+        842.715087890625,
+        186.30332946777344,
+        927.8280639648438,
+        351.1313171386719
+      ],
+      "track_id": 5,
+      "thumbnail": "thumbs/frame_150.jpg",
+      "how_it_knows": "Same subject dwelled 3 s+ in the high-value spirits zone (amber), then moved to the exit. Whether the item was paid for can only be confirmed by POS integration - added in the pilot."
+    }
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "video_file": "data/clips/restricted-area.mp4",
+  "total_frames": 289,
+  "fps": 24.0,
+  "clip_id": "restricted-area",
+  "title": "CAM 03 \u00b7 Staff Counter \u2014 Restricted",
+  "mode": "store",
+  "duration": 12.041666666666666,
+  "frame_width": 1470,
+  "frame_height": 580,
+  "zones": {
+    "restricted_staff_counter": [
+      [
+        585,
+        75
+      ],
+      [
+        860,
+        75
+      ],
+      [
+        860,
+        260
+      ],
+      [
+        585,
+        260
+      ]
+    ]
+  },
+  "events": [
+    {
+      "frame": 185,
+      "timestamp": "00:00:07",
+      "behavior": "zone_breach",
+      "tier": 3,
+      "label": "Zone breach \u2014 restricted area",
+      "confidence": 0.8370965123176575,
+      "bbox": [
+        589.5637817382812,
+        91.11529541015625,
+        642.7346801757812,
+        257.90411376953125
+      ],
+      "track_id": 1,
+      "thumbnail": "thumbs/frame_185.jpg",
+      "how_it_knows": "The tracked person entered a restricted zone they shouldn't be in."
+    }
+  ]
+}

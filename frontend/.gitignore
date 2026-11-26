@@ -1,0 +1,28 @@
+# Node
+node_modules
+*.log
+npm-debug.log*
+
+# Build output
+dist
+dist-ssr
+.security-check/
+*.local
+
+# Only the placeholder example belongs in Git; VITE_* values are public in builds.
+.env
+.env.*
+!.env.example
+
+# Cloudflare wrangler local state — carries the deploying account's identity
+.wrangler/
+
+# Non-shipping clip archive. NEVER commit: third-party CCTV, identifiable people.
+.demo_archive/
+
+# OS / editor
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+.idea
+*.sw?

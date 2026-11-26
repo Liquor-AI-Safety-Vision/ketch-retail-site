@@ -1,0 +1,212 @@
+@import "tailwindcss";
+@import "@fontsource-variable/outfit";
+
+:root {
+  --ketch-teal-900: #0E5C5B;
+  --ketch-teal-600: #128C8A;
+  /* Small-text teal: #128C8A is only ~3.6:1 on cream — teal-700 passes AA
+     (~5.6:1) for captions, eyebrows and labels at normal sizes. */
+  --ketch-teal-700: #0B6B69;
+  --ketch-teal-300: #6FB3B1;
+  --ketch-cream: #F6F1E7;
+  --ketch-cream-200: #ECE4D4;
+  --ketch-surface: #FFFFFF;
+  --ketch-ink: #15211F;
+  --ketch-ink-600: #3A4744;
+  /* Deep-teal band system: bands/panels keep a dark fill in BOTH modes so
+     dark mode doesn't flip them into bright mint slabs. */
+  --ketch-band: #0E5C5B;
+  --ketch-band-text: #F6F1E7;
+  /* Muted/faint/accent tuned for WCAG AA small text on the deep-teal band
+     (muted ≈5.5:1, faint ≈4.9:1, accent ≈5:1). */
+  --ketch-band-muted: rgba(246, 241, 231, 0.85);
+  --ketch-band-faint: rgba(246, 241, 231, 0.78);
+  --ketch-band-accent: #A9D8D3;
+  --ketch-band-card: rgba(18, 140, 138, 0.16);
+  --ketch-band-border: rgba(111, 179, 177, 0.22);
+  --ketch-footer: #15211F;
+  /* Sticky nav surface: one elevation step above the page base. */
+  --ketch-nav: rgba(246, 241, 231, 0.94);
+  /* Tier chips: tinted surface + accent text, adapted per mode. */
+  --ketch-amber-bg: #F7ECD6;
+  --ketch-red-bg: #F3DAD4;
+  --ketch-amber-text: #E2A03F;
+  --ketch-red-text: #C24A3A;
+  --dashboard-canvas: #F5F2EB;
+  --dashboard-paper: #FFFCF7;
+  --dashboard-sidebar: #ECE8DF;
+  --dashboard-sidebar-active: #DDD7CB;
+  --dashboard-sidebar-hover: #E5E0D6;
+  --dashboard-border: #D5D0C6;
+  --dashboard-muted: #676D69;
+}
+
+html[data-color-mode="dark"] {
+  --ketch-teal-900: #78C7C2;
+  --ketch-teal-600: #55B0AB;
+  --ketch-teal-700: #55B0AB;
+  --ketch-teal-300: #2E7773;
+  --ketch-cream: #0D1211;
+  --ketch-cream-200: #18201D;
+  --ketch-surface: #151C19;
+  --ketch-ink: #F1EEE7;
+  --ketch-ink-600: #ADB6B2;
+  --ketch-band: #10302C;
+  --ketch-band-text: #EDF4F1;
+  --ketch-band-muted: #A3BFBA;
+  --ketch-band-faint: rgba(237, 244, 241, 0.68);
+  --ketch-band-accent: #8FD1C8;
+  --ketch-band-card: rgba(111, 179, 177, 0.09);
+  --ketch-band-border: rgba(143, 209, 200, 0.22);
+  --ketch-footer: #080B0A;
+  --ketch-nav: rgba(21, 29, 27, 0.92);
+  --ketch-amber-bg: rgba(226, 160, 63, 0.13);
+  --ketch-red-bg: rgba(226, 106, 90, 0.13);
+  --ketch-amber-text: #EDBB69;
+  --ketch-red-text: #EF9282;
+  --dashboard-canvas: #0C0E0F;
+  --dashboard-paper: #14191A;
+  --dashboard-sidebar: #101415;
+  --dashboard-sidebar-active: #1B211F;
+  --dashboard-sidebar-hover: #161B19;
+  --dashboard-border: #282E2D;
+  --dashboard-muted: #989C99;
+}
+
+/* ── Design tokens — scoping-spec §8 ──────────────────────────────────────
+   B2B loss-prevention, trust-first. Teal + cream base; amber/red are
+   FUNCTIONAL accents reserved for alert states (cards/badges), never decoration.
+   No AI-purple. Dials: variance 5 / motion 4 / density 5.                    */
+@theme {
+  /* Brand */
+  --color-teal-900: var(--ketch-teal-900);   /* deep teal: headers, CTA fills          */
+  --color-teal-600: var(--ketch-teal-600);   /* brand teal: accents, links             */
+  --color-teal-700: var(--ketch-teal-700);   /* AA small-text teal on cream            */
+  --color-teal-300: var(--ketch-teal-300);   /* tints, hovers on dark                 */
+  --color-cream:    var(--ketch-cream);       /* page base                             */
+  --color-cream-200:var(--ketch-cream-200);   /* card surfaces on cream                */
+  --color-surface:  var(--ketch-surface);
+  --color-ink:      var(--ketch-ink);         /* warm near-black: body text             */
+  --color-ink-600:  var(--ketch-ink-600);     /* muted ink: secondary text              */
+
+  /* Functional alert accents: ONLY for detection/early-warning states.
+     *-bg surfaces and *-text accents flip with color mode (see tokens above);
+     the base amber/red fills stay fixed for solid badges. */
+  --color-amber:      #E2A03F;              /* early-warning / suspicious (Tier 2) */
+  --color-amber-bg:   var(--ketch-amber-bg);
+  --color-amber-text: var(--ketch-amber-text);
+  --color-red:        #C24A3A;              /* detection / priority alert (Tier 1) */
+  --color-red-bg:     var(--ketch-red-bg);
+  --color-red-text:   var(--ketch-red-text);
+
+  /* Deep-teal bands (CTA / coverage / stats / footer): dark in both modes. */
+  --color-band:        var(--ketch-band);
+  --color-band-text:   var(--ketch-band-text);
+  --color-band-muted:  var(--ketch-band-muted);
+  --color-band-faint:  var(--ketch-band-faint);
+  --color-band-accent: var(--ketch-band-accent);
+  --color-band-card:   var(--ketch-band-card);
+  --color-band-border: var(--ketch-band-border);
+  --color-footer:      var(--ketch-footer);
+  --color-nav:         var(--ketch-nav);
+
+  /* Factory site (industrial control-room): graphite steel + safety amber.
+     Used ONLY under /factory; retail pages keep cream/teal. Sharp corners,
+     mono labels. Dials: variance 6 / motion 4 / density 5. */
+  --color-steel-950: #101417;  /* page base: graphite near-black          */
+  --color-steel-900: #171D21;  /* raised bands                           */
+  --color-steel-800: #1F272C;  /* cards / panels                         */
+  --color-steel-700: #2C363D;  /* strong borders                         */
+  --color-steel-500: #5C6A73;  /* hairlines, disabled                    */
+  --color-steel-300: #97A4AC;  /* muted text on dark                     */
+  --color-steel-100: #DDE3E6;  /* secondary text on dark                 */
+  --color-steel-50:  #F2F4F5;  /* primary text on dark                   */
+  --color-safety:    #F0B429;  /* hazard amber: THE factory accent        */
+  --color-safety-600:#D99A18;  /* hover state                            */
+
+  /* Type: a restrained geometric face for clear operational hierarchy. */
+  --font-sans: "Outfit Variable", "Segoe UI", Helvetica, Arial, sans-serif;
+  --font-display: "Outfit Variable", var(--font-sans);
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
+}
+
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  background: var(--color-cream);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  transition: background-color 220ms ease, color 220ms ease;
+}
+
+.landing-page {
+  letter-spacing: -0.006em;
+}
+
+.landing-page :where(h1, h2, h3, h4) {
+  text-wrap: balance;
+}
+
+.landing-page :where(a, button) {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: rgba(14, 92, 91, 0.12);
+}
+
+/* Keep the aisle recognizable. A directional wash gives the copy a quiet
+   surface while allowing more of the store to show around the camera frame. */
+.hero-ambient-image {
+  filter: saturate(0.55) blur(1px);
+  opacity: 1;
+  object-position: 50% 55%;
+  transform: scale(1.015);
+  transform-origin: center;
+}
+
+.hero-ambient-wash {
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--ketch-cream) 90%, transparent) 0%, color-mix(in srgb, var(--ketch-cream) 85%, transparent) 25%, color-mix(in srgb, var(--ketch-cream) 72%, transparent) 43%, color-mix(in srgb, var(--ketch-cream) 32%, transparent) 70%, color-mix(in srgb, var(--ketch-cream) 24%, transparent) 100%),
+    linear-gradient(180deg, color-mix(in srgb, var(--ketch-cream) 20%, transparent) 0%, transparent 32%, transparent 60%, var(--ketch-cream) 100%);
+}
+
+html[data-color-mode="dark"] .hero-ambient-image {
+  filter: saturate(0.45) brightness(0.6) blur(1px);
+}
+
+/* A soft local wash keeps supporting copy and controls readable in either
+   theme without hiding more of the aisle around the hero. */
+.hero-copy-support::before {
+  content: "";
+  position: absolute;
+  inset: -1.5rem -2rem;
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(ellipse at 35% 48%, color-mix(in srgb, var(--ketch-cream) 62%, transparent) 0%, color-mix(in srgb, var(--ketch-cream) 42%, transparent) 48%, transparent 78%);
+}
+
+@media (max-width: 767px) {
+  .hero-ambient-image {
+    object-position: 50% 50%;
+  }
+
+  .hero-ambient-wash {
+    background: linear-gradient(180deg, color-mix(in srgb, var(--ketch-cream) 86%, transparent) 0%, color-mix(in srgb, var(--ketch-cream) 88%, transparent) 45%, color-mix(in srgb, var(--ketch-cream) 55%, transparent) 75%, var(--ketch-cream) 100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body { transition: none; }
+}
+
+/* Flywheel ring-node pulse, gated via motion-safe: in markup */
+@keyframes nodePulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(94, 234, 212, 0); }
+  50%      { transform: scale(1.18); box-shadow: 0 0 0 6px rgba(94, 234, 212, 0.18); }
+}
+
+@keyframes grain {
+  0%, 100% { background-position: 0 0; }
+  25%      { background-position: -8% -6%; }
+  50%      { background-position: 7% -10%; }
+  75%      { background-position: -5% 8%; }
+}
