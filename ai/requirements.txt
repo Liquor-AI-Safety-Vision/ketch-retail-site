@@ -1,0 +1,46 @@
+# backend runtime dependencies.
+#
+# Versions are the ones the published benchmarks were measured on, so a box
+# built from this file reproduces those numbers rather than approximating them.
+# The 16-camera 4070 round (ai/docs/benchmarks/2026-08-27-16cam-4070-multistore.md)
+# ran onnxruntime-gpu 1.22.0 on CUDA 12.8.
+#
+#   pip install -r ai/requirements.txt
+#
+# ONNX RUNTIME IS NOT PINNED HERE ON PURPOSE. It is the one dependency whose
+# build must match the box: CPU, CUDA or CoreML are three different wheels
+# under one import name, and installing the wrong one is silent -- the pipeline
+# runs, on the CPU provider, several times slower. Pick one:
+#
+#   GPU box (CUDA 12.x)   pip install onnxruntime-gpu==1.22.0
+#   CPU only / macOS      pip install onnxruntime==1.19.2
+#
+# Then verify what actually loaded, with a real InferenceSession rather than
+# get_available_providers() -- that call lists what the wheel was built with,
+# not what a session will get, and trusting it cost one benchmark round:
+#
+#   python -c "import onnxruntime as o, numpy as np; \
+#     s=o.InferenceSession('ai/models/yolo26m-pose.onnx', \
+#       providers=['CUDAExecutionProvider','CPUExecutionProvider']); \
+#     print(s.get_providers())"
+
+numpy>=1.26,<2.1
+opencv-python-headless>=4.10,<4.12
+scipy>=1.13,<2.0
+
+# Cloud alert sink and media store. Both optional at runtime: the local
+# SQLite/filesystem backends are the default and neither import is reached
+# unless a manifest asks for the cloud path.
+boto3>=1.34            # Cloudflare R2, via the S3 API
+psycopg2-binary>=2.9   # NeonDB
+
+# Benchmarks read the cgroup CPU quota rather than nproc; psutil is only used
+# by the diagnostic tooling, not by the pipeline.
+psutil>=5.9
+
+# Owner dashboard API (ai/src/api). Not imported by the pipeline itself;
+# only ai.src.api.main pulls these in.
+fastapi>=0.115
+uvicorn[standard]>=0.30
+pyjwt>=2.9
+bcrypt>=4.2

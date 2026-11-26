@@ -1,6 +1,6 @@
 {
   // The workspace holds ~19,000 files; 174 of them are in git. The rest are
-  // gitignored bulk -- dev/pdf/node_modules (11,279), data/datasets (6,045),
+  // gitignored bulk -- ai/dev/pdf/node_modules (11,279), data/datasets (6,045),
   // bench artefacts, model weights. Left unexcluded, the file watcher tracks
   // all of them, which is what puts a "10K+" badge on the activity bar and
   // makes search and the Source Control refresh slow.
@@ -12,26 +12,26 @@
     "**/.git/subtree-cache/**": true,
     "**/node_modules/**": true,
     "**/__pycache__/**": true,
-    "**/dev/pdf/**": true,
-    "**/dev/outputs/**": true,
-    "**/dev/uae-main/**": true,
-    "**/dev/models_fp16/**": true,
+    "**/ai/dev/pdf/**": true,
+    "**/ai/dev/outputs/**": true,
+    "**/ai/dev/uae-main/**": true,
+    "**/ai/dev/models_fp16/**": true,
     "**/data/datasets/**": true,
     "**/data/videos/**": true,
-    "**/backend/models/**": true,
-    "**/backend/data/**": true
+    "**/ai/models/**": true,
+    "**/ai/data/**": true
   },
 
   // Keep these out of Cmd+P and search results. They are inputs and artefacts,
   // never things to edit -- and a grep that returns 6,000 dataset files buries
-  // the one hit in backend/src that was being looked for.
+  // the one hit in ai/src that was being looked for.
   "search.exclude": {
-    "**/dev/pdf": true,
-    "**/dev/outputs": true,
-    "**/dev/uae-main": true,
-    "**/dev/models_fp16": true,
+    "**/ai/dev/pdf": true,
+    "**/ai/dev/outputs": true,
+    "**/ai/dev/uae-main": true,
+    "**/ai/dev/models_fp16": true,
     "**/data/datasets": true,
-    "**/backend/models": true,
+    "**/ai/models": true,
     "**/__pycache__": true
   },
 
@@ -43,18 +43,18 @@
     "**/__pycache__": true,
     "**/.pytest_cache": true,
     "**/*.pyc": true,
-    "**/dev/pdf/node_modules": true
+    "**/ai/dev/pdf/node_modules": true
   },
 
   // Ignored files are not changes. Without this the Source Control view can
   // keep showing a stale untracked list -- which is exactly what happened when
-  // outputs/ moved to dev/outputs/ and the old, un-ignored path stayed cached.
+  // outputs/ moved to dev/outputs/ (now ai/dev/outputs/) and the old, un-ignored path stayed cached.
   "git.untrackedChanges": "separate",
   "git.ignoreLimitWarning": true,
 
   "python.analysis.exclude": [
-    "**/dev/pdf/**",
-    "**/dev/outputs/**",
+    "**/ai/dev/pdf/**",
+    "**/ai/dev/outputs/**",
     "**/data/datasets/**"
   ]
 }

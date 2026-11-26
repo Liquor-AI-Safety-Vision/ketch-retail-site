@@ -16,32 +16,32 @@ venv/
 !.env.example
 
 # Large binaries. Weights are tracked by neither half of the split: the ones
-# backend needs to run ship with the deployment, not through git.
-backend/models/
+# ai/ needs to run ship with the deployment, not through git.
+ai/models/
 data/
-dev/models_fp16/
-dev/uae-main/
-dev/pdf/node_modules/
-demo/**/*.mp4
+ai/dev/models_fp16/
+ai/dev/uae-main/
+ai/dev/pdf/node_modules/
+ai/demo/**/*.mp4
 
 # Dev scratch: bench logs, frame dumps, regression records, run artefacts.
-dev/outputs/
-dev/bench/*.jpg
-dev/bench/*.jpeg
-dev/bench/*.png
-dev/bench/*.npy
+ai/dev/outputs/
+ai/dev/bench/*.jpg
+ai/dev/bench/*.jpeg
+ai/dev/bench/*.png
+ai/dev/bench/*.npy
 
 # Runtime data and evidence. Zone configs are NOT here any more -- they are
-# input the pipeline reads at runtime, so they live in backend/config/zones/
+# input the pipeline reads at runtime, so they live in ai/config/zones/
 # and are tracked.
-backend/data/alerts/
-backend/data/alerts_runtime_test/
-backend/data/alerts_targeted/
-backend/data/face_artifacts/
-backend/data/*.sqlite
-backend/data/*.sqlite-*
-backend/data/*.lock
-backend/data/*.json
+ai/data/alerts/
+ai/data/alerts_runtime_test/
+ai/data/alerts_targeted/
+ai/data/face_artifacts/
+ai/data/*.sqlite
+ai/data/*.sqlite-*
+ai/data/*.lock
+ai/data/*.json
 
 # mediamtx tu sinh cert cho MoQ/QUIC khi chay rtsp_sim
 auto.crt
@@ -49,4 +49,8 @@ auto.key
 
 # Local scratch at the repo root and a one-off document not kept in git.
 /outputs/
-docs/remote_support_setup.pdf
+ai/docs/remote_support_setup.pdf
+
+# Private environment ZIP (all service credentials). Never commit.
+liquor-env.txt
+*.env.zip
