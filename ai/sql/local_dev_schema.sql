@@ -42,6 +42,8 @@ CREATE TABLE IF NOT EXISTS owners (
     phone TEXT,
     telegram_chat_id TEXT,
     password_hash TEXT NOT NULL,
+    -- 'active' | 'suspended'. Written by the Go API (backend/), never by ai/.
+    status TEXT NOT NULL DEFAULT 'active',
     metadata_json TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
@@ -50,6 +52,8 @@ CREATE TABLE IF NOT EXISTS owners (
 CREATE TABLE IF NOT EXISTS owner_stores (
     owner_id TEXT NOT NULL REFERENCES owners(owner_id) ON DELETE CASCADE,
     store_id TEXT NOT NULL REFERENCES stores(store_id) ON DELETE CASCADE,
+    -- 'owner' | 'manager' | 'operator'. Written by the Go API (backend/).
+    role TEXT NOT NULL DEFAULT 'owner',
     created_at TEXT NOT NULL,
     PRIMARY KEY (owner_id, store_id)
 );
@@ -58,8 +62,12 @@ CREATE INDEX IF NOT EXISTS idx_owner_stores_store
     ON owner_stores(store_id);
 
 -- Every alert stops at severity=warning until a human confirms it: every
--- pipeline type shares the same open/confirmed/dismissed review workflow,
--- so the review fields live on alerts itself rather than per pipeline_type.
+-- pipeline type shares the same review workflow, so the review fields live on
+-- alerts itself rather than per pipeline_type.
+--
+-- status: ai/ writes 'open'. The Go API moves it to 'acknowledged',
+-- 'confirmed' or 'dismissed' and sets reviewed_by / reviewed_at / review_note;
+-- ai/ never touches those four columns after the insert.
 CREATE TABLE IF NOT EXISTS alerts (
     alert_id TEXT PRIMARY KEY,
     store_id TEXT NOT NULL,
@@ -77,6 +85,7 @@ CREATE TABLE IF NOT EXISTS alerts (
     reason_codes_json TEXT NOT NULL DEFAULT '[]',
     metadata_json TEXT NOT NULL DEFAULT '{}',
     reviewed_by TEXT REFERENCES owners(owner_id),
+    reviewed_at TEXT,
     review_note TEXT,
     FOREIGN KEY (store_id) REFERENCES stores(store_id),
     FOREIGN KEY (camera_id) REFERENCES cameras(camera_id)
