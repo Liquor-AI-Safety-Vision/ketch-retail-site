@@ -1,53 +1,84 @@
 import assert from 'node:assert/strict';
-import { access } from 'node:fs/promises';
+import { access, readFile } from 'node:fs/promises';
 import { afterEach, mock, test } from 'node:test';
 import { demoApi, demoStore } from '../src/security-dashboard/lib/demoApi.ts';
 
 afterEach(() => mock.restoreAll());
 
-test('public demo browses cameras, alerts and details with no API, credential or owner session', async () => {
+const asset = (url) => new URL(`../public${url}`, import.meta.url);
+
+test('public demo browses the AI store, alerts and media with no API, credential or owner session', async () => {
   const network = mock.method(globalThis, 'fetch', () => { throw new Error('Demo must stay offline'); });
-  assert.notEqual(demoStore.role, 'OWNER');
+  assert.notEqual(demoStore.role, 'owner');
+  assert.equal(demoApi.readOnly, true);
+
+  // The store_test_01 cameras, with the pipelines the AI manifest binds to them.
   const cameras = await demoApi.getCameras(demoStore.id);
-  assert.equal(cameras.length, 18);
-  assert.equal(cameras.filter((camera) => camera.status === 'OFFLINE').length, 2);
-  const { items: alerts } = await demoApi.getAlerts(demoStore.id);
-  assert.ok(alerts.length > 10);
-  assert.ok(alerts.some((alert) => alert.type === 'WEAPON_DETECTED'));
-  assert.ok(alerts.some((alert) => alert.type === 'REGULAR_SHOPLIFTER'));
-  assert.equal(alerts.filter((alert) => alert.type === 'UNAUTHORIZED_STOCKROOM_ACCESS').length, 14);
-  for (const alert of alerts) {
-    const detail = await demoApi.getAlert(demoStore.id, alert.id);
-    assert.equal(detail.id, alert.id);
-    for (const key of ['videoUrl', 'thumbnailUrl', 'presentationVideoUrl', 'presentationThumbnailUrl']) {
-      const asset = detail.metadata?.[key];
-      if (!asset) continue;
-      assert.match(asset, /^\/(demo|demo-source)\//);
-      await access(new URL(`../public${asset}`, import.meta.url));
-    }
-  }
+  assert.deepEqual(cameras.map((camera) => camera.id).sort(), [
+    'st01_cold_drinks', 'st01_cold_storage', 'st01_counter', 'st01_entrance',
+    'st01_storage', 'st01_whole_store', 'st01_whole_store_corner',
+  ]);
+  assert.deepEqual(cameras.find((camera) => camera.id === 'st01_counter').pipelines, ['counter_cash_theft_v1']);
   for (const camera of cameras) {
-    await access(new URL(`../public/live-cameras/${camera.streamGatewayRef}.mp4`, import.meta.url));
-    await access(new URL(`../public/live-cameras/${camera.streamGatewayRef}.jpg`, import.meta.url));
+    assert.equal('feed' in camera, false, 'camera records carry no media addresses');
+    const feed = await demoApi.getCameraFeed(demoStore.id, camera.id);
+    assert.equal(feed.isRecording, true);
+    assert.ok(feed.width > 0 && feed.height > 0);
+    await access(asset(feed.videoUrl));
+    await access(asset(feed.posterUrl));
+  }
+  const zones = await demoApi.getZones(demoStore.id, 'st01_counter');
+  assert.ok(zones.length > 0);
+  for (const zone of zones) {
+    assert.ok(zone.pointsNorm.length >= (zone.type === 'line' ? 2 : 3), `${zone.name}: too few points`);
+    assert.ok(zone.pointsNorm.flat().every((value) => value >= 0 && value <= 1));
+  }
+
+  // One alert per AI event type except weapon_detected (no footage, no module yet).
+  const { items: alerts } = await demoApi.getAlerts(demoStore.id, { limit: 100 });
+  assert.deepEqual(new Set(alerts.map((alert) => alert.eventType)), new Set([
+    'suspected_cash_concealment', 'unknown_entry', 'staff_outside_schedule', 'watchlist_match',
+  ]));
+  assert.ok(alerts.some((alert) => alert.status === 'open'));
+  assert.ok(alerts.some((alert) => alert.status === 'confirmed'));
+  for (const alert of alerts) {
+    assert.ok(cameras.some((camera) => camera.id === alert.cameraId));
+    const detail = await demoApi.getAlert(demoStore.id, alert.id);
+    assert.deepEqual(detail.media.map((media) => media.kind).sort(), ['clip', 'snapshot']);
+    for (const media of detail.media) {
+      const { url } = await demoApi.getMediaPlaybackUrl(demoStore.id, alert.id, media.id);
+      assert.match(url, /^\/demo-dashboard\/alerts\//);
+      await access(asset(url));
+    }
   }
   assert.equal(network.mock.callCount(), 0);
 });
 
 test('demo writes and attempts to read production identifiers are rejected without network access', async () => {
   const network = mock.method(globalThis, 'fetch', () => { throw new Error('Must not contact backend'); });
-  await assert.rejects(demoApi.actionAlert(demoStore.id, 'anything', 'resolve'), { status: 403 });
-  await assert.rejects(demoApi.getEvidencePlaybackUrl(demoStore.id, 'anything', 'anything'), { status: 403 });
-  await assert.rejects(demoApi.getCameras('production-store-id'), { status: 404 });
+  const [alert] = (await demoApi.getAlerts(demoStore.id)).items;
+  await assert.rejects(demoApi.actionAlert(demoStore.id, alert.id, 'confirm'), { status: 403 });
+  await assert.rejects(demoApi.getMediaPlaybackUrl(demoStore.id, alert.id, 'anything'), { status: 404 });
+  await assert.rejects(demoApi.getCameras('store_test_01'), { status: 404 });
   await assert.rejects(demoApi.getAlert(demoStore.id, '00000000-0000-4000-8000-000000000001'), { status: 404 });
   assert.equal(network.mock.callCount(), 0);
 });
 
-test('demo filters and pagination remain useful and mutations of returned fixtures cannot persist', async () => {
-  const first = await demoApi.getAlerts(demoStore.id, { status: 'RESOLVED', limit: 5 });
-  assert.equal(first.items.length, 5);
-  assert.ok(first.items.every((alert) => alert.status === 'RESOLVED'));
-  const second = await demoApi.getAlerts(demoStore.id, { status: 'RESOLVED', limit: 5, cursor: first.nextCursor });
+test('demo filters and pagination work and mutations of returned records cannot persist', async () => {
+  const open = await demoApi.getAlerts(demoStore.id, { status: 'open' });
+  assert.ok(open.items.length > 0 && open.items.every((alert) => alert.status === 'open'));
+  const first = await demoApi.getAlerts(demoStore.id, { limit: 2 });
+  assert.equal(first.items.length, 2);
+  const second = await demoApi.getAlerts(demoStore.id, { limit: 2, cursor: first.nextCursor });
   assert.ok(second.items.every((item) => !first.items.some((prior) => prior.id === item.id)));
-  first.items[0].status = 'DISMISSED';
-  assert.equal((await demoApi.getAlert(demoStore.id, first.items[0].id)).status, 'RESOLVED');
+  const byType = await demoApi.getAlerts(demoStore.id, { eventType: 'watchlist_match' });
+  assert.ok(byType.items.length > 0 && byType.items.every((alert) => alert.eventType === 'watchlist_match'));
+  first.items[0].status = 'dismissed';
+  assert.notEqual((await demoApi.getAlert(demoStore.id, first.items[0].id)).status, 'dismissed');
+});
+
+test('the demo ships only footage from this project, generated by the AI tooling', async () => {
+  const source = await readFile(new URL('../src/security-dashboard/lib/demoData.ts', import.meta.url), 'utf8');
+  assert.match(source, /Generated by ai\/tools\/build_frontend_demo\.py/);
+  assert.doesNotMatch(source, /weapon_detected|rtsp:\/\/|password/i);
 });

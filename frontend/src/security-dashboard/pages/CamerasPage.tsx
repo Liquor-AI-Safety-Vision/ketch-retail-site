@@ -56,17 +56,12 @@ function ZoneOverlay({ zones }: { zones: CameraZone[] }) {
     <Box component="svg" viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden sx={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
       {zones.map((zone, index) => {
         const color = zoneColors[index % zoneColors.length];
-        return (
-          <polygon
-            key={`${zone.pipelineId}:${zone.name}:${index}`}
-            points={zone.pointsNorm.map(([x, y]) => `${x},${y}`).join(' ')}
-            fill={color}
-            fillOpacity={0.14}
-            stroke={color}
-            strokeWidth={2}
-            vectorEffect="non-scaling-stroke"
-          />
-        );
+        const points = zone.pointsNorm.map(([x, y]) => `${x},${y}`).join(' ');
+        const key = `${zone.pipelineId}:${zone.name}:${index}`;
+        // The counter pipeline also defines lines (e.g. the split between checkouts).
+        return zone.type === 'line'
+          ? <polyline key={key} points={points} fill="none" stroke={color} strokeWidth={2} strokeDasharray="6 4" vectorEffect="non-scaling-stroke" />
+          : <polygon key={key} points={points} fill={color} fillOpacity={0.14} stroke={color} strokeWidth={2} vectorEffect="non-scaling-stroke" />;
       })}
     </Box>
   );
@@ -304,22 +299,36 @@ export function CamerasPage() {
         }}
       >
         {selectedFeed && (
-          <Box sx={{ position: 'relative', bgcolor: '#020303', aspectRatio: '16 / 9', maxHeight: 'calc(100vh - 170px)' }}>
+          <Box sx={{ position: 'relative', bgcolor: '#020303', aspectRatio: '16 / 9', maxHeight: 'calc(100vh - 170px)', width: '100%' }}>
             {selectedFeedOnline && selectedFeed.feed ? (
-              <Box
-                component="video"
-                key={selectedFeed.camera.id}
-                src={selectedFeed.feed.videoUrl}
-                poster={selectedFeed.feed.posterUrl ?? undefined}
-                autoPlay
-                muted
-                loop
-                playsInline
-                controls={false}
-                disablePictureInPicture
-                onContextMenu={(event) => event.preventDefault()}
-                sx={{ display: 'block', width: '100%', height: '100%', objectFit: 'contain', bgcolor: '#000' }}
-              />
+              /* The frame keeps the video's own aspect ratio, so the zones --
+                 fractions of the frame -- land on the picture exactly. */
+              <Box sx={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', containerType: 'size' }}>
+                <Box
+                  sx={{
+                    position: 'relative',
+                    aspectRatio: `${selectedFeed.feed.width ?? 16} / ${selectedFeed.feed.height ?? 9}`,
+                    // Largest frame of the video's shape that fits the 16:9 stage.
+                    width: `min(100cqw, 100cqh * ${selectedFeed.feed.width ?? 16} / ${selectedFeed.feed.height ?? 9})`,
+                  }}
+                >
+                  <Box
+                    component="video"
+                    key={selectedFeed.camera.id}
+                    src={selectedFeed.feed.videoUrl}
+                    poster={selectedFeed.feed.posterUrl ?? undefined}
+                    autoPlay
+                    muted
+                    loop
+                    playsInline
+                    controls={false}
+                    disablePictureInPicture
+                    onContextMenu={(event) => event.preventDefault()}
+                    sx={{ display: 'block', width: '100%', height: '100%', objectFit: 'fill', bgcolor: '#000' }}
+                  />
+                  {showZones && selectedZones.length > 0 && <ZoneOverlay zones={selectedZones} />}
+                </Box>
+              </Box>
             ) : (
               <Box sx={{ width: '100%', height: '100%', display: 'grid', placeItems: 'center', color: '#8A918F', textAlign: 'center', px: 3 }}>
                 <Box>
@@ -333,8 +342,6 @@ export function CamerasPage() {
                 </Box>
               </Box>
             )}
-            {/* Zones are drawn over a picture only: on an empty frame they would show nothing useful. */}
-            {selectedFeedOnline && selectedFeed.feed && showZones && selectedZones.length > 0 && <ZoneOverlay zones={selectedZones} />}
             <Box sx={{ position: 'absolute', inset: 0, pointerEvents: 'none', background: 'linear-gradient(180deg, rgba(0,0,0,.52), transparent 22%)' }} />
             <Box sx={{ position: 'absolute', top: 16, left: 18, display: 'flex', alignItems: 'center', gap: 0.8, color: selectedFeedOnline ? '#A8DAB7' : '#C6C9C7', fontSize: 11, fontWeight: 800, letterSpacing: '.12em' }}>
               <FiberManualRecordIcon sx={{ fontSize: 10 }} /> {!selectedFeedOnline ? 'CAMERA INACTIVE' : selectedFeed.feed?.isRecording ? 'RECORDED LOOP' : selectedFeed.feed ? 'LIVE' : 'NO LIVE VIEW'}

@@ -1,6 +1,0 @@
-{"event_id": "cvlp_h3_00043_Left_0011", "event": "STATE", "frame": 11, "t": 1.1, "from": "IDLE", "to": "DRAWER_OPEN", "track": 1}
-{"event_id": "cvlp_h3_00043_Left_0011", "event": "STATE", "frame": 14, "t": 1.4, "from": "DRAWER_OPEN", "to": "HAND_IN_DRAWER", "track": 1}
-{"event_id": "cvlp_h3_00043_Left_0011", "event": "STATE", "frame": 26, "t": 2.6, "from": "HAND_IN_DRAWER", "to": "HAND_EXITED", "track": 1}
-{"event_id": "cvlp_h3_00043_Left_0011", "event": "STATE", "frame": 27, "t": 2.7, "from": "HAND_EXITED", "to": "HAND_TO_BODY", "track": 1}
-{"event_id": "cvlp_h3_00043_Left_0011", "event": "STATE", "frame": 78, "t": 7.8, "from": "HAND_TO_BODY", "to": "EVENT_END", "track": 1}
-{"event_id": "cvlp_h3_00043_Left_0079", "event": "STATE", "frame": 79, "t": 7.9, "from": "IDLE", "to": "DRAWER_OPEN", "track": 1}

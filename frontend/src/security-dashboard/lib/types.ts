@@ -145,4 +145,7 @@ export interface CameraFeed {
   posterUrl: string | null;
   /** true for footage that loops (public demo, test mode), false for live. */
   isRecording: boolean;
+  /** Frame size, when known, so zone overlays line up with the picture. */
+  width?: number;
+  height?: number;
 }
