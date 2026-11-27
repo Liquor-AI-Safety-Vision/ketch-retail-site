@@ -65,12 +65,12 @@ test('explicit sign-in forwards only the submitted credentials and preserves sec
 
 test('authenticated reads preserve bearer token, query and backend status without following redirects', async () => {
   mock.method(globalThis, 'fetch', async (url, init) => {
-    assert.equal(url.search, '?status=NEW&limit=20');
+    assert.equal(url.search, '?status=open&limit=20');
     assert.equal(init.headers.get('Authorization'), 'Bearer synthetic-test-token');
     assert.equal(init.redirect, 'manual');
     return Response.json({ message: 'Forbidden' }, { status: 403 });
   });
-  const response = await onRequest(context('stores/test/alerts?status=NEW&limit=20', {
+  const response = await onRequest(context('stores/test/alerts?status=open&limit=20', {
     headers: { Authorization: 'Bearer synthetic-test-token' },
   }));
   assert.equal(response.status, 403);

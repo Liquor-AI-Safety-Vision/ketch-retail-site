@@ -23,10 +23,6 @@ interface Metric {
   to: string;
 }
 
-function hasVideoEvidence(alert: Alert) {
-  return alert.hasVideoEvidence || (typeof alert.metadata?.videoUrl === 'string' && alert.metadata.videoUrl.length > 0);
-}
-
 interface OverviewData {
   cameras: Camera[];
   alerts: Alert[];
@@ -54,12 +50,11 @@ export function DashboardPage() {
     const cameras = data?.cameras ?? [];
     const alerts = data?.alerts ?? [];
     const cameraTotal = cameras.length;
-    const onlineTotal = cameras.filter((camera) => camera.isEnabled && camera.status !== 'OFFLINE').length;
-    const videoAlerts = alerts.filter(hasVideoEvidence);
-    const needsReview = videoAlerts.filter((alert) => alert.status === 'NEW').length;
+    const onlineTotal = cameras.filter((camera) => camera.isActive).length;
+    const needsReview = alerts.filter((alert) => alert.status === 'open').length;
     const today = new Date().toDateString();
-    const incidentsToday = videoAlerts.filter((alert) => new Date(alert.detectedAt).toDateString() === today).length;
-    const confirmedTotal = videoAlerts.filter((alert) => alert.status === 'RESOLVED').length;
+    const incidentsToday = alerts.filter((alert) => new Date(alert.detectedAt).toDateString() === today).length;
+    const confirmedTotal = alerts.filter((alert) => alert.status === 'confirmed').length;
 
     return [
       {
@@ -71,12 +66,12 @@ export function DashboardPage() {
         to: '/alerts?section=attention',
       },
       {
-        label: 'Cameras online',
+        label: 'Cameras active',
         value: `${onlineTotal}/${cameraTotal}`,
-        helper: onlineTotal === cameraTotal ? 'All cameras available' : `${cameraTotal - onlineTotal} offline`,
+        helper: onlineTotal === cameraTotal ? 'All cameras active' : `${cameraTotal - onlineTotal} inactive`,
         icon: <VideocamOutlinedIcon />,
         tone: onlineTotal === cameraTotal ? theme.palette.success.main : theme.palette.warning.main,
-        to: '/cameras?status=LIVE',
+        to: '/cameras',
       },
       {
         label: 'Alerts today',

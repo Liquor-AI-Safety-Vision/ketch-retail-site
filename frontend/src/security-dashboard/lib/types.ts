@@ -1,10 +1,30 @@
-export type StoreRole = 'OWNER' | 'MANAGER' | 'OPERATOR';
-export type CameraProtocol = 'RTSP' | 'ONVIF' | 'HLS' | 'WEBRTC';
-export type CameraStatus = 'ONLINE' | 'OFFLINE' | 'DISABLED';
-export type AlertStatus = 'NEW' | 'ACKNOWLEDGED' | 'DISMISSED' | 'RESOLVED';
-export type AlertSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
-export type PersonCategory = 'EMPLOYEE' | 'CUSTOMER' | 'UNKNOWN';
-export type ZoneKind = 'HIGH_VALUE' | 'CASHIER' | 'STOCKROOM' | 'ENTRANCE' | 'CUSTOM';
+// Shapes returned by the Go API (backend/), which reads the AI service's
+// tables. Vocabulary is the AI schema's: lowercase roles, statuses,
+// severities and event types. Stores, cameras and zones are read-only here --
+// the AI service writes them from its manifest.
+
+export type StoreRole = 'owner' | 'manager' | 'operator';
+export type AlertStatus = 'open' | 'acknowledged' | 'confirmed' | 'dismissed';
+export type AlertSeverity = 'warning' | 'high' | 'critical';
+export type AlertAction = 'acknowledge' | 'confirm' | 'dismiss';
+
+// Event types the AI pipelines emit (ai/src/pipelines). weapon_detected is
+// reserved for the weapon module that is not built yet.
+export type AlertEventType =
+  | 'suspected_cash_concealment'
+  | 'unknown_entry'
+  | 'staff_outside_schedule'
+  | 'watchlist_match'
+  | 'weapon_detected';
+
+export type PipelineType =
+  | 'counter_cash_theft_v1'
+  | 'storage_intrusion_v1'
+  | 'cold_storage_intrusion_v1'
+  | 'entrance_face_capture_v1'
+  | 'whole_store_tracking_v1';
+
+export type CameraType = 'counter' | 'storage' | 'cold_storage' | 'entrance' | 'whole_store' | 'cold_drinks' | string;
 
 export interface StoreMembership {
   storeId: string;
@@ -29,67 +49,65 @@ export interface Store {
   id: string;
   name: string;
   code: string;
-  address: string | null;
   timezone: string;
-  role: StoreRole;
+  role?: StoreRole;
 }
 
 export interface Camera {
   id: string;
+  storeId: string;
   name: string;
-  location: string;
-  protocol: CameraProtocol;
-  streamGatewayRef: string;
-  status: CameraStatus;
-  isEnabled: boolean;
-  createdAt: string;
-  updatedAt: string;
+  cameraType: CameraType;
+  sourceType: string;
+  isActive: boolean;
+  pipelines: string[];
 }
 
-export type ZonePolygon = number[][];
-
 export interface CameraZone {
-  id: string;
+  pipelineId: string;
   name: string;
-  kind: ZoneKind;
-  expectedPersonCategory: PersonCategory | null;
-  polygon: ZonePolygon;
-  dwellThresholdSeconds: number | null;
-  isEnabled: boolean;
+  type: string;
+  /** Polygon vertices as fractions of frame width/height. */
+  pointsNorm: number[][];
 }
 
 export interface Alert {
   id: string;
-  sourceEventId: string;
-  correlationId: string | null;
-  type: string;
+  storeId: string;
+  cameraId: string;
+  cameraName: string | null;
+  pipelineType: string;
+  eventType: AlertEventType | string;
   severity: AlertSeverity;
   status: AlertStatus;
-  subjectPersonCategory: PersonCategory;
-  confidence: number | null;
   detectedAt: string;
-  acknowledgedAt: string | null;
-  resolutionNote: string | null;
-  metadata: Record<string, unknown> | null;
-  cameraId: string | null;
-  cameraName: string | null;
-  zoneId: string | null;
-  zoneName: string | null;
+  closedAt: string | null;
+  identityPersonId: string | null;
+  identityLabel: string | null;
+  identityScore: number | null;
+  reasonCodes: string[];
+  metadata: Record<string, unknown>;
+  reviewedById: string | null;
+  reviewedByName: string | null;
+  reviewedAt: string | null;
+  reviewNote: string | null;
   hasVideoEvidence: boolean;
+  hasSnapshot: boolean;
 }
 
-export interface AlertEvidence {
+export type AlertMediaKind = 'clip' | 'snapshot' | string;
+
+export interface AlertMedia {
   id: string;
-  mimeType: string;
-  durationSeconds: number;
-  startsAt: string;
-  endsAt: string;
+  kind: AlertMediaKind;
+  mimeType: string | null;
+  startedAt: string | null;
+  endedAt: string | null;
+  durationSeconds: number | null;
 }
 
 export interface AlertDetail extends Alert {
-  acknowledgedById: string | null;
-  acknowledgedByName: string | null;
-  evidence: AlertEvidence[];
+  media: AlertMedia[];
 }
 
 export interface AlertPage {
@@ -100,25 +118,31 @@ export interface AlertPage {
 export interface AlertFilters {
   status?: AlertStatus;
   severity?: AlertSeverity;
-  type?: string;
-  subjectPersonCategory?: PersonCategory;
+  eventType?: string;
+  pipelineType?: string;
   cameraId?: string;
+  from?: string;
+  to?: string;
   cursor?: string;
   limit?: number;
 }
 
-export interface CameraInput {
-  name: string;
-  location: string;
-  protocol: CameraProtocol;
-  streamGatewayRef: string;
-  isEnabled: boolean;
+export interface AlertActionResult {
+  id: string;
+  status: AlertStatus;
+  reviewedAt: string;
+  reviewNote: string | null;
 }
 
-export interface ZoneInput {
-  name: string;
-  kind: ZoneKind;
-  expectedPersonCategory?: PersonCategory;
-  polygon: ZonePolygon;
-  dwellThresholdSeconds?: number;
+export interface PlaybackUrl {
+  url: string;
+  expiresInSeconds: number;
+}
+
+export interface CameraFeed {
+  /** Looping or live video the browser can play directly. */
+  videoUrl: string;
+  posterUrl: string | null;
+  /** true for footage that loops (public demo, test mode), false for live. */
+  isRecording: boolean;
 }

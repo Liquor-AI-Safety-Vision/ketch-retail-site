@@ -8,7 +8,7 @@ export const securityHeaders = Object.freeze({
     "img-src 'self' data: blob:",
     "font-src 'self' data:",
     "connect-src 'self' https://cloudflareinsights.com",
-    "media-src 'self' blob: https://liquor-store-api-7tq2.onrender.com",
+    "media-src 'self' blob:",
     "object-src 'none'",
     "base-uri 'none'",
     "form-action 'self'",

@@ -1,4 +1,4 @@
-import type { Alert, AlertDetail, AlertFilters, AlertPage, AuthSession, Camera, CameraInput, CameraZone, Store, ZoneInput } from './types';
+import type { AlertAction, AlertActionResult, AlertDetail, AlertFilters, AlertPage, AuthSession, Camera, CameraFeed, CameraZone, PlaybackUrl, Store } from './types';
 
 const baseUrl = (import.meta.env?.VITE_API_BASE_URL ?? '/api/v1').replace(/\/$/, '');
 
@@ -12,7 +12,8 @@ export class ApiError extends Error {
   }
 }
 
-class ApiClient {
+class ApiClient implements DashboardApi {
+  readonly readOnly = false;
   private accessToken: string | null = null;
   private refreshPromise: Promise<AuthSession> | null = null;
 
@@ -52,35 +53,11 @@ class ApiClient {
   }
 
   async getCameras(storeId: string) {
-    return this.request<Camera[]>(`/stores/${storeId}/cameras`);
-  }
-
-  async createCamera(storeId: string, input: CameraInput) {
-    return this.request<Camera>(`/stores/${storeId}/cameras`, { method: 'POST', body: input });
-  }
-
-  async updateCamera(storeId: string, cameraId: string, input: Partial<CameraInput>) {
-    return this.request<Camera>(`/stores/${storeId}/cameras/${cameraId}`, { method: 'PATCH', body: input });
-  }
-
-  async deleteCamera(storeId: string, cameraId: string) {
-    return this.request<{ success: boolean }>(`/stores/${storeId}/cameras/${cameraId}`, { method: 'DELETE' });
+    return this.request<Camera[]>(`/stores/${encodeURIComponent(storeId)}/cameras`);
   }
 
   async getZones(storeId: string, cameraId: string) {
-    return this.request<CameraZone[]>(`/stores/${storeId}/cameras/${cameraId}/zones`);
-  }
-
-  async createZone(storeId: string, cameraId: string, input: ZoneInput) {
-    return this.request<CameraZone>(`/stores/${storeId}/cameras/${cameraId}/zones`, { method: 'POST', body: input });
-  }
-
-  async updateZone(storeId: string, cameraId: string, zoneId: string, input: Partial<ZoneInput>) {
-    return this.request<CameraZone>(`/stores/${storeId}/cameras/${cameraId}/zones/${zoneId}`, { method: 'PATCH', body: input });
-  }
-
-  async deleteZone(storeId: string, cameraId: string, zoneId: string) {
-    return this.request<{ success: boolean }>(`/stores/${storeId}/cameras/${cameraId}/zones/${zoneId}`, { method: 'DELETE' });
+    return this.request<CameraZone[]>(`/stores/${encodeURIComponent(storeId)}/cameras/${encodeURIComponent(cameraId)}/zones`);
   }
 
   async getAlerts(storeId: string, filters: AlertFilters = {}) {
@@ -89,24 +66,30 @@ class ApiClient {
       if (value !== undefined && value !== '') query.set(key, String(value));
     }
     const suffix = query.size ? `?${query.toString()}` : '';
-    return this.request<AlertPage>(`/stores/${storeId}/alerts${suffix}`);
+    return this.request<AlertPage>(`/stores/${encodeURIComponent(storeId)}/alerts${suffix}`);
   }
 
   async getAlert(storeId: string, alertId: string) {
     return this.request<AlertDetail>(`/stores/${encodeURIComponent(storeId)}/alerts/${encodeURIComponent(alertId)}`);
   }
 
-  async getEvidencePlaybackUrl(storeId: string, alertId: string, evidenceId: string) {
-    return this.request<{ url: string; expiresInSeconds: number }>(
-      `/stores/${encodeURIComponent(storeId)}/alerts/${encodeURIComponent(alertId)}/evidence/${encodeURIComponent(evidenceId)}/playback-url`,
+  async getMediaPlaybackUrl(storeId: string, alertId: string, mediaId: string) {
+    return this.request<PlaybackUrl>(
+      `/stores/${encodeURIComponent(storeId)}/alerts/${encodeURIComponent(alertId)}/media/${encodeURIComponent(mediaId)}/playback-url`,
     );
   }
 
-  async actionAlert(storeId: string, alertId: string, action: 'acknowledge' | 'dismiss' | 'resolve', note?: string) {
-    return this.request<Alert>(`/stores/${storeId}/alerts/${alertId}/${action}`, {
+  async actionAlert(storeId: string, alertId: string, action: AlertAction, note?: string) {
+    return this.request<AlertActionResult>(`/stores/${encodeURIComponent(storeId)}/alerts/${encodeURIComponent(alertId)}/${action}`, {
       method: 'POST',
       body: note?.trim() ? { note: note.trim() } : {},
     });
+  }
+
+  // Live view (MediaMTX WebRTC/HLS) is not wired yet; until it is, the
+  // signed-in dashboard has no playable camera view and says so.
+  async getCameraFeed(): Promise<CameraFeed | null> {
+    return null;
   }
 
   private async request<T>(path: string, options: RequestOptions = {}, retry = true): Promise<T> {
@@ -150,15 +133,26 @@ class ApiClient {
 }
 
 interface RequestOptions {
-  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+  method?: 'GET' | 'POST';
   headers?: HeadersInit;
   body?: unknown;
 }
 
 export const api = new ApiClient();
 
-export type DashboardApi = Pick<typeof api,
-  'getCameras' | 'getAlerts' | 'getAlert' | 'getEvidencePlaybackUrl' | 'actionAlert'>;
+// What the dashboard pages call. The signed-in dashboard uses the Go API; the
+// public demo (demoApi.ts) answers the same calls from static files.
+export interface DashboardApi {
+  getCameras(storeId: string): Promise<Camera[]>;
+  getZones(storeId: string, cameraId: string): Promise<CameraZone[]>;
+  getAlerts(storeId: string, filters?: AlertFilters): Promise<AlertPage>;
+  getAlert(storeId: string, alertId: string): Promise<AlertDetail>;
+  getMediaPlaybackUrl(storeId: string, alertId: string, mediaId: string): Promise<PlaybackUrl>;
+  actionAlert(storeId: string, alertId: string, action: AlertAction, note?: string): Promise<AlertActionResult>;
+  /** A playable view of the camera, or null when none is available. */
+  getCameraFeed(storeId: string, cameraId: string): Promise<CameraFeed | null>;
+  readonly readOnly: boolean;
+}
 
 export function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : 'Something went wrong. Please try again.';

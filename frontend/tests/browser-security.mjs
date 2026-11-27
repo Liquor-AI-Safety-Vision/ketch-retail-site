@@ -139,7 +139,7 @@ try {
   }));
   const ownerCalls = [];
   const user = { id: 'test-owner', email: 'owner@example.invalid', displayName: 'Security test owner', stores: [] };
-  const store = { id: 'test-owner-store', name: 'Test store', code: 'test-only', address: null, timezone: 'UTC', role: 'OWNER' };
+  const store = { id: 'test-owner-store', name: 'Test store', code: 'test-only', timezone: 'UTC', role: 'owner' };
   const uuid = '00000000-0000-4000-8000-000000000001';
   await ownerContext.route('**/api/v1/**', async (route) => {
     const request = route.request();
@@ -153,12 +153,11 @@ try {
     if (path.endsWith('/stores')) return route.fulfill({ json: [store] });
     if (path.endsWith('/cameras')) return route.fulfill({ json: [] });
     if (path.endsWith(`/alerts/${uuid}`)) return route.fulfill({ json: {
-      id: uuid, sourceEventId: 'synthetic-test', correlationId: null, type: 'WEAPON_DETECTED',
-      severity: 'CRITICAL', status: 'NEW', subjectPersonCategory: 'UNKNOWN', confidence: null,
-      detectedAt: '2026-08-31T00:00:00Z', acknowledgedAt: null, resolutionNote: null,
-      cameraId: null, cameraName: 'Test camera', zoneId: null, zoneName: null,
-      hasVideoEvidence: true, metadata: { videoUrl: '/demo-source/alerts/weapon/weapon-review.mp4' },
-      evidence: [], acknowledgedById: null, acknowledgedByName: null,
+      id: uuid, storeId: store.id, cameraId: 'test-camera', cameraName: 'Test camera',
+      pipelineType: 'whole_store_tracking_v1', eventType: 'weapon_detected', severity: 'critical', status: 'open',
+      detectedAt: '2026-08-31T00:00:00.000000+00:00', closedAt: null, identityPersonId: null, identityLabel: null,
+      identityScore: null, reasonCodes: [], metadata: {}, reviewedById: null, reviewedByName: null,
+      reviewedAt: null, reviewNote: null, hasVideoEvidence: false, hasSnapshot: false, media: [],
     } });
     if (path.endsWith('/alerts')) return route.fulfill({ json: { items: [], nextCursor: null } });
     throw new Error(`Unexpected owner request: ${path}`);
