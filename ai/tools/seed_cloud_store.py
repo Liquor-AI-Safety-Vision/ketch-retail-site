@@ -41,22 +41,12 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from ai.src.common.env_file import load_ai_env  # noqa: E402
 from ai.src.common.logging_setup import configure_logging  # noqa: E402
 from ai.src.common.paths import ai_root  # noqa: E402
 
 # source person in the export -> suffix for this store's person_id
 STAFF = {"staff_a": "staff_a", "staff_b": "staff_b"}
-
-
-def _load_dotenv(path: Path) -> None:
-    if not path.exists():
-        return
-    for line in path.read_text().splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        os.environ.setdefault(key.strip(), value.strip())
 
 
 def main() -> None:
@@ -69,10 +59,10 @@ def main() -> None:
     p.add_argument("--watchlist-name", default="Regular shoplifter")
     args = p.parse_args()
 
-    _load_dotenv(ROOT / ".env")
+    load_ai_env()
     dsn = os.environ.get("DATABASE_URL")
     if not dsn:
-        raise SystemExit("DATABASE_URL is not set (environment or .env)")
+        raise SystemExit("DATABASE_URL is not set (environment or ai/.env)")
 
     import numpy as np
 

@@ -59,6 +59,7 @@ if str(ROOT) not in sys.path:
 # read it. Capping inside each process entry point instead was a no-op that
 # cost 5x on every inference call.
 from ai.src.runtime.perf import cap_native_threads  # noqa: E402
+from ai.src.common.env_file import env_files, load_ai_env  # noqa: E402
 from ai.src.common.paths import ai_root, model_path
 from ai.src.pipelines.registry import (
     COUNTER_CASH_THEFT, ENTRANCE_FACE_CAPTURE, FACE_TARGET_IDS, INTRUSION_IDS)
@@ -458,20 +459,6 @@ def _stop_on_signal(stop_evt) -> None:
     signal.signal(signal.SIGTERM, handle)
 
 
-def _load_dotenv(path: Path) -> None:
-    """No python-dotenv dependency for one file with no comments/quoting to
-    speak of -- os.environ wins on conflict, so an operator's real shell
-    export still overrides whatever is checked into .env."""
-    if not path.exists():
-        return
-    for line in path.read_text().splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        os.environ.setdefault(key.strip(), value.strip())
-
-
 def main() -> None:
     configure_logging()
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -504,18 +491,18 @@ def main() -> None:
         "--storage-mode", choices=["local-db", "cloud-db"], default="local-db",
         help="local-db: SQLite (--db-path) + video files under --media-root, today's "
              "default. cloud-db: NeonDB (Postgres) + Cloudflare R2, read from "
-             "DATABASE_URL/R2_* in .env.")
+             "DATABASE_URL/R2_* in ai/.env.")
     args = p.parse_args()
 
     if args.storage_mode == "cloud-db":
-        _load_dotenv(ROOT / ".env")
+        load_ai_env()
         missing = [k for k in ("DATABASE_URL", "R2_ENDPOINT", "R2_BUCKET",
                                "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY")
                   if not os.environ.get(k)]
         if missing:
             raise RuntimeError(
                 f"--storage-mode cloud-db needs {missing} in the environment or in "
-                f"{ROOT / '.env'}; none of these are hardcoded anywhere on purpose")
+                f"{' or '.join(map(str, env_files()))}; none of these are hardcoded anywhere on purpose")
 
     if args.gallery_db is None:
         # cloud-db keeps staff in Neon beside the stores they belong to, rather

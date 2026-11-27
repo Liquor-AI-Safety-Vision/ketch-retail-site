@@ -1,18 +1,24 @@
 # Environment variables
 
-Start with [the installation steps](../README.md#installation). Copy
-`apps/api-go/.env.example` to `apps/api-go/.env` and
-`apps/web/.env.example` to `apps/web/.env`. Actual `.env` files are ignored by Git.
-The Go processes load `.env` from their working directory (`apps/api-go`);
-existing process environment variables take precedence. Restart after editing.
+Each service keeps its own ignored `.env` beside its code, copied from the
+tracked example in the same folder:
 
-If using the privately supplied ZIP instead, map `api-go.env` to
-`apps/api-go/.env`, `web.env` to `apps/web/.env`, and `ketch-retail-site.env` to
-`.env` in the separate Ketch frontend repo. Read its `VARIABLES.md` for values
-that are placeholders or unavailable locally. A missing entry uses the code's
-default, not necessarily the current production setting. Compare with the tracked
-examples and replace database credentials with a development database before
-migration or seed. Set a fresh local JWT key if the supplied value is a placeholder.
+| File | Read by | Holds |
+| --- | --- | --- |
+| `ai/.env` | the AI service (`run_split_pipeline.py --storage-mode cloud-db`, `tools/seed_cloud_store.py`) | `DATABASE_URL`, `R2_*` |
+| `backend/.env` | this API, from its working directory `backend/` | the same `DATABASE_URL` and `R2_*`, plus `DIRECT_URL`, JWT, providers |
+| `frontend/.env` | Vite | `VITE_API_BASE_URL` only |
+
+`ai/.env` and `backend/.env` must point at the **same** Neon database and R2
+bucket: the AI service writes stores, cameras, alerts and clips there and this
+API reads them. `DIRECT_URL` is the same Neon endpoint without `-pooler`.
+Existing process environment variables take precedence. Restart after editing.
+(The AI service still reads a legacy `<repo>/.env` as a fallback; `ai/.env` wins.)
+
+The privately supplied ZIP (2026-10-22) predates the merge: its `api-go.env`
+points at the old API's own Neon project, not the AI service's, so only its
+JWT TTLs and Telegram/WhatsApp values carry over; `AI_INGEST_TOKEN` no longer
+exists. Its `JWT_ACCESS_SECRET` is a placeholder: generate a fresh key.
 
 For a first local run, fill the two development database URLs and generate a
 JWT signing key. Telegram, WhatsApp and Cloudflare credentials are unnecessary.
