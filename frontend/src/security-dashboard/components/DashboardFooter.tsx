@@ -24,17 +24,9 @@ export function DashboardFooter() {
           gap: 1.5,
         }}
       >
-        <Box sx={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
-          <Box minWidth={0}>
-            <Typography sx={{ color: 'text.primary', fontSize: 14, fontWeight: 600, lineHeight: 1.25 }}>
-              Ketch Enterprise <Box component="span" sx={{ color: 'primary.main' }}>AI</Box>
-            </Typography>
-            <Typography sx={{ color: 'text.secondary', fontSize: 12, lineHeight: 1.35 }}>
-              Retail loss prevention
-            </Typography>
-          </Box>
-        </Box>
-
+        {/* The brand sits at the top of the sidebar; the footer only says
+            where the video lives. */}
+        <Typography sx={{ color: 'text.secondary', fontSize: 12 }}>Ketch Enterprise AI · Retail loss prevention</Typography>
         <Box
           sx={{
             display: 'flex',

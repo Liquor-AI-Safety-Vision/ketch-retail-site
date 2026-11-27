@@ -1,10 +1,15 @@
+import ChevronLeftRoundedIcon from '@mui/icons-material/ChevronLeftRounded';
+import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded';
 import CloseIcon from '@mui/icons-material/Close';
+import FullscreenExitIcon from '@mui/icons-material/FullscreenExit';
+import FullscreenIcon from '@mui/icons-material/Fullscreen';
 import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
 import OpenInFullIcon from '@mui/icons-material/OpenInFull';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import SearchIcon from '@mui/icons-material/Search';
 import VideocamOffOutlinedIcon from '@mui/icons-material/VideocamOffOutlined';
-import { Box, Button, Card, CardActionArea, Chip, Dialog, FormControl, FormControlLabel, IconButton, InputAdornment, InputLabel, MenuItem, Paper, Select, Stack, Switch, TextField, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
+import { Box, Button, Card, CardActionArea, Chip, Dialog, FormControl, FormControlLabel, IconButton, InputAdornment, MenuItem, Paper, Select, Stack, Switch, TextField, ToggleButton, ToggleButtonGroup, Typography, useMediaQuery } from '@mui/material';
+import { useTheme } from '@mui/material/styles';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
@@ -48,6 +53,8 @@ function restorePreferences(): CameraPreferences {
     return defaultPreferences;
   }
 }
+
+const overlayButton = { color: '#FFF', bgcolor: 'rgba(0,0,0,.5)', '&:hover': { bgcolor: 'rgba(0,0,0,.78)' } } as const;
 
 const zoneColors = ['#F2B84B', '#6FC3DF', '#E57373', '#9CCC65', '#BA68C8'];
 
@@ -224,6 +231,20 @@ export function CamerasPage() {
   })), [cameras, feedQueries]);
 
   const [showZones, setShowZones] = useState(true);
+  const theme = useTheme();
+  // A phone held sideways is wide but short: it gets the full screen too.
+  const phone = useMediaQuery(`(max-width: ${theme.breakpoints.values.sm - 0.05}px), (max-height: 500px)`);
+  const viewerRef = useRef<HTMLDivElement>(null);
+  const touchRef = useRef<{ x: number; y: number } | null>(null);
+  // iPhone Safari has no element full screen; the viewer is already full
+  // screen there, so the button only shows where the browser supports it.
+  const fullscreenSupported = typeof document !== 'undefined' && Boolean(document.fullscreenEnabled);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  useEffect(() => {
+    const onChange = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener('fullscreenchange', onChange);
+    return () => document.removeEventListener('fullscreenchange', onChange);
+  }, []);
   const onlineCount = feeds.filter(({ camera }) => camera.status === 'online').length;
   const areas = useMemo<string[]>(() => Array.from(new Set<string>(feeds.map(({ area }) => area))).sort((left, right) => left.localeCompare(right)), [feeds]);
   const selectedArea = preferences.area === 'ALL' || areas.includes(preferences.area) ? preferences.area : 'ALL';
@@ -281,6 +302,19 @@ export function CamerasPage() {
     return () => window.removeEventListener('scroll', saveScrollPosition);
   }, []);
 
+  // Stepping through cameras in the viewer follows the list as filtered.
+  const selectedIndex = filteredFeeds.findIndex(({ camera }) => camera.id === selectedFeedId);
+  const stepCamera = (offset: number) => {
+    if (filteredFeeds.length < 2) return;
+    const from = selectedIndex < 0 ? 0 : selectedIndex;
+    const next = filteredFeeds[(from + offset + filteredFeeds.length) % filteredFeeds.length];
+    setSelectedFeedId(next.camera.id);
+  };
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) void document.exitFullscreen();
+    else void viewerRef.current?.requestFullscreen?.();
+  };
+
   if (!store || isLoading) return <ScreenLoader label="Loading cameras…" />;
 
   return (
@@ -304,7 +338,7 @@ export function CamerasPage() {
         variant="outlined"
         sx={{
           position: 'sticky',
-          top: { xs: 66, md: 12 },
+          top: { xs: 66, sm: 12 },
           zIndex: 5,
           p: { xs: 1.5, sm: 2 },
           bgcolor: 'background.paper',
@@ -322,12 +356,18 @@ export function CamerasPage() {
             InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> }}
           />
           <FormControl size="small">
-            <InputLabel id="camera-area-label">Area</InputLabel>
             <Select
-              labelId="camera-area-label"
-              label="Area"
               value={selectedArea}
+              inputProps={{ 'aria-label': 'Area' }}
               onChange={(event) => setPreferences((current) => ({ ...current, area: event.target.value }))}
+              // Same pattern as the Case filter on Alerts: the label sits inside the box.
+              renderValue={(value) => (
+                <Box component="span" sx={{ display: 'flex', gap: 0.75, minWidth: 0 }}>
+                  <Box component="span" sx={{ color: 'text.secondary' }}>Area</Box>
+                  <Box component="span" sx={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis' }}>{value === 'ALL' ? 'All areas' : value}</Box>
+                </Box>
+              )}
+              sx={{ fontSize: 14 }}
             >
               <MenuItem value="ALL">All areas</MenuItem>
               {areas.map((area) => <MenuItem key={area} value={area}>{area}</MenuItem>)}
@@ -410,15 +450,38 @@ export function CamerasPage() {
         onClose={() => setSelectedFeedId(null)}
         maxWidth="lg"
         fullWidth
+        // Phones get the whole screen (and the whole width when turned sideways).
+        fullScreen={phone}
         PaperProps={{
+          ref: viewerRef,
+          onKeyDown: (event: React.KeyboardEvent) => {
+            if (event.key === 'ArrowRight') { event.preventDefault(); stepCamera(1); }
+            if (event.key === 'ArrowLeft') { event.preventDefault(); stepCamera(-1); }
+          },
           // MUI forwards a Dialog-level aria-label to the modal root, not to the
           // element that carries role="dialog", so it is set on the paper here.
           'aria-label': selectedFeed ? `Camera view for ${selectedFeed.camera.name}` : undefined,
-          sx: { overflow: 'hidden', bgcolor: '#050606', backgroundImage: 'none', border: '1px solid #303735' },
+          sx: { overflow: 'hidden', bgcolor: '#050606', backgroundImage: 'none', border: phone ? 0 : '1px solid #303735', display: 'flex', flexDirection: 'column', '&:fullscreen': { maxWidth: 'none', maxHeight: 'none', m: 0, borderRadius: 0 } },
         }}
       >
         {selectedFeed && (
-          <Box sx={{ position: 'relative', bgcolor: '#020303', aspectRatio: '16 / 9', maxHeight: 'calc(100dvh - 170px)', width: '100%' }}>
+          <Box
+            onTouchStart={(event) => { const t = event.touches[0]; touchRef.current = { x: t.clientX, y: t.clientY }; }}
+            onTouchEnd={(event) => {
+              // A horizontal swipe moves to the next or previous camera.
+              const start = touchRef.current; touchRef.current = null;
+              if (!start) return;
+              const t = event.changedTouches[0];
+              const dx = t.clientX - start.x; const dy = t.clientY - start.y;
+              if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) stepCamera(dx < 0 ? 1 : -1);
+            }}
+            sx={{
+              position: 'relative', bgcolor: '#020303', width: '100%',
+              ...(phone || isFullscreen
+                ? { flex: 1, minHeight: 0 }
+                : { aspectRatio: '16 / 9', maxHeight: 'calc(100dvh - 170px)' }),
+            }}
+          >
             {selectedFeedOnline && selectedFeed.feed ? (
               /* The frame keeps the video's own aspect ratio, so the zones --
                  fractions of the frame -- land on the picture exactly. */
@@ -456,9 +519,26 @@ export function CamerasPage() {
                 {selectedFeed.camera.status === 'online' ? feedLabel(selectedFeed.feed, false) : statusHeadline(selectedFeed.camera)}
               </Box>
             </Box>
-            <IconButton onClick={() => setSelectedFeedId(null)} aria-label="Close live view" sx={{ position: 'absolute', top: 9, right: 10, color: '#FFF', bgcolor: 'rgba(0,0,0,.5)', '&:hover': { bgcolor: 'rgba(0,0,0,.78)' } }}>
-              <CloseIcon />
-            </IconButton>
+            <Box sx={{ position: 'absolute', top: 6, right: 8, display: 'flex', gap: 0.5 }}>
+              {fullscreenSupported && (
+                <IconButton onClick={toggleFullscreen} aria-label={isFullscreen ? 'Exit full screen' : 'Full screen'} sx={overlayButton}>
+                  {isFullscreen ? <FullscreenExitIcon /> : <FullscreenIcon />}
+                </IconButton>
+              )}
+              <IconButton onClick={() => setSelectedFeedId(null)} aria-label="Close live view" sx={overlayButton}>
+                <CloseIcon />
+              </IconButton>
+            </Box>
+            {filteredFeeds.length > 1 && (
+              <>
+                <IconButton onClick={() => stepCamera(-1)} aria-label="Previous camera" sx={{ ...overlayButton, position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)' }}>
+                  <ChevronLeftRoundedIcon />
+                </IconButton>
+                <IconButton onClick={() => stepCamera(1)} aria-label="Next camera" sx={{ ...overlayButton, position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)' }}>
+                  <ChevronRightRoundedIcon />
+                </IconButton>
+              </>
+            )}
           </Box>
         )}
         {selectedFeed && (
@@ -466,7 +546,11 @@ export function CamerasPage() {
              bottom-left corner, so the caption sits under the frame instead of
              on top of it, and repeats only what the footage does not carry. */
           <Box sx={{ px: 2.25, py: 1.2, bgcolor: '#050606', borderTop: '1px solid #232927', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap' }}>
-            <Typography noWrap sx={{ color: 'rgba(255,255,255,.78)', fontSize: 14 }}>{selectedFeed.camera.name} · {selectedFeed.coverage}</Typography>
+            <Typography noWrap sx={{ color: 'rgba(255,255,255,.86)', fontSize: 14, minWidth: 0, flex: 1 }}>
+              {selectedFeed.camera.name}
+              {selectedIndex >= 0 && filteredFeeds.length > 1 && <Box component="span" sx={{ color: 'rgba(255,255,255,.6)' }}>{` · ${selectedIndex + 1} of ${filteredFeeds.length}`}</Box>}
+              <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' }, color: 'rgba(255,255,255,.6)' }}>{` · ${selectedFeed.coverage}`}</Box>
+            </Typography>
             {selectedZones.length > 0 && !selectedFeed.feed && (
               <Typography sx={{ color: 'rgba(255,255,255,.72)', fontSize: 14 }}>{selectedZones.length} AI zones configured</Typography>
             )}

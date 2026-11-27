@@ -22,6 +22,14 @@ const queryClient = new QueryClient({
   },
 });
 
+// Thumbnail object URLs (alert-snapshot queries) hold image bytes in memory:
+// release each one when React Query drops it (garbage collection, clear()).
+queryClient.getQueryCache().subscribe((event) => {
+  if (event.type !== 'removed' || event.query.queryKey[0] !== 'alert-snapshot') return;
+  const url = event.query.state.data;
+  if (typeof url === 'string' && url.startsWith('blob:')) URL.revokeObjectURL(url);
+});
+
 function ProtectedLayout() {
   const { user, isLoading } = useAuth();
   const location = useLocation();

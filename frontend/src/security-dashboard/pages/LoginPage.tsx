@@ -1,5 +1,4 @@
 import DarkModeOutlinedIcon from '@mui/icons-material/DarkModeOutlined';
-import GridViewRoundedIcon from '@mui/icons-material/GridViewRounded';
 import LightModeOutlinedIcon from '@mui/icons-material/LightModeOutlined';
 import VisibilityOffOutlinedIcon from '@mui/icons-material/VisibilityOffOutlined';
 import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
@@ -7,6 +6,7 @@ import { Alert, Box, Button, IconButton, InputAdornment, Stack, TextField, Typog
 import { useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
+import { BrandMark } from '../components/BrandMark';
 import { getErrorMessage } from '../lib/api';
 import { useColorMode } from '../../theme/ColorModeProvider';
 
@@ -46,20 +46,24 @@ export function LoginPage() {
 
   return (
     <Box sx={{ minHeight: '100dvh', display: 'grid', gridTemplateColumns: { xs: '1fr', lg: 'minmax(0, 7fr) minmax(420px, 5fr)' }, bgcolor: 'background.default', overflow: 'hidden' }}>
-      <Box sx={{ minHeight: { xs: 360, lg: '100dvh' }, position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', p: { xs: 3, sm: 5, lg: 7 } }}>
-        <Box component="img" src="/cctv/stockroom.png" alt="Monitored store interior" sx={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', filter: 'grayscale(1) contrast(1.24) brightness(.58)' }} />
-        <Box sx={{ position: 'absolute', inset: 0, background: 'linear-gradient(135deg, rgba(9,11,12,.3), rgba(9,11,12,.88) 78%), radial-gradient(circle at 20% 15%, rgba(216,163,93,.2), transparent 38%)' }} />
+      {/* Below 1200 px the picture shrinks to a brand band, so the form and its
+          Sign in button are on screen without scrolling (phones, iPad landscape). */}
+      <Box sx={{ minHeight: { lg: '100dvh' }, position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 2, px: { xs: 2.5, sm: 4, lg: 7 }, py: { xs: 2, sm: 2.5, lg: 7 } }}>
+        {/* A frame from the product's own demo camera (also shown on the landing
+            page), not stock photography. */}
+        <Box component="img" src="/live-cameras/record-whole-store-153158.jpg" alt="" sx={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', filter: 'grayscale(.35) contrast(1.05) brightness(.62)' }} />
+        <Box sx={{ position: 'absolute', inset: 0, background: 'linear-gradient(135deg, rgba(9,11,12,.3), rgba(9,11,12,.88) 78%), radial-gradient(circle at 20% 15%, rgba(18,140,138,.28), transparent 42%)' }} />
         <Stack direction="row" spacing={1.5} alignItems="center" sx={{ position: 'relative' }}>
-          <Box sx={{ display: 'grid', placeItems: 'center', width: 38, height: 38, borderRadius: 1.25, bgcolor: '#0F6665', color: '#F4EFE6' }}><GridViewRoundedIcon fontSize="small" /></Box>
+          <BrandMark size={36} />
           <Box>
             <Typography color="#F4EFE6" fontWeight={600} lineHeight={1}>
-              Ketch Enterprise <Box component="span" sx={{ color: '#58C8C1' }}>AI</Box>
+              Ketch Enterprise <Box component="span" sx={{ color: '#A9D8D3' }}>AI</Box>
             </Typography>
             <Typography sx={{ color: '#B1A996', fontSize: 12, letterSpacing: '0.08em', mt: 0.5 }}>RETAIL LOSS PREVENTION</Typography>
           </Box>
         </Stack>
-        <Box sx={{ position: 'relative', maxWidth: 900 }}>
-          <Typography component="h1" sx={{ color: '#F4EFE6', fontSize: 'clamp(3rem, 6vw, 7rem)', lineHeight: 0.92, letterSpacing: '-0.04em', fontWeight: 400, maxWidth: 1040 }}>
+        <Box sx={{ position: 'relative', maxWidth: 900, display: { xs: 'none', lg: 'block' } }}>
+          <Typography component="p" sx={{ color: '#F4EFE6', fontSize: 'clamp(3rem, 6vw, 7rem)', lineHeight: 0.92, letterSpacing: '-0.04em', fontWeight: 400, maxWidth: 1040 }}>
             Stop loss before it leaves the store
           </Typography>
           <Typography sx={{ color: '#C4BEB3', mt: 3, maxWidth: 500, lineHeight: 1.75 }}>
@@ -68,7 +72,7 @@ export function LoginPage() {
         </Box>
       </Box>
 
-      <Box sx={{ display: 'grid', placeItems: 'center', p: { xs: 3, sm: 6, lg: 8 }, position: 'relative' }}>
+      <Box sx={{ display: 'grid', placeItems: { xs: 'start center', sm: 'center' }, px: { xs: 2.5, sm: 6, lg: 8 }, py: { xs: 3, sm: 5, lg: 8 }, position: 'relative' }}>
         <IconButton
           onClick={toggleMode}
           aria-label={`Switch to ${mode === 'light' ? 'dark' : 'light'} mode`}
@@ -79,8 +83,8 @@ export function LoginPage() {
         </IconButton>
         <Box sx={{ width: '100%', maxWidth: 440 }}>
           <Typography sx={{ color: 'primary.main', fontSize: 12, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }}>Secure access</Typography>
-          <Typography variant="h4" sx={{ mt: 1.5, fontSize: { xs: 28, sm: 34 }, fontWeight: 600 }}>Welcome back.</Typography>
-          <Typography color="text.secondary" sx={{ mt: 1.25, mb: 4, lineHeight: 1.65 }}>Sign in to review live operations and respond to security events.</Typography>
+          <Typography variant="h4" component="h1" sx={{ mt: 1.5, fontSize: { xs: 28, sm: 34 }, fontWeight: 600 }}>Welcome back.</Typography>
+          <Typography color="text.secondary" sx={{ mt: 1.25, mb: { xs: 3, sm: 4 }, lineHeight: 1.65 }}>Sign in to review live operations and respond to security events.</Typography>
           {expired && !error && <Alert severity="info" sx={{ mb: 2.5 }}>Your session has ended. Sign in again to continue.</Alert>}
           {error && <Alert severity="error" sx={{ mb: 2.5 }}>{error}</Alert>}
           <Box component="form" onSubmit={handleSubmit}>

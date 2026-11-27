@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/liquor-store/security-api/internal/notifications"
 	"github.com/liquor-store/security-api/internal/testdb"
 )
@@ -166,6 +167,44 @@ func TestAlertsAPIOverAIRows(t *testing.T) {
 	}
 	_ = response.Body.Close()
 
+	// Snapshot for list thumbnails: the image itself in one request, streamed
+	// from R2, no review link row; scoped to the store like every alert call.
+	linksBefore := countRows(t, db, `SELECT count(*) FROM "notification_video_links"`)
+	fetched = nil
+	snapshot := func(storeID, alertID, token string) (*http.Response, string) {
+		request, err := http.NewRequest(http.MethodGet, api.url("/api/v1/stores/"+storeID+"/alerts/"+alertID+"/snapshot"), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if token != "" {
+			request.Header.Set("Authorization", "Bearer "+token)
+		}
+		response, err := client.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(response.Body)
+		_ = response.Body.Close()
+		return response, string(body)
+	}
+	if response, body := snapshot("store_test_01", cash, owner); response.StatusCode != http.StatusOK || body != "mp4-bytes" ||
+		response.Header.Get("Content-Type") != "image/jpeg" || response.Header.Get("Cache-Control") != "private, max-age=300" ||
+		len(fetched) != 1 || fetched[0] != "/alerts/"+cash+"/snapshot.jpg" {
+		t.Fatalf("snapshot = %d %q %v, R2 saw %v", response.StatusCode, body, response.Header, fetched)
+	}
+	if after := countRows(t, db, `SELECT count(*) FROM "notification_video_links"`); after != linksBefore {
+		t.Fatalf("snapshot wrote %d link rows", after-linksBefore)
+	}
+	if response, _ := snapshot("store_test_01", entry, owner); response.StatusCode != http.StatusNotFound {
+		t.Fatalf("alert without snapshot = %d", response.StatusCode)
+	}
+	if response, _ := snapshot("store_other", cash, owner); response.StatusCode != http.StatusNotFound {
+		t.Fatalf("other store = %d", response.StatusCode)
+	}
+	if response, _ := snapshot("store_test_01", cash, ""); response.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("anonymous = %d", response.StatusCode)
+	}
+
 	// Review: open -> acknowledged -> confirmed (manager+), recorded in history.
 	doJSON(t, client, http.MethodPost, api.url("/api/v1/stores/store_test_01/alerts/"+cash+"/acknowledge"), owner, map[string]any{}, http.StatusCreated, nil)
 	doJSON(t, client, http.MethodPost, api.url("/api/v1/stores/store_test_01/alerts/"+cash+"/confirm"), owner, map[string]any{"note": "seen on the clip"}, http.StatusCreated, nil)
@@ -219,4 +258,15 @@ func login(t *testing.T, api *testAPI, email string) string {
 		"email": email, "password": testPassword,
 	}, http.StatusCreated, &session)
 	return session.AccessToken
+}
+
+func countRows(t *testing.T, db interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}, query string) int {
+	t.Helper()
+	var n int
+	if err := db.QueryRow(context.Background(), query).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
 }

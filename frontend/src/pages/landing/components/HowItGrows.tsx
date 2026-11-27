@@ -1,10 +1,10 @@
-import { ArrowsClockwise, CheckCircle, Package, Pulse } from '@phosphor-icons/react'
+import { CheckCircle, Package, Pulse } from '@phosphor-icons/react'
 import { SectionShell } from '../../../components/ui'
 
 /* Status honesty: the two model layers below are PLANNED work evaluated
    against pilot footage — they are not part of the base deployment and are
-   labelled that way. The flywheel describes retained evidence and a tuning
-   goal, never an automatic accuracy improvement. */
+   labelled that way. Retained evidence is a tuning goal, never an automatic
+   accuracy improvement. */
 
 const ADDONS = [
   {
@@ -22,74 +22,6 @@ const ADDONS = [
     boundary: 'Classifies movement patterns, not a person’s intent.',
   },
 ]
-
-const FLYWHEEL_STEPS = [
-  {
-    title: 'Footage is captured',
-    detail: 'Monitored areas, throughout the day.',
-  },
-  {
-    title: 'An alert is prepared',
-    detail: 'Event plus surrounding video, ready to review.',
-  },
-  {
-    title: 'The owner decides',
-    detail: 'Confirmed or dismissed — the human call.',
-  },
-  {
-    title: 'Evidence is retained',
-    detail: 'Labeled examples that can inform future tuning.',
-  },
-]
-
-function FlywheelDiagram() {
-  const nodes = [
-    { angle: -45 },
-    { angle: 45 },
-    { angle: 135 },
-    { angle: 225 },
-  ]
-
-  return (
-    <div className="relative h-72 w-72" role="img" aria-label="Evidence feedback loop diagram">
-      <div className="absolute inset-0 flex items-center justify-center">
-        <div className="flex h-24 w-24 flex-col items-center justify-center rounded-full border-4 border-teal-600/30 bg-teal-900 shadow-lg">
-          <ArrowsClockwise size={20} className="mb-1 text-teal-300 motion-safe:animate-[spin_22s_linear_infinite]" aria-hidden="true" />
-          <span className="px-1 text-center text-[11px] font-bold leading-tight text-cream">
-            Owner-labeled<br />evidence
-          </span>
-        </div>
-      </div>
-
-      <div className="absolute inset-6 rounded-full border-2 border-dashed border-teal-600/30 motion-safe:animate-[spin_22s_linear_infinite]" />
-
-      {nodes.map((node, index) => {
-        const radians = (node.angle * Math.PI) / 180
-        const x = 50 + 42 * Math.cos(radians)
-        const y = 50 + 42 * Math.sin(radians)
-
-        return (
-          <div
-            key={node.angle}
-            className="absolute flex flex-col items-center"
-            style={{
-              left: `${x}%`,
-              top: `${y}%`,
-              transform: 'translate(-50%, -50%)',
-            }}
-          >
-            <div
-              className="flex h-8 w-8 items-center justify-center rounded-full bg-teal-600 shadow-md motion-safe:animate-[nodePulse_2.4s_ease-in-out_infinite]"
-              style={{ animationDelay: `${index * 0.6}s` }}
-            >
-              <span className="text-xs font-bold text-cream">{index + 1}</span>
-            </div>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
 
 function EvidenceFrame({
   label,
@@ -141,7 +73,7 @@ export default function HowItGrows() {
         </>
       )}
       titleClassName="max-w-none text-[clamp(2rem,3.25vw,2.75rem)]"
-      intro="The base deployment establishes a reliable review workflow first. Anything below marked planned is future work, evaluated against real store footage before it ships."
+      intro="The base deployment establishes a reliable review workflow first. Every confirmed or dismissed alert is kept as a labeled example that can inform later tuning. Anything marked planned is future work, evaluated against real store footage before it ships."
     >
       <div data-reveal-group className="grid gap-5 md:grid-cols-2">
         <div data-reveal-item>
@@ -197,48 +129,6 @@ export default function HowItGrows() {
         </div>
       </div>
 
-      <section className="relative left-1/2 mt-16 w-[100dvw] -translate-x-1/2 overflow-hidden border-y border-band-border bg-band px-5 py-14 text-band-text sm:px-8 md:py-20">
-        <div className="mx-auto max-w-[1280px]">
-          <div data-reveal className="grid max-w-5xl gap-5 md:grid-cols-[minmax(0,0.42fr)_minmax(0,0.58fr)] md:gap-12">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-band-accent">The data flywheel</p>
-            <div>
-              <h3 className="max-w-none text-[clamp(2rem,3.25vw,2.75rem)] font-semibold leading-[1.08] tracking-[-0.035em]">
-                <span className="block lg:whitespace-nowrap">Owner decisions build the</span>
-                <span className="block lg:whitespace-nowrap">evidence base for future tuning.</span>
-              </h3>
-              <p className="mt-5 max-w-[58ch] text-base leading-relaxed text-band-muted md:text-lg">
-                The owner remains the final decision-maker. Every reviewed event is retained as a labeled
-                example, and with enough confirmed footage that record can inform how future versions
-                prioritize review — an evaluation goal for the pilot, not an automatic improvement.
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-10 grid border-y border-band-border md:mt-12 lg:grid-cols-[0.9fr_1.1fr]">
-            <div data-reveal className="flex min-h-[320px] items-center justify-center border-b border-band-border py-9 lg:border-b-0 lg:border-r">
-              <FlywheelDiagram />
-            </div>
-
-            <ol data-reveal-group className="grid sm:grid-cols-2">
-              {FLYWHEEL_STEPS.map(({ title, detail }, index) => (
-                <li
-                  data-reveal-item
-                  key={title}
-                  className={`grid min-h-[150px] grid-cols-[28px_1fr] content-center gap-3 border-band-border px-1 py-6 sm:px-8 ${index > 0 ? 'border-t' : ''} ${index === 1 ? 'sm:border-l sm:border-t-0' : ''} ${index === 3 ? 'sm:border-l' : ''}`}
-                >
-                  <span className="grid h-6 w-6 place-items-center rounded-full bg-band-accent text-[11px] font-bold text-band" aria-hidden="true">
-                    {index + 1}
-                  </span>
-                  <p className="text-sm leading-6">
-                    <strong className="font-semibold text-band-text">{title}</strong>
-                    <span className="text-band-muted">: {detail}</span>
-                  </p>
-                </li>
-              ))}
-            </ol>
-          </div>
-        </div>
-      </section>
     </SectionShell>
   )
 }

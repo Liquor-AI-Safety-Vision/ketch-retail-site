@@ -96,6 +96,34 @@ func (s *Server) createMediaPlaybackURL(w http.ResponseWriter, r *http.Request, 
 	writeJSON(w, http.StatusCreated, map[string]any{"url": link, "expiresInSeconds": int(s.config.SecureVideoLinkTTL.Seconds())})
 }
 
+// The alert's snapshot image itself, for list thumbnails: one request per
+// thumbnail instead of detail + playback link + fetch, and no link row is
+// written. Snapshots never change once written, so the browser may keep one
+// for a few minutes (private: it is store data).
+func (s *Server) alertSnapshot(w http.ResponseWriter, r *http.Request, user principal) {
+	storeID, alertID := r.PathValue("storeId"), r.PathValue("alertId")
+	if !s.requireRole(w, r.Context(), user.ID, storeID, roleOperator) {
+		return
+	}
+	if s.review == nil {
+		writeError(w, http.StatusServiceUnavailable, "Service Unavailable", "Secure media playback is not configured (PUBLIC_API_BASE_URL and R2_* are required).")
+		return
+	}
+	var objectKey, mimeType string
+	err := s.db.QueryRow(r.Context(), `SELECT m.path, COALESCE(m.mime_type,'') FROM alert_media m JOIN alerts a ON a.alert_id=m.alert_id
+		WHERE m.alert_id=$1 AND a.store_id=$2 AND m.kind='snapshot' ORDER BY m.started_at NULLS FIRST, m.media_id LIMIT 1`, alertID, storeID).Scan(&objectKey, &mimeType)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			writeError(w, http.StatusNotFound, "Not Found", "This alert has no snapshot.")
+			return
+		}
+		s.internalError(w, err)
+		return
+	}
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	s.review.ServeObject(w, r, objectKey, mimeType, "private, max-age=300")
+}
+
 func (s *Server) listNotificationDeliveries(w http.ResponseWriter, r *http.Request, user principal) {
 	storeID := r.PathValue("storeId")
 	if !s.requireRole(w, r.Context(), user.ID, storeID, roleOwner) {

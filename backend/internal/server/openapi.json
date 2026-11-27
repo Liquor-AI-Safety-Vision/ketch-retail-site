@@ -1395,6 +1395,39 @@
         }
       }
     },
+    "/api/v1/stores/{storeId}/alerts/{alertId}/snapshot": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/StoreId"
+        },
+        {
+          "$ref": "#/components/parameters/AlertId"
+        }
+      ],
+      "get": {
+        "tags": [
+          "alerts"
+        ],
+        "summary": "The alert's snapshot image, for list thumbnails",
+        "description": "operator or higher. Streams the snapshot from R2 through the API (the bucket stays private) with Cache-Control: private, max-age=300. One request per thumbnail; no review link is created.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Image bytes (image/jpeg)"
+          },
+          "404": {
+            "description": "No snapshot for this alert in this store"
+          },
+          "503": {
+            "description": "PUBLIC_API_BASE_URL or R2_* not configured"
+          }
+        }
+      }
+    },
     "/api/v1/stores/{storeId}/live-session": {
       "parameters": [
         {

@@ -134,6 +134,14 @@ func (s *SecureReviewService) ServeToken(w http.ResponseWriter, r *http.Request,
 		http.Error(w, "Review video is temporarily unavailable.", http.StatusServiceUnavailable)
 		return
 	}
+	s.ServeObject(w, r, objectKey, mimeType, "private, no-store, max-age=0")
+}
+
+// ServeObject streams one R2 object through this API: the bucket stays
+// private and the browser only sees our URL. Range requests pass through, so
+// video seeking works. Used by review links and by the dashboard's alert
+// snapshots (which may be cached briefly: cacheControl is the caller's).
+func (s *SecureReviewService) ServeObject(w http.ResponseWriter, r *http.Request, objectKey, mimeType, cacheControl string) {
 	originURL, err := s.objects.PresignGET(objectKey)
 	if err != nil {
 		// A local file path: the AI service ran with --storage-mode local-db,
@@ -143,7 +151,7 @@ func (s *SecureReviewService) ServeToken(w http.ResponseWriter, r *http.Request,
 	}
 	request, err := http.NewRequestWithContext(r.Context(), r.Method, originURL, nil)
 	if err != nil {
-		http.Error(w, "Review video is temporarily unavailable.", http.StatusServiceUnavailable)
+		http.Error(w, "Alert media is temporarily unavailable.", http.StatusServiceUnavailable)
 		return
 	}
 	for _, header := range []string{"Range", "If-Range", "If-None-Match", "If-Modified-Since"} {
@@ -153,7 +161,7 @@ func (s *SecureReviewService) ServeToken(w http.ResponseWriter, r *http.Request,
 	}
 	response, err := s.httpClient.Do(request)
 	if err != nil {
-		http.Error(w, "Review video is temporarily unavailable.", http.StatusBadGateway)
+		http.Error(w, "Alert media is temporarily unavailable.", http.StatusBadGateway)
 		return
 	}
 	defer response.Body.Close()
@@ -162,7 +170,7 @@ func (s *SecureReviewService) ServeToken(w http.ResponseWriter, r *http.Request,
 			http.NotFound(w, r)
 			return
 		}
-		http.Error(w, "Review video is temporarily unavailable.", http.StatusBadGateway)
+		http.Error(w, "Alert media is temporarily unavailable.", http.StatusBadGateway)
 		return
 	}
 	for _, header := range []string{"Accept-Ranges", "Content-Length", "Content-Range", "ETag", "Last-Modified"} {
@@ -176,7 +184,7 @@ func (s *SecureReviewService) ServeToken(w http.ResponseWriter, r *http.Request,
 	if mimeType != "" {
 		w.Header().Set("Content-Type", mimeType)
 	}
-	w.Header().Set("Cache-Control", "private, no-store, max-age=0")
+	w.Header().Set("Cache-Control", cacheControl)
 	w.Header().Set("Content-Disposition", `inline; filename="alert-evidence"`)
 	w.WriteHeader(response.StatusCode)
 	if r.Method == http.MethodGet && response.StatusCode != http.StatusNotModified {

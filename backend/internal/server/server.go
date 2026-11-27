@@ -94,6 +94,7 @@ func (s *Server) Handler() http.Handler {
 	s.protected(mux, "POST /api/v1/stores/{storeId}/alerts/{alertId}/dismiss", s.dismissAlert)
 	s.protected(mux, "POST /api/v1/stores/{storeId}/alerts/{alertId}/confirm", s.confirmAlert)
 	s.protected(mux, "GET /api/v1/stores/{storeId}/alerts/{alertId}/media/{mediaId}/playback-url", s.createMediaPlaybackURL)
+	s.protected(mux, "GET /api/v1/stores/{storeId}/alerts/{alertId}/snapshot", s.alertSnapshot)
 
 	s.protected(mux, "GET /api/v1/stores/{storeId}/notification-endpoints", s.listNotificationEndpoints)
 	s.protected(mux, "POST /api/v1/stores/{storeId}/notification-endpoints", s.createNotificationEndpoint)

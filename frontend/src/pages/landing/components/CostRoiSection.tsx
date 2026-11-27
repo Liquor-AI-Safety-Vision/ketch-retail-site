@@ -71,7 +71,7 @@ export default function CostRoiSection() {
           <div
             data-reveal-item
             key={c.label}
-            className={`flex min-h-[300px] flex-col py-7 md:px-8 md:py-9 ${index > 0 ? 'border-t border-ink/10 md:border-l md:border-t-0' : ''}`}
+            className={`flex flex-col py-7 md:min-h-[300px] md:px-8 md:py-9 ${index > 0 ? 'border-t border-ink/10 md:border-l md:border-t-0' : ''}`}
           >
             <div className="flex items-center justify-between">
               <c.Icon size={24} weight="duotone" className="text-red" aria-hidden="true" />

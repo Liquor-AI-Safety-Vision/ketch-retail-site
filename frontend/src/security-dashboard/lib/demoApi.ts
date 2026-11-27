@@ -117,6 +117,10 @@ export const demoApi: DashboardApi = {
     if (mediaId === `${item.id}:snapshot`) return { url: item.snapshotUrl, expiresInSeconds: 3600 };
     throw new ApiError('Media is not part of the demo.', 404);
   },
+  async getAlertSnapshotUrl(storeId, alertId) {
+    requireDemoStore(storeId);
+    return findAlert(alertId).snapshotUrl ?? null;
+  },
   async actionAlert() {
     throw new ApiError('The public demo is read-only. Sign in to manage real alerts.', 403);
   },

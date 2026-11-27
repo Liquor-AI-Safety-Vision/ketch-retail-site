@@ -1,4 +1,5 @@
 import { alpha, createTheme } from '@mui/material/styles';
+import { brand } from '../theme/brand';
 import type { ColorMode } from '../theme/ColorModeProvider';
 
 // Touch screens report a coarse pointer; narrow layouts are treated as touch too.
@@ -6,10 +7,9 @@ const coarse = '@media (pointer: coarse), (max-width: 899.95px)';
 
 export function createDashboardTheme(mode: ColorMode) {
   const dark = mode === 'dark';
-  const canvas = dark ? '#0B100E' : '#F3F5F2';
-  const paper = dark ? '#111815' : '#FCFDFB';
-  const divider = dark ? '#29332E' : '#D8DED9';
-  const primary = dark ? '#62B68B' : '#246A50';
+  // Same teal, cream and ink as the landing page (src/theme/brand.ts).
+  const tokens = brand[mode];
+  const { canvas, paper, divider, primary } = tokens;
   const elevation = dark
     ? '0 1px 2px rgba(0, 0, 0, 0.34), 0 16px 40px -26px rgba(0, 0, 0, 0.72)'
     : 'none';
@@ -19,9 +19,9 @@ export function createDashboardTheme(mode: ColorMode) {
       mode,
       primary: {
         main: primary,
-        light: dark ? '#8DCDAA' : '#4C8A70',
-        dark: dark ? '#3F8E68' : '#164C38',
-        contrastText: '#FFFFFF',
+        light: tokens.primaryLight,
+        dark: tokens.primaryDark,
+        contrastText: dark ? '#0C0E0F' : '#FFFFFF',
       },
       secondary: {
         main: dark ? '#A8B5AE' : '#5F6E66',
@@ -30,9 +30,9 @@ export function createDashboardTheme(mode: ColorMode) {
       },
       background: { default: canvas, paper },
       text: {
-        primary: dark ? '#F0F4F1' : '#18201C',
-        secondary: dark ? '#A3AEA8' : '#58635D',
-        disabled: dark ? '#7C8882' : '#7A847E',
+        primary: tokens.text,
+        secondary: tokens.textSecondary,
+        disabled: tokens.textDisabled,
       },
       divider,
       success: { main: dark ? '#74C495' : '#327A51' },
@@ -49,7 +49,7 @@ export function createDashboardTheme(mode: ColorMode) {
     // Sizes: 12 / 14 / 16 / 20 / 28 / 34, plus display numbers on Overview.
     // Weights: 400 / 600 / 700. Uppercase labels: 0.08em tracking.
     typography: {
-      fontFamily: '"Outfit Variable", "Outfit", system-ui, -apple-system, "Segoe UI", sans-serif',
+      fontFamily: brand.fontFamily,
       fontWeightLight: 400,
       fontWeightRegular: 400,
       fontWeightMedium: 600,
@@ -70,8 +70,8 @@ export function createDashboardTheme(mode: ColorMode) {
         styleOverrides: {
           body: {
             backgroundColor: canvas,
-            color: dark ? '#F0F4F1' : '#18201C',
-            scrollbarColor: dark ? '#35433B #0B100E' : '#B9C1BB #F3F5F2',
+            color: tokens.text,
+            scrollbarColor: dark ? `#2E3634 ${canvas}` : `#C9C2B4 ${canvas}`,
           },
           '::selection': { backgroundColor: primary, color: '#FFFFFF' },
         },
@@ -118,7 +118,7 @@ export function createDashboardTheme(mode: ColorMode) {
       },
       MuiDialog: {
         styleOverrides: {
-          paper: { backgroundColor: paper, color: dark ? '#F0F4F1' : '#18201C' },
+          paper: { backgroundColor: paper, color: tokens.text },
         },
       },
     },

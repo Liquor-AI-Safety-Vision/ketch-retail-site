@@ -89,6 +89,20 @@ class ApiClient implements DashboardApi {
     );
   }
 
+  // List thumbnails: the snapshot bytes in one request (the API streams them
+  // from R2), shown through an object URL because <img> cannot send the
+  // bearer token. React Query owns the URL: SecurityDashboardApp releases it
+  // when the query leaves the cache (including on sign-out).
+  async getAlertSnapshotUrl(storeId: string, alertId: string) {
+    try {
+      const blob = await this.request<Blob>(`/stores/${encodeURIComponent(storeId)}/alerts/${encodeURIComponent(alertId)}/snapshot`, { responseType: 'blob' });
+      return URL.createObjectURL(blob);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) return null;
+      throw error;
+    }
+  }
+
   async actionAlert(storeId: string, alertId: string, action: AlertAction, note?: string) {
     return this.request<AlertActionResult>(`/stores/${encodeURIComponent(storeId)}/alerts/${encodeURIComponent(alertId)}/${action}`, {
       method: 'POST',
@@ -162,6 +176,7 @@ class ApiClient implements DashboardApi {
       throw new ApiError('Cannot reach the API. Check that the backend is running.', 0);
     }
 
+    if (response.ok && options.responseType === 'blob') return await response.blob() as T;
     const payload = await response.json().catch(() => null) as { message?: string | string[] } | T | null;
     if (!response.ok) {
       const message = typeof payload === 'object' && payload && 'message' in payload
@@ -177,7 +192,10 @@ interface RequestOptions {
   method?: 'GET' | 'POST';
   headers?: HeadersInit;
   body?: unknown;
+  /** 'blob' for binary responses (images); JSON otherwise. */
+  responseType?: 'json' | 'blob';
 }
+
 
 export const api = new ApiClient();
 
@@ -190,6 +208,8 @@ export interface DashboardApi {
   getAlertSummary(storeId: string, filters?: Omit<AlertFilters, 'cursor' | 'limit'>): Promise<AlertSummary>;
   getAlert(storeId: string, alertId: string): Promise<AlertDetail>;
   getMediaPlaybackUrl(storeId: string, alertId: string, mediaId: string): Promise<PlaybackUrl>;
+  /** A displayable URL for the alert's snapshot (list thumbnails), or null when it has none. */
+  getAlertSnapshotUrl(storeId: string, alertId: string): Promise<string | null>;
   actionAlert(storeId: string, alertId: string, action: AlertAction, note?: string): Promise<AlertActionResult>;
   /** A playable view of the camera, or null when none is available. */
   getCameraFeed(storeId: string, cameraId: string): Promise<CameraFeed | null>;
