@@ -9,8 +9,10 @@ cd "$ROOT"
 # loopback, which corrupts decoding), and OpenCV would otherwise try UDP first.
 # Process-wide is right here: the AI only ever reads from the local MediaMTX.
 export OPENCV_FFMPEG_CAPTURE_OPTIONS="rtsp_transport;tcp"
-CAMERAS=$("$PYTHON" -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["cameras"]))' "$DEPLOY/runtime/ai_manifest.json")
+# One manifest per store (STORE_MANIFEST may list several).
+MANIFESTS=("$DEPLOY"/runtime/ai_manifests/*.json)
+CAMERAS=$("$PYTHON" -c 'import json,sys; print(sum(len(json.load(open(p))["cameras"]) for p in sys.argv[1:]))' "${MANIFESTS[@]}")
 # shellcheck disable=SC2086
 exec "$PYTHON" ai/src/app/run_split_pipeline.py \
-  --manifest "$DEPLOY/runtime/ai_manifest.json" --storage-mode cloud-db \
+  --manifest "${MANIFESTS[@]}" --storage-mode cloud-db \
   --cameras "$CAMERAS" $AI_ARGS

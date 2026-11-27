@@ -20,7 +20,7 @@ rate (ai/src/infra/recorded_clips.py).
 
 Outputs (deploy/runtime/, regenerated on every start, never edited by hand):
   mediamtx.yml       the camera gateway
-  ai_manifest.json   the store manifest with every camera pointed at MediaMTX
+  ai_manifests/      each store manifest with every camera pointed at MediaMTX
   Caddyfile          web front: dashboard, /api -> Go, /live -> MediaMTX HLS
 """
 from __future__ import annotations
@@ -30,6 +30,7 @@ import base64
 import json
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 import time
@@ -76,13 +77,24 @@ def settings() -> dict[str, str]:
     return env
 
 
-def manifest_path(env) -> Path:
-    path = Path(env["STORE_MANIFEST"])
-    return path if path.is_absolute() else ROOT / path
+def manifest_paths(env) -> list[Path]:
+    """STORE_MANIFEST: every store this server runs, separated by spaces.
+
+    Which owner sees which store is account data (owner_stores, set with
+    `liquorctl owner`), not configuration: the AI only needs the stores.
+    """
+    paths = [Path(p) for p in env["STORE_MANIFEST"].split()]
+    return [p if p.is_absolute() else ROOT / p for p in paths]
 
 
-def camera_ids(manifest: Path) -> list[str]:
-    return [camera["camera_id"] for camera in json.loads(manifest.read_text())["cameras"]]
+def camera_ids(manifests: list[Path]) -> list[str]:
+    """Every camera of every store. camera_id names the MediaMTX path and the
+    AI's queues, so it has to be unique across stores."""
+    ids = [camera["camera_id"] for m in manifests for camera in json.loads(m.read_text())["cameras"]]
+    repeated = sorted({i for i in ids if ids.count(i) > 1})
+    if repeated:
+        sys.exit(f"camera_id used in more than one place across STORE_MANIFEST: {repeated}")
+    return ids
 
 
 def production_sources(ids: list[str]) -> dict[str, dict]:
@@ -152,7 +164,8 @@ def mediamtx_config(env, ids: list[str]) -> str:
         import rtsp_sim
 
         work = Path(env.get("PLAYLIST_CACHE") or RUNTIME / "playlists")
-        for camera_id, video in rtsp_sim.load_cameras(manifest_path(env)):
+        cameras = [c for m in manifest_paths(env) for c in rtsp_sim.load_cameras(m)]
+        for camera_id, video in cameras:
             # Always through the normaliser: one H.264 cycle per camera, which
             # MediaMTX can record and every browser can play as HLS.
             playlist = video if isinstance(video, list) else [(video, 1)]
@@ -180,15 +193,24 @@ def mediamtx_config(env, ids: list[str]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def write_ai_manifest(env, ids: list[str]) -> Path:
+def write_ai_manifests(env) -> list[Path]:
+    """One manifest per store, every camera pointed at MediaMTX, in runtime/ai_manifests/."""
     import rtsp_sim
 
-    dest = RUNTIME / "ai_manifest.json"
-    rtsp_sim.write_rtsp_manifest(
-        manifest_path(env), dest, [(camera_id, None) for camera_id in ids],
-        host="127.0.0.1", port=RTSP_PORT, user=env["MEDIAMTX_READ_USER"], password=env["MEDIAMTX_READ_PASS"],
-        forever=True, playback_url=f"http://127.0.0.1:{PLAYBACK_PORT}")
-    return dest
+    out_dir = RUNTIME / "ai_manifests"
+    shutil.rmtree(out_dir, ignore_errors=True)
+    out_dir.mkdir(parents=True)
+    written = []
+    for i, src in enumerate(manifest_paths(env)):
+        dest = out_dir / f"{i:02d}_{src.stem}.json"
+        rtsp_sim.write_rtsp_manifest(
+            src, dest, [(camera_id, None) for camera_id in camera_ids([src])],
+            host="127.0.0.1", port=RTSP_PORT, user=env["MEDIAMTX_READ_USER"],
+            password=env["MEDIAMTX_READ_PASS"], forever=True,
+            playback_url=f"http://127.0.0.1:{PLAYBACK_PORT}")
+        dest.chmod(0o600)
+        written.append(dest)
+    return written
 
 
 def security_headers() -> list[tuple[str, str]]:
@@ -277,7 +299,7 @@ def caddyfile(env) -> str:
 
 
 def wait_for_streams(env, timeout: float) -> None:
-    ids = camera_ids(manifest_path(env))
+    ids = camera_ids(manifest_paths(env))
     deadline = time.time() + timeout
     pending = list(ids)
     while pending and time.time() < deadline:
@@ -315,14 +337,15 @@ def main() -> None:
     caddy.chmod(0o600)
     if args.caddy:
         return
-    ids = camera_ids(manifest_path(env))
+    ids = camera_ids(manifest_paths(env))
     config = RUNTIME / "mediamtx.yml"
     config.write_text(mediamtx_config(env, ids))
     config.chmod(0o600)  # holds the read password (and, in production, camera addresses)
-    manifest = write_ai_manifest(env, ids)
-    manifest.chmod(0o600)
-    print(f"MODE={env['MODE']}: {len(ids)} cameras -> {config.relative_to(ROOT)}, "
-          f"{manifest.relative_to(ROOT)}, {caddy.relative_to(ROOT)}")
+    manifests = write_ai_manifests(env)
+    (RUNTIME / "ai_manifest.json").unlink(missing_ok=True)  # the old single-store layout
+    print(f"MODE={env['MODE']}: {len(manifests)} store(s), {len(ids)} cameras -> "
+          f"{config.relative_to(ROOT)}, {manifests[0].parent.relative_to(ROOT)}/, "
+          f"{caddy.relative_to(ROOT)}")
 
 
 if __name__ == "__main__":
