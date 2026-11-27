@@ -88,6 +88,7 @@ func (s *Server) Handler() http.Handler {
 	s.protected(mux, "GET /api/v1/stores/{storeId}/cameras/{cameraId}/zones", s.listZones)
 
 	s.protected(mux, "GET /api/v1/stores/{storeId}/alerts", s.listAlerts)
+	s.protected(mux, "GET /api/v1/stores/{storeId}/alerts/summary", s.summarizeAlerts)
 	s.protected(mux, "GET /api/v1/stores/{storeId}/alerts/{alertId}", s.findAlert)
 	s.protected(mux, "POST /api/v1/stores/{storeId}/alerts/{alertId}/acknowledge", s.acknowledgeAlert)
 	s.protected(mux, "POST /api/v1/stores/{storeId}/alerts/{alertId}/dismiss", s.dismissAlert)

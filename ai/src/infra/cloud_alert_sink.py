@@ -107,6 +107,9 @@ class CloudAlertSink:
     def create_alert(self, **kwargs) -> str:
         return self.store.create_alert(**kwargs)
 
+    def touch_camera(self, camera_id: str, at: str) -> None:
+        self.store.touch_camera(camera_id, at)
+
     def add_alert_media(self, *, alert_id: str, kind: str, path: str,
                         media_id: str | None = None, **kwargs: Any) -> str:
         local_path = Path(path)

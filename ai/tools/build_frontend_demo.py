@@ -200,7 +200,7 @@ def main() -> None:
         "// Public demo data: the store_test_01 cameras, zones and pipelines, and\n"
         "// alerts cut from this project's own footage (see that script).\n"
         "import type { AlertSeverity, AlertStatus, Camera, CameraZone } from './types';\n\n"
-        "export interface DemoCamera extends Camera {\n"
+        "export interface DemoCamera extends Omit<Camera, 'lastFrameAt' | 'status'> {\n"
         "  feed: { videoUrl: string; posterUrl: string; width: number; height: number };\n"
         "}\n\n"
         "export interface DemoAlert {\n"

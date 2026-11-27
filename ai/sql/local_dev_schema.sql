@@ -16,6 +16,9 @@ CREATE TABLE IF NOT EXISTS cameras (
     source_uri TEXT NOT NULL,
     is_active INTEGER NOT NULL DEFAULT 1,
     metadata_json TEXT NOT NULL DEFAULT '{}',
+    -- When the AI last processed a frame of this camera (UTC isoformat),
+    -- refreshed about every 30 s while it runs. The dashboard's online/offline.
+    last_frame_at TEXT,
     FOREIGN KEY (store_id) REFERENCES stores(store_id)
 );
 

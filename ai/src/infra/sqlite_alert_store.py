@@ -123,6 +123,16 @@ class SqliteAlertStore:
 
     def _ensure_schema(self):
         self.conn.executescript(schema_path("local_dev_schema.sql").read_text())
+        # A database created before cameras.last_frame_at existed. SQLite has
+        # no ADD COLUMN IF NOT EXISTS.
+        columns = {row[1] for row in self.conn.execute("PRAGMA table_info(cameras)")}
+        if "last_frame_at" not in columns:
+            self.conn.execute("ALTER TABLE cameras ADD COLUMN last_frame_at TEXT")
+        self.conn.commit()
+
+    def touch_camera(self, camera_id: str, at: str) -> None:
+        """Record that a frame of this camera was just processed."""
+        self.conn.execute("UPDATE cameras SET last_frame_at=? WHERE camera_id=?", (at, camera_id))
         self.conn.commit()
 
     def start_run(self, camera_id: str, source_ref: str, status: str = "running",

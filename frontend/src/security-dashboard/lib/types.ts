@@ -61,7 +61,13 @@ export interface Camera {
   sourceType: string;
   isActive: boolean;
   pipelines: string[];
+  /** When the AI last processed a frame of this camera (it reports ~every 30 s). */
+  lastFrameAt: string | null;
+  /** online | offline (silent > 2 min) | unknown (never reported) | inactive. */
+  status: CameraStatus;
 }
+
+export type CameraStatus = 'online' | 'offline' | 'unknown' | 'inactive';
 
 export interface CameraZone {
   pipelineId: string;
@@ -113,11 +119,24 @@ export interface AlertDetail extends Alert {
 export interface AlertPage {
   items: Alert[];
   nextCursor: string | null;
+  /** Every alert matching the filters, whatever the page. */
+  total: number;
 }
 
+export interface AlertSummaryCount {
+  status: AlertStatus;
+  eventType: string;
+  count: number;
+}
+
+export interface AlertSummary {
+  counts: AlertSummaryCount[];
+}
+
+// status, severity and eventType take one value or a comma-separated list.
 export interface AlertFilters {
-  status?: AlertStatus;
-  severity?: AlertSeverity;
+  status?: string;
+  severity?: string;
   eventType?: string;
   pipelineType?: string;
   cameraId?: string;

@@ -1,6 +1,14 @@
-import type { AlertAction, AlertActionResult, AlertDetail, AlertFilters, AlertPage, AuthSession, Camera, CameraFeed, CameraZone, LiveSession, PlaybackUrl, Store } from './types';
+import type { AlertAction, AlertActionResult, AlertDetail, AlertFilters, AlertPage, AlertSummary, AuthSession, Camera, CameraFeed, CameraZone, LiveSession, PlaybackUrl, Store } from './types';
 
 const baseUrl = (import.meta.env?.VITE_API_BASE_URL ?? '/api/v1').replace(/\/$/, '');
+
+function queryString(filters: object) {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined && value !== '') query.set(key, String(value));
+  }
+  return query.size ? `?${query.toString()}` : '';
+}
 
 export class ApiError extends Error {
   readonly status: number;
@@ -62,12 +70,11 @@ class ApiClient implements DashboardApi {
   }
 
   async getAlerts(storeId: string, filters: AlertFilters = {}) {
-    const query = new URLSearchParams();
-    for (const [key, value] of Object.entries(filters)) {
-      if (value !== undefined && value !== '') query.set(key, String(value));
-    }
-    const suffix = query.size ? `?${query.toString()}` : '';
-    return this.request<AlertPage>(`/stores/${encodeURIComponent(storeId)}/alerts${suffix}`);
+    return this.request<AlertPage>(`/stores/${encodeURIComponent(storeId)}/alerts${queryString(filters)}`);
+  }
+
+  async getAlertSummary(storeId: string, filters: Omit<AlertFilters, 'cursor' | 'limit'> = {}) {
+    return this.request<AlertSummary>(`/stores/${encodeURIComponent(storeId)}/alerts/summary${queryString(filters)}`);
   }
 
   async getAlert(storeId: string, alertId: string) {
@@ -167,6 +174,7 @@ export interface DashboardApi {
   getCameras(storeId: string): Promise<Camera[]>;
   getZones(storeId: string, cameraId: string): Promise<CameraZone[]>;
   getAlerts(storeId: string, filters?: AlertFilters): Promise<AlertPage>;
+  getAlertSummary(storeId: string, filters?: Omit<AlertFilters, 'cursor' | 'limit'>): Promise<AlertSummary>;
   getAlert(storeId: string, alertId: string): Promise<AlertDetail>;
   getMediaPlaybackUrl(storeId: string, alertId: string, mediaId: string): Promise<PlaybackUrl>;
   actionAlert(storeId: string, alertId: string, action: AlertAction, note?: string): Promise<AlertActionResult>;

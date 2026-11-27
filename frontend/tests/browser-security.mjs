@@ -98,7 +98,7 @@ try {
   checks.push('Demo alert snapshots load, review and confirmed clips play; decision controls are absent.');
 
   await page.getByRole('link', { name: 'Camera', exact: true }).click();
-  await page.getByText('7 of 7 active').waitFor();
+  await page.getByText('7 of 7 online').waitFor();
   await page.getByRole('button', { name: 'Open camera view for Counter', exact: true }).click();
   await playVideo(page);
   await page.getByText('RECORDED LOOP').waitFor();
@@ -163,7 +163,8 @@ try {
       identityScore: null, reasonCodes: [], metadata: {}, reviewedById: null, reviewedByName: null,
       reviewedAt: null, reviewNote: null, hasVideoEvidence: false, hasSnapshot: false, media: [],
     } });
-    if (path.endsWith('/alerts')) return route.fulfill({ json: { items: [], nextCursor: null } });
+    if (path.endsWith('/alerts/summary')) return route.fulfill({ json: { counts: [] } });
+    if (path.endsWith('/alerts')) return route.fulfill({ json: { items: [], nextCursor: null, total: 0 } });
     throw new Error(`Unexpected owner request: ${path}`);
   });
   const ownerPage = await ownerContext.newPage();

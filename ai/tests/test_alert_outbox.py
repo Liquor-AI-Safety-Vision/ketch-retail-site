@@ -176,6 +176,10 @@ class _RecordingSink:
         self._maybe_fail("add_alert_media")
         self.landed.append(("media", alert_id))
 
+    def touch_camera(self, camera_id, at):
+        self._maybe_fail("touch_camera")
+        self.landed.append(("seen", camera_id))
+
     def close(self):
         pass
 
@@ -289,3 +293,41 @@ def test_close_twice_is_harmless():
     outbox = AlertOutbox(lambda: _RecordingSink({}))
     outbox.close()
     outbox.close()
+
+
+def test_camera_heartbeats_land_but_a_failed_one_never_blocks_or_fails_alerts():
+    """cameras.last_frame_at is best effort: during an outage a heartbeat is
+    not retried (alerts behind it would wait on stale data) and its failure
+    does not make close() report a dropped write."""
+    from ai.src.runtime.alert_outbox import AlertOutbox
+
+    sink = _RecordingSink({"touch_camera": [ConnectionError("neon went away"), ValueError("odd")]})
+    outbox = AlertOutbox(lambda: sink)
+    run_id = outbox.start_run(camera_id="counter_1", source_ref="test")
+    outbox.touch_camera("counter_1", "2026-11-27T00:00:00+00:00")   # transient failure: skipped
+    first = _alert(outbox, run_id)
+    outbox.touch_camera("counter_1", "2026-11-27T00:00:30+00:00")   # permanent failure: skipped
+    outbox.touch_camera("counter_1", "2026-11-27T00:01:00+00:00")   # lands
+    outbox.close()  # must not raise
+
+    assert sink.attempts["touch_camera"] == 3
+    assert sink.landed == [("run", run_id), ("alert", first), ("seen", "counter_1")]
+
+
+def test_sqlite_records_last_frame_and_upgrades_an_older_database(tmp_path):
+    from ai.src.infra.sqlite_alert_store import SqliteAlertStore
+
+    db_path = _seeded_db(tmp_path)
+    # A database from before the column existed.
+    conn = sqlite3.connect(db_path)
+    conn.execute("ALTER TABLE cameras DROP COLUMN last_frame_at")
+    conn.commit()
+    conn.close()
+
+    store = SqliteAlertStore(db_path)
+    store.touch_camera("counter_1", "2026-11-27T01:02:03+00:00")
+    store.close()
+    conn = sqlite3.connect(db_path)
+    assert conn.execute("SELECT last_frame_at FROM cameras WHERE camera_id='counter_1'").fetchone() == (
+        "2026-11-27T01:02:03+00:00",)
+    conn.close()

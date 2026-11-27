@@ -67,6 +67,13 @@ function ZoneOverlay({ zones }: { zones: CameraZone[] }) {
   );
 }
 
+const cameraStatusBadge: Record<string, string> = {
+  online: 'ONLINE',
+  offline: 'OFFLINE',
+  unknown: 'NO DATA',
+  inactive: 'INACTIVE',
+};
+
 function feedLabel(feed: CameraFeed | null, short: boolean) {
   if (!feed) return short ? 'ACTIVE' : 'NO LIVE VIEW';
   if (feed.kind !== 'hls') return short ? 'LOOP' : 'RECORDED LOOP';
@@ -184,7 +191,7 @@ export function CamerasPage() {
   })), [cameras, feedQueries]);
 
   const [showZones, setShowZones] = useState(true);
-  const onlineCount = feeds.filter(({ camera }) => camera.isActive).length;
+  const onlineCount = feeds.filter(({ camera }) => camera.status === 'online').length;
   const areas = useMemo<string[]>(() => Array.from(new Set<string>(feeds.map(({ area }) => area))).sort((left, right) => left.localeCompare(right)), [feeds]);
   const selectedArea = preferences.area === 'ALL' || areas.includes(preferences.area) ? preferences.area : 'ALL';
 
@@ -197,10 +204,10 @@ export function CamerasPage() {
     });
   }, [feeds, preferences.search, selectedArea]);
 
-  const scopedOnlineCount = scopedFeeds.filter(({ camera }) => camera.isActive).length;
+  const scopedOnlineCount = scopedFeeds.filter(({ camera }) => camera.status === 'online').length;
   const scopedOfflineCount = scopedFeeds.length - scopedOnlineCount;
   const filteredFeeds = useMemo(() => scopedFeeds.filter(({ camera }) => {
-    const online = camera.isActive;
+    const online = camera.status === 'online';
     if (preferences.status === 'LIVE') return online;
     if (preferences.status === 'OFFLINE') return !online;
     return true;
@@ -254,7 +261,7 @@ export function CamerasPage() {
         </Box>
         <Chip
           color={onlineCount === feeds.length && feeds.length > 0 ? 'success' : 'warning'}
-          label={`${onlineCount} of ${feeds.length} active`}
+          label={`${onlineCount} of ${feeds.length} online`}
         />
       </Box>
 
@@ -313,8 +320,8 @@ export function CamerasPage() {
             aria-label="Camera status"
           >
             <ToggleButton value="ALL">All {scopedFeeds.length}</ToggleButton>
-            <ToggleButton value="LIVE">Active {scopedOnlineCount}</ToggleButton>
-            <ToggleButton value="OFFLINE">Inactive {scopedOfflineCount}</ToggleButton>
+            <ToggleButton value="LIVE">Online {scopedOnlineCount}</ToggleButton>
+            <ToggleButton value="OFFLINE">No signal {scopedOfflineCount}</ToggleButton>
           </ToggleButtonGroup>
           <Typography variant="caption" color="text.secondary">Showing {filteredFeeds.length} of {scopedFeeds.length} cameras</Typography>
         </Box>
@@ -329,7 +336,8 @@ export function CamerasPage() {
       ) : (
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(3, minmax(0, 1fr))', xl: 'repeat(4, minmax(0, 1fr))' }, gridAutoFlow: 'dense', gap: 1.25 }}>
           {filteredFeeds.map((feed) => {
-            const online = feed.camera.isActive;
+            // Pictures stay viewable while the AI is down; the badge says why.
+            const online = feed.camera.status === 'online';
             return (
               <Card key={feed.camera.id} className="live-feed" sx={{ overflow: 'hidden', '&:hover': { borderColor: 'primary.main' }, transition: 'border-color 160ms ease' }}>
                 <CardActionArea
@@ -347,7 +355,7 @@ export function CamerasPage() {
                     )}
                     <Box sx={{ position: 'absolute', top: 10, left: 10, display: 'flex', alignItems: 'center', gap: 0.6, bgcolor: 'rgba(9,11,12,.82)', color: online ? '#9BD2AC' : '#C6C9C7', px: 1, py: 0.45, borderRadius: 0.5, fontSize: 10, fontWeight: 750, letterSpacing: '.08em' }}>
                       <FiberManualRecordIcon sx={{ fontSize: 9 }} />
-                      {!online ? 'INACTIVE' : feedLabel(feed.feed, true)}
+                      {online ? feedLabel(feed.feed, true) : cameraStatusBadge[feed.camera.status]}
                     </Box>
                     <Box sx={{ position: 'absolute', right: 10, bottom: 9, display: 'flex', alignItems: 'center', gap: 0.65, px: 0.8, py: 0.35, bgcolor: 'rgba(9,11,12,.78)', color: '#D5D8D6', fontSize: 10, fontFamily: 'monospace' }}>
                       <OpenInFullIcon sx={{ fontSize: 12 }} />

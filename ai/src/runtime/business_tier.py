@@ -29,6 +29,7 @@ import logging
 import time
 from collections import deque
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any
 
 from ai.src.pipelines.registry import COUNTER_CASH_THEFT, FACE_TARGET_IDS, build_pipeline
@@ -39,6 +40,9 @@ logger = logging.getLogger(__name__)
 
 #: How often each camera logs its own fps and latency while the run continues.
 HEARTBEAT_S = 60.0
+# How often a camera's cameras.last_frame_at is refreshed while frames flow.
+# The dashboard calls a camera offline after a few missed refreshes.
+CAMERA_SEEN_S = 30.0
 
 
 def _build_pipeline(spec, binding, alert_store, media_store, run_id, gallery_db_path):
@@ -94,6 +98,7 @@ class _CameraWorker:
         self._samples: deque[tuple[float, float]] = deque(maxlen=6000)
         self._latency_max = 0.0
         self._last_heartbeat = time.time()
+        self._last_seen_write = 0.0  # first processed frame marks the camera online at once
 
     def _record_latency(self, frame_meta) -> None:
         now = time.time()
@@ -103,6 +108,12 @@ class _CameraWorker:
         if now - self._last_heartbeat >= HEARTBEAT_S:
             self._last_heartbeat = now
             self._log_heartbeat()
+        if now - self._last_seen_write >= CAMERA_SEEN_S:
+            self._last_seen_write = now
+            touch = getattr(self.alert_store, "touch_camera", None)
+            if touch is not None:
+                touch(self.spec.camera_id,
+                      datetime.fromtimestamp(now, timezone.utc).isoformat())
 
     def _log_heartbeat(self) -> None:
         """The same numbers the end-of-run table prints, while the run is still

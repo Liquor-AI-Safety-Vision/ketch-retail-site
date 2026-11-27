@@ -83,8 +83,14 @@ class _AddAlertMedia:
     kwargs: dict[str, Any]
 
 
+@dataclass
+class _TouchCamera:
+    camera_id: str
+    at: str
+
+
 _CLOSE = object()
-_WriteOp = Union[_StartRun, _FinishRun, _CreateAlert, _AddAlertMedia]
+_WriteOp = Union[_StartRun, _FinishRun, _CreateAlert, _AddAlertMedia, _TouchCamera]
 
 
 class AlertOutbox:
@@ -122,6 +128,11 @@ class AlertOutbox:
         media_id = str(uuid.uuid4())
         self._queue.put(_AddAlertMedia(media_id, kwargs))
         return media_id
+
+    def touch_camera(self, camera_id: str, at: str) -> None:
+        """Best effort: the next heartbeat supersedes this one, so it is never
+        retried and a failure is not a dropped write (see _drain)."""
+        self._queue.put(_TouchCamera(camera_id, at))
 
     def close(self) -> None:
         """Block until every enqueued write has landed or been given up on,
@@ -168,6 +179,15 @@ class AlertOutbox:
                 item = self._queue.get()
                 if item is _CLOSE:
                     break
+                if isinstance(item, _TouchCamera):
+                    # Never retried and never counted as a failure: an outage
+                    # must not hold alerts behind stale heartbeats, and a
+                    # missed one is replaced by the next ~30 s later.
+                    try:
+                        self._apply(sink, item)
+                    except Exception as exc:  # noqa: BLE001
+                        logger.debug("alert outbox: camera heartbeat skipped: %r", exc)
+                    continue
                 if (isinstance(item, _AddAlertMedia)
                         and item.kwargs.get("alert_id") in dropped_alerts):
                     self._record_failure(item, RuntimeError(
@@ -221,5 +241,9 @@ class AlertOutbox:
             sink.create_alert(alert_id=item.alert_id, **item.kwargs)
         elif isinstance(item, _AddAlertMedia):
             sink.add_alert_media(media_id=item.media_id, **item.kwargs)
+        elif isinstance(item, _TouchCamera):
+            touch = getattr(sink, "touch_camera", None)
+            if touch is not None:
+                touch(item.camera_id, item.at)
         else:  # pragma: no cover - exhaustive by construction
             raise TypeError(f"unknown outbox write op: {item!r}")

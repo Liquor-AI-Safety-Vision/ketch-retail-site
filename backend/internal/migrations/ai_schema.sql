@@ -22,6 +22,9 @@ CREATE TABLE IF NOT EXISTS cameras (
     source_uri TEXT NOT NULL,
     is_active INTEGER NOT NULL DEFAULT 1,
     metadata_json TEXT NOT NULL DEFAULT '{}',
+    -- When the AI last processed a frame of this camera (UTC isoformat),
+    -- refreshed about every 30 s while it runs. The dashboard's online/offline.
+    last_frame_at TEXT,
     FOREIGN KEY (store_id) REFERENCES stores(store_id)
 );
 
@@ -145,6 +148,7 @@ CREATE INDEX IF NOT EXISTS idx_persons_company
 -- up to date. Idempotent, and run on every pipeline start like the rest.
 ALTER TABLE owners ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active';
 ALTER TABLE owner_stores ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'owner';
+ALTER TABLE cameras ADD COLUMN IF NOT EXISTS last_frame_at TEXT;
 ALTER TABLE alerts ADD COLUMN IF NOT EXISTS reviewed_by TEXT REFERENCES owners(owner_id);
 ALTER TABLE alerts ADD COLUMN IF NOT EXISTS reviewed_at TEXT;
 ALTER TABLE alerts ADD COLUMN IF NOT EXISTS review_note TEXT;

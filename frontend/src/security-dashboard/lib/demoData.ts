@@ -3,7 +3,7 @@
 // alerts cut from this project's own footage (see that script).
 import type { AlertSeverity, AlertStatus, Camera, CameraZone } from './types';
 
-export interface DemoCamera extends Camera {
+export interface DemoCamera extends Omit<Camera, 'lastFrameAt' | 'status'> {
   feed: { videoUrl: string; posterUrl: string; width: number; height: number };
 }
 

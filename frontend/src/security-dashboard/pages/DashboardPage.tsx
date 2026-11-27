@@ -12,7 +12,7 @@ import { Link as RouterLink } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
 import { InlineError, ScreenLoader } from '../components/common';
 import { getErrorMessage } from '../lib/api';
-import type { Alert, Camera } from '../lib/types';
+import type { AlertSummaryCount, Camera } from '../lib/types';
 
 interface Metric {
   label: string;
@@ -25,7 +25,12 @@ interface Metric {
 
 interface OverviewData {
   cameras: Camera[];
-  alerts: Alert[];
+  all: AlertSummaryCount[];
+  today: AlertSummaryCount[];
+}
+
+function countOf(counts: AlertSummaryCount[], statuses: string[]) {
+  return counts.filter((item) => statuses.includes(item.status)).reduce((sum, item) => sum + item.count, 0);
 }
 
 export function DashboardPage() {
@@ -35,11 +40,14 @@ export function DashboardPage() {
   const { data, error, isLoading, isFetching, refetch } = useQuery({
     queryKey: ['overview', store?.id],
     queryFn: async (): Promise<OverviewData> => {
-      const [cameras, alertResult] = await Promise.all([
+      const midnight = new Date();
+      midnight.setHours(0, 0, 0, 0);
+      const [cameras, all, today] = await Promise.all([
         api.getCameras(store!.id),
-        api.getAlerts(store!.id, { limit: 100 }),
+        api.getAlertSummary(store!.id),
+        api.getAlertSummary(store!.id, { from: midnight.toISOString() }),
       ]);
-      return { cameras, alerts: alertResult.items };
+      return { cameras, all: all.counts, today: today.counts };
     },
     enabled: Boolean(store),
     staleTime: 15_000,
@@ -48,13 +56,11 @@ export function DashboardPage() {
 
   const metrics = useMemo<Metric[]>(() => {
     const cameras = data?.cameras ?? [];
-    const alerts = data?.alerts ?? [];
     const cameraTotal = cameras.length;
-    const onlineTotal = cameras.filter((camera) => camera.isActive).length;
-    const needsReview = alerts.filter((alert) => alert.status === 'open').length;
-    const today = new Date().toDateString();
-    const incidentsToday = alerts.filter((alert) => new Date(alert.detectedAt).toDateString() === today).length;
-    const confirmedTotal = alerts.filter((alert) => alert.status === 'confirmed').length;
+    const onlineTotal = cameras.filter((camera) => camera.status === 'online').length;
+    const needsReview = countOf(data?.all ?? [], ['open', 'acknowledged']);
+    const incidentsToday = countOf(data?.today ?? [], ['open', 'acknowledged', 'confirmed', 'dismissed']);
+    const confirmedTotal = countOf(data?.all ?? [], ['confirmed']);
 
     return [
       {
@@ -66,9 +72,9 @@ export function DashboardPage() {
         to: '/alerts?section=attention',
       },
       {
-        label: 'Cameras active',
+        label: 'Cameras online',
         value: `${onlineTotal}/${cameraTotal}`,
-        helper: onlineTotal === cameraTotal ? 'All cameras active' : `${cameraTotal - onlineTotal} inactive`,
+        helper: onlineTotal === cameraTotal ? 'All cameras are being analysed' : `${cameraTotal - onlineTotal} without signal`,
         icon: <VideocamOutlinedIcon />,
         tone: onlineTotal === cameraTotal ? theme.palette.success.main : theme.palette.warning.main,
         to: '/cameras',

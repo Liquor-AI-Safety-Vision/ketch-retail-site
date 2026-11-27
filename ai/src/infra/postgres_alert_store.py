@@ -152,6 +152,10 @@ class PostgresAlertStore:
             (status, json.dumps(metrics or {}, ensure_ascii=True, sort_keys=True), run_id),
         )
 
+    def touch_camera(self, camera_id: str, at: str) -> None:
+        """Record that a frame of this camera was just processed."""
+        self._execute("UPDATE cameras SET last_frame_at=%s WHERE camera_id=%s", (at, camera_id))
+
     def create_alert(
         self, *, store_id: str, camera_id: str, run_id: str | None, pipeline_type: str,
         event_type: str, severity: str, opened_at: str, identity_person_id: str | None,

@@ -11,13 +11,15 @@ import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
 import { AlertStatusChip, EmptyState, InlineError, ScreenLoader, SeverityChip, alertTitle, formatDateTime, toTitle } from '../components/common';
 import { getErrorMessage, type DashboardApi } from '../lib/api';
-import type { Alert, AlertAction, AlertDetail, Store } from '../lib/types';
+import type { Alert, AlertAction, AlertDetail, AlertFilters, AlertSummaryCount, Store } from '../lib/types';
 
 // Every alert here was written by the AI service (ai/): one row per event its
 // pipelines raised, with a snapshot and, about post_s seconds later, a clip in
 // R2. Nothing on this page is generated in the browser.
 
 const alertsPerPage = 5;
+const attentionStatuses = ['open', 'acknowledged'] as const;
+const confirmedStatuses = ['confirmed'] as const;
 
 const alertDescriptions: Record<string, string> = {
   suspected_cash_concealment: 'At the counter, cash was tracked leaving the drawer toward a staff member with no customer transaction in progress.',
@@ -44,10 +46,6 @@ const reasonLabels: Record<string, string> = {
   OUTSIDE_ALLOWED_WINDOW: 'Outside allowed hours',
 };
 
-function isDetectedToday(alert: Alert) {
-  return new Date(alert.detectedAt).toDateString() === new Date().toDateString();
-}
-
 function isEmergency(alert: Alert) {
   return alert.eventType === 'weapon_detected' || alert.severity === 'critical';
 }
@@ -66,13 +64,6 @@ function alertPersonLabel(alert: Alert) {
 
 function reasonLabel(code: string) {
   return reasonLabels[code] ?? toTitle(code);
-}
-
-function sortActiveAlerts(items: Alert[]) {
-  return [...items].sort((left, right) => {
-    if (isEmergency(left) !== isEmergency(right)) return isEmergency(left) ? -1 : 1;
-    return new Date(right.detectedAt).getTime() - new Date(left.detectedAt).getTime();
-  });
 }
 
 interface AlertMediaUrls {
@@ -154,11 +145,13 @@ export function AlertsPage() {
   const queryClient = useQueryClient();
   const readOnly = isDemo || api.readOnly;
   const [searchParams, setSearchParams] = useSearchParams();
-  const [alerts, setAlerts] = useState<Alert[]>([]);
-  const [confirmedAlerts, setConfirmedAlerts] = useState<Alert[]>([]);
-  const [attentionPage, setAttentionPage] = useState(1);
-  const [confirmedPage, setConfirmedPage] = useState(1);
+  const [pageItems, setPageItems] = useState<Alert[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [summary, setSummary] = useState<AlertSummaryCount[]>([]);
+  const [reloadKey, setReloadKey] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [pageLoading, setPageLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reviewingId, setReviewingId] = useState<string | null>(null);
   const [detailAlert, setDetailAlert] = useState<Alert | null>(null);
@@ -175,71 +168,80 @@ export function AlertsPage() {
   const activeSection: 'attention' | 'confirmed' = requestedSection === 'confirmed' ? 'confirmed' : 'attention';
   const requestedAlertId = (searchParams.get('alertId') ?? '').trim();
 
-  const loadAlerts = useCallback(async () => {
+  // Server-side paging: the list is fetched one page at a time with the
+  // API's cursor, and every count comes from /alerts/summary, so both stay
+  // right however many alerts the store has.
+  const sectionStatuses = activeSection === 'attention' ? attentionStatuses : confirmedStatuses;
+  const periodFrom = useMemo(() => {
+    if (!todayOnly) return undefined;
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    return start.toISOString();
+  }, [todayOnly]);
+  const statusParam = sectionStatuses.join(',');
+  const eventTypeParam = selectedEventTypes?.join(',');
+  const filterKey = `${statusParam}|${eventTypeParam ?? ''}|${periodFrom ?? ''}`;
+  // cursors[i] fetches page i + 1; page 1 needs none.
+  const cursorsRef = useRef<{ key: string; cursors: (string | undefined)[] }>({ key: '', cursors: [undefined] });
+
+  useEffect(() => { setPage(1); }, [filterKey]);
+
+  const reload = useCallback(() => setReloadKey((key) => key + 1), []);
+
+  useEffect(() => {
     if (!store) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const [openResult, acknowledgedResult, confirmedResult] = await Promise.all([
-        api.getAlerts(store.id, { status: 'open', limit: 100 }),
-        api.getAlerts(store.id, { status: 'acknowledged', limit: 100 }),
-        api.getAlerts(store.id, { status: 'confirmed', limit: 100 }),
-      ]);
-      setAlerts(sortActiveAlerts([...openResult.items, ...acknowledgedResult.items]));
-      setConfirmedAlerts(confirmedResult.items);
-    } catch (cause) {
-      setError(getErrorMessage(cause));
-    } finally {
-      setLoading(false);
-    }
-  }, [api, store]);
+    let cancelled = false;
+    const filters: AlertFilters = { status: statusParam, eventType: eventTypeParam, from: periodFrom };
+    void (async () => {
+      setPageLoading(true);
+      setError(null);
+      try {
+        if (cursorsRef.current.key !== filterKey) cursorsRef.current = { key: filterKey, cursors: [undefined] };
+        const cursors = cursorsRef.current.cursors;
+        // Pages before this one that were never visited are walked first, for their cursors.
+        while (cursors.length < page) {
+          const walked = await api.getAlerts(store.id, { ...filters, limit: alertsPerPage, cursor: cursors[cursors.length - 1] });
+          if (!walked.nextCursor) break;
+          cursors.push(walked.nextCursor);
+        }
+        const target = Math.min(page, cursors.length);
+        const [result, counts] = await Promise.all([
+          api.getAlerts(store.id, { ...filters, limit: alertsPerPage, cursor: cursors[target - 1] }),
+          api.getAlertSummary(store.id, { from: periodFrom }),
+        ]);
+        if (cancelled) return;
+        if (result.nextCursor) cursors[target] = result.nextCursor;
+        setPageItems(result.items);
+        setTotal(result.total);
+        setSummary(counts.counts);
+        if (target !== page) setPage(target);
+      } catch (cause) {
+        if (!cancelled) setError(getErrorMessage(cause));
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+          setPageLoading(false);
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [api, eventTypeParam, filterKey, page, periodFrom, reloadKey, statusParam, store]);
 
-  useEffect(() => { void loadAlerts(); }, [loadAlerts]);
-
-  const periodAlerts = useMemo(
-    () => todayOnly ? alerts.filter(isDetectedToday) : alerts,
-    [alerts, todayOnly],
-  );
-  const periodConfirmedAlerts = useMemo(
-    () => todayOnly ? confirmedAlerts.filter(isDetectedToday) : confirmedAlerts,
-    [confirmedAlerts, todayOnly],
-  );
+  const countOf = useCallback((statuses: readonly string[], eventTypes?: readonly string[]) => summary
+    .filter((item) => statuses.includes(item.status) && (!eventTypes || eventTypes.includes(item.eventType)))
+    .reduce((sum, item) => sum + item.count, 0), [summary]);
+  const attentionTotal = countOf(attentionStatuses);
+  const confirmedTotal = countOf(confirmedStatuses);
+  const emergencyTotal = countOf(attentionStatuses, ['weapon_detected']);
   const caseOptions = alertFolderDefinitions.map((definition) => ({
     ...definition,
-    count: (activeSection === 'attention' ? periodAlerts : periodConfirmedAlerts)
-      .filter((alert) => definition.eventTypes.includes(alert.eventType)).length,
+    count: countOf(sectionStatuses, definition.eventTypes),
   }));
-  const filteredAlerts = selectedEventTypes
-    ? periodAlerts.filter((alert) => selectedEventTypes.includes(alert.eventType))
-    : periodAlerts;
-  const filteredConfirmedAlerts = selectedEventTypes
-    ? periodConfirmedAlerts.filter((alert) => selectedEventTypes.includes(alert.eventType))
-    : periodConfirmedAlerts;
   const selectedFolderTitle = selectedFolderDefinition?.title ?? 'All situations';
-  const currentResultCount = activeSection === 'attention' ? filteredAlerts.length : filteredConfirmedAlerts.length;
-
-  const attentionPageCount = Math.max(1, Math.ceil(filteredAlerts.length / alertsPerPage));
-  const confirmedPageCount = Math.max(1, Math.ceil(filteredConfirmedAlerts.length / alertsPerPage));
-  const safeAttentionPage = Math.min(attentionPage, attentionPageCount);
-  const safeConfirmedPage = Math.min(confirmedPage, confirmedPageCount);
-  const visibleAlerts = filteredAlerts.slice((safeAttentionPage - 1) * alertsPerPage, safeAttentionPage * alertsPerPage);
-  const visibleConfirmedAlerts = filteredConfirmedAlerts.slice((safeConfirmedPage - 1) * alertsPerPage, safeConfirmedPage * alertsPerPage);
-
-  useEffect(() => {
-    setAttentionPage((current) => Math.min(current, attentionPageCount));
-  }, [attentionPageCount]);
-
-  useEffect(() => {
-    setConfirmedPage((current) => Math.min(current, confirmedPageCount));
-  }, [confirmedPageCount]);
-
-  useEffect(() => {
-    setAttentionPage(1);
-    setConfirmedPage(1);
-  }, [selectedType, todayOnly, activeSection]);
+  const pageCount = Math.max(1, Math.ceil(total / alertsPerPage));
 
   // Decisions go to the API, which serializes them and keeps an audit trail;
-  // the lists are updated from its answer, not optimistically.
+  // the page and counts are reloaded from it, not patched optimistically.
   const decide = async (alert: Alert, action: AlertAction, note = decisionNotes[action]) => {
     if (readOnly || !store || reviewingId) return false;
     setReviewingId(alert.id);
@@ -251,13 +253,10 @@ export function AlertsPage() {
       // The open dialog reads the cached detail; patch it rather than refetch,
       // which would also mint new media links and restart the clip.
       queryClient.setQueryData<AlertMediaUrls>(['alert-media', store.id, alert.id], (cached) => cached && { ...cached, detail: { ...cached.detail, ...review } });
-      setAlerts((current) => result.status === 'acknowledged'
-        ? current.map((item) => item.id === alert.id ? updated : item)
-        : current.filter((item) => item.id !== alert.id));
-      setConfirmedAlerts((current) => result.status === 'confirmed'
-        ? [updated, ...current.filter((item) => item.id !== alert.id)]
-        : current.filter((item) => item.id !== alert.id));
       setDetailAlert((current) => current?.id === alert.id ? (result.status === 'acknowledged' ? updated : null) : current);
+      // Later pages shift by one; their cursors are recomputed from page 1.
+      cursorsRef.current = { key: '', cursors: [undefined] };
+      reload();
       window.dispatchEvent(new Event('alerts:changed'));
       return true;
     } catch (cause) {
@@ -275,7 +274,7 @@ export function AlertsPage() {
     }
     if (!store || loading || openedAlertParamRef.current === requestedAlertId) return;
     openedAlertParamRef.current = requestedAlertId;
-    const listed = [...alerts, ...confirmedAlerts].find((alert) => alert.id === requestedAlertId);
+    const listed = pageItems.find((alert) => alert.id === requestedAlertId);
     if (listed) {
       setDetailAlert(listed);
       return;
@@ -285,7 +284,7 @@ export function AlertsPage() {
     void api.getAlert(store.id, requestedAlertId)
       .then((alert) => setDetailAlert(alert))
       .catch((cause) => setError(getErrorMessage(cause)));
-  }, [alerts, api, confirmedAlerts, loading, requestedAlertId, store]);
+  }, [api, loading, pageItems, requestedAlertId, store]);
 
   const closeDetail = () => {
     setDetailAlert(null);
@@ -333,10 +332,15 @@ export function AlertsPage() {
             Alerts raised by the AI on this store&apos;s cameras. Review the clip, then confirm a real incident or dismiss a false alarm.
           </Typography>
         </Box>
-        <Button variant="outlined" startIcon={<ReplayIcon />} onClick={() => void loadAlerts()}>Refresh</Button>
+        <Button variant="outlined" startIcon={<ReplayIcon />} onClick={reload}>Refresh</Button>
       </Box>
 
       {error && <InlineError message={error} />}
+      {emergencyTotal > 0 && selectedType !== 'weapon_detected' && (
+        <MuiAlert severity="error" action={<Button color="inherit" size="small" onClick={() => selectCase('weapon_detected')}>Review now</Button>}>
+          {emergencyTotal === 1 ? 'A weapon alert needs' : `${emergencyTotal} weapon alerts need`} immediate review.
+        </MuiAlert>
+      )}
 
       <Paper
         variant="outlined"
@@ -349,16 +353,16 @@ export function AlertsPage() {
       >
         <Box sx={{ px: 2.5, py: 2.25 }}>
           <Typography sx={{ fontSize: 30, lineHeight: 1, fontWeight: 680 }}>
-            {periodAlerts.length + periodConfirmedAlerts.length}
+            {attentionTotal + confirmedTotal}
           </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.7 }}>Total alerts</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.7 }}>Total alerts (excluding false alarms)</Typography>
         </Box>
         <Box sx={{ px: 2.5, py: 2.25, borderTop: { xs: '1px solid', sm: 0 }, borderLeft: { sm: '1px solid' }, borderColor: 'divider' }}>
-          <Typography sx={{ fontSize: 30, lineHeight: 1, fontWeight: 680, color: periodAlerts.length ? 'error.main' : 'text.primary' }}>{periodAlerts.length}</Typography>
+          <Typography sx={{ fontSize: 30, lineHeight: 1, fontWeight: 680, color: attentionTotal ? 'error.main' : 'text.primary' }}>{attentionTotal}</Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 0.7 }}>Needs an owner decision</Typography>
         </Box>
         <Box sx={{ px: 2.5, py: 2.25, borderTop: { xs: '1px solid', sm: 0 }, borderLeft: { sm: '1px solid' }, borderColor: 'divider' }}>
-          <Typography sx={{ fontSize: 30, lineHeight: 1, fontWeight: 680 }}>{periodConfirmedAlerts.length}</Typography>
+          <Typography sx={{ fontSize: 30, lineHeight: 1, fontWeight: 680 }}>{confirmedTotal}</Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 0.7 }}>Confirmed incidents</Typography>
         </Box>
       </Paper>
@@ -395,7 +399,7 @@ export function AlertsPage() {
               <Box component="span" sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 3, width: '100%' }}>
                 <span>All cases</span>
                 <Typography component="span" variant="caption" color="text.secondary" sx={{ fontVariantNumeric: 'tabular-nums' }}>
-                  {activeSection === 'attention' ? periodAlerts.length : periodConfirmedAlerts.length}
+                  {activeSection === 'attention' ? attentionTotal : confirmedTotal}
                 </Typography>
               </Box>
             </MenuItem>
@@ -440,7 +444,7 @@ export function AlertsPage() {
         >
           <Typography variant="caption" color="text.secondary">Showing</Typography>
           <Typography sx={{ mt: 0.15, fontWeight: 650, fontVariantNumeric: 'tabular-nums' }}>
-            {currentResultCount} {activeSection === 'attention' ? 'to review' : 'confirmed'}
+            {total} {activeSection === 'attention' ? 'to review' : 'confirmed'}
           </Typography>
           {todayOnly && (
             <Chip
@@ -457,15 +461,16 @@ export function AlertsPage() {
 
       {activeSection === 'attention' && (
       <Box ref={attentionSectionRef} sx={{ scrollMarginTop: 96 }}>
+        {pageLoading && <LinearProgress sx={{ mb: 1 }} />}
         <Typography variant="h5">Needs attention</Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 2 }}>
-          {selectedType ? `${selectedFolderTitle} · ` : ''}{todayOnly ? 'Detected today · ' : ''}Open and acknowledged alerts, emergencies first.
+          {selectedType ? `${selectedFolderTitle} · ` : ''}{todayOnly ? 'Detected today · ' : ''}Open and acknowledged alerts, newest first.
         </Typography>
-      {filteredAlerts.length === 0 ? (
+      {total === 0 ? (
         <EmptyState title="You are all caught up" description={`There are no alerts in ${selectedFolderTitle.toLocaleLowerCase()} to review.`} />
       ) : (
         <Stack spacing={1.5}>
-          {visibleAlerts.map((alert) => {
+          {pageItems.map((alert) => {
             const isSaving = reviewingId === alert.id;
             const emergency = isEmergency(alert);
             return (
@@ -513,10 +518,10 @@ export function AlertsPage() {
             );
           })}
           <AlertPagination
-            page={safeAttentionPage}
-            count={attentionPageCount}
-            onChange={(page) => {
-              setAttentionPage(page);
+            page={page}
+            count={pageCount}
+            onChange={(next) => {
+              setPage(next);
               attentionSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
             }}
           />
@@ -529,23 +534,24 @@ export function AlertsPage() {
       <Box ref={confirmedSectionRef} sx={{ pt: 1, scrollMarginTop: 96 }}>
         <Stack direction="row" justifyContent="space-between" alignItems="end" gap={2} sx={{ mb: 2 }}>
           <Box>
+            {pageLoading && <LinearProgress sx={{ mb: 1 }} />}
             <Typography variant="h5">Confirmed alerts</Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>Real incidents confirmed by the owner, retained for later review.</Typography>
           </Box>
-          <Chip size="small" color="success" variant="outlined" label={`${filteredConfirmedAlerts.length} confirmed`} />
+          <Chip size="small" color="success" variant="outlined" label={`${total} confirmed`} />
         </Stack>
-        {filteredConfirmedAlerts.length === 0 ? (
+        {total === 0 ? (
           <EmptyState title="No confirmed alerts yet" description={`Confirmed incidents in ${selectedFolderTitle.toLocaleLowerCase()} will appear here.`} />
         ) : (
           <Stack spacing={1.5}>
-            {visibleConfirmedAlerts.map((alert) => (
+            {pageItems.map((alert) => (
               <ConfirmedAlertCard key={alert.id} alert={alert} store={store} onOpen={() => setDetailAlert(alert)} />
             ))}
             <AlertPagination
-              page={safeConfirmedPage}
-              count={confirmedPageCount}
-              onChange={(page) => {
-                setConfirmedPage(page);
+              page={page}
+              count={pageCount}
+              onChange={(next) => {
+                setPage(next);
                 confirmedSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
               }}
             />

@@ -39,6 +39,10 @@ type cameraResponse struct {
 	SourceType string   `json:"sourceType"`
 	IsActive   bool     `json:"isActive"`
 	Pipelines  []string `json:"pipelines"`
+	// When the AI last processed a frame (UTC isoformat), and what that
+	// means: online | offline | unknown | inactive. See cameras.go.
+	LastFrameAt *string `json:"lastFrameAt"`
+	Status      string  `json:"status"`
 }
 
 type zoneResponse struct {

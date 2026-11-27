@@ -92,8 +92,13 @@ func (s *Server) listAlerts(w http.ResponseWriter, r *http.Request, user princip
 	if !s.requireRole(w, r.Context(), user.ID, storeID, roleOperator) {
 		return
 	}
-	query, values, limit, ok := buildAlertQuery(w, r.URL.Query(), storeID)
+	query, values, countQuery, countValues, limit, ok := buildAlertQuery(w, r.URL.Query(), storeID)
 	if !ok {
+		return
+	}
+	var total int
+	if err := s.db.QueryRow(r.Context(), countQuery, countValues...).Scan(&total); err != nil {
+		s.internalError(w, err)
 		return
 	}
 	rows, err := s.db.Query(r.Context(), query, values...)
@@ -122,7 +127,7 @@ func (s *Server) listAlerts(w http.ResponseWriter, r *http.Request, user princip
 		value := encodeAlertCursor(last.DetectedAt, last.ID)
 		nextCursor = &value
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": items, "nextCursor": nextCursor})
+	writeJSON(w, http.StatusOK, map[string]any{"items": items, "nextCursor": nextCursor, "total": total})
 }
 
 // The cursor is the last item's (opened_at, alert_id), exactly as stored.
@@ -147,38 +152,47 @@ func decodeAlertCursor(value string) (string, string, bool) {
 	return openedAt, alertID, true
 }
 
-func buildAlertQuery(w http.ResponseWriter, q url.Values, storeID string) (string, []any, int, bool) {
+// alertFilters turns the shared query parameters into SQL conditions:
+// status, severity and eventType take one value or a comma-separated list.
+// Used by the list (with a cursor) and the summary (without).
+func alertFilters(w http.ResponseWriter, q url.Values, storeID string) ([]string, []any, bool) {
 	conditions := []string{`a.store_id=$1`}
 	values := []any{storeID}
 	add := func(column string, value any) {
 		values = append(values, value)
 		conditions = append(conditions, column+`=$`+itoa(len(values)))
 	}
-	if value := q.Get("status"); value != "" {
-		if !oneOf(value, statusOpen, statusAcknowledged, statusConfirmed, statusDismissed) {
-			writeError(w, http.StatusBadRequest, "Bad Request", "Invalid alert status filter.")
-			return "", nil, 0, false
+	addList := func(column, name, message string, valid func(string) bool) bool {
+		raw := q.Get(name)
+		if raw == "" {
+			return true
 		}
-		add(`a.status`, value)
+		items := []string{}
+		for _, item := range strings.Split(raw, ",") {
+			item = strings.TrimSpace(item)
+			if item == "" || !valid(item) || len(items) >= 10 {
+				writeError(w, http.StatusBadRequest, "Bad Request", message)
+				return false
+			}
+			items = append(items, item)
+		}
+		values = append(values, items)
+		conditions = append(conditions, column+`=ANY($`+itoa(len(values))+`)`)
+		return true
 	}
-	if value := q.Get("severity"); value != "" {
-		if !oneOf(value, alertSeverities...) {
-			writeError(w, http.StatusBadRequest, "Bad Request", "Invalid alert severity filter.")
-			return "", nil, 0, false
-		}
-		add(`a.severity`, value)
-	}
-	if value := q.Get("eventType"); value != "" {
-		if !validLength(value, 1, 64) {
-			writeError(w, http.StatusBadRequest, "Bad Request", "Invalid alert type filter.")
-			return "", nil, 0, false
-		}
-		add(`a.event_type`, value)
+	if !addList(`a.status`, "status", "Invalid alert status filter.", func(v string) bool {
+		return oneOf(v, statusOpen, statusAcknowledged, statusConfirmed, statusDismissed)
+	}) || !addList(`a.severity`, "severity", "Invalid alert severity filter.", func(v string) bool {
+		return oneOf(v, alertSeverities...)
+	}) || !addList(`a.event_type`, "eventType", "Invalid alert type filter.", func(v string) bool {
+		return validLength(v, 1, 64)
+	}) {
+		return nil, nil, false
 	}
 	if value := q.Get("pipelineType"); value != "" {
 		if !validLength(value, 1, 64) {
 			writeError(w, http.StatusBadRequest, "Bad Request", "Invalid pipeline filter.")
-			return "", nil, 0, false
+			return nil, nil, false
 		}
 		add(`a.pipeline_type`, value)
 	}
@@ -190,7 +204,7 @@ func buildAlertQuery(w http.ResponseWriter, q url.Values, storeID string) (strin
 			parsed, err := time.Parse(time.RFC3339, value)
 			if err != nil {
 				writeError(w, http.StatusBadRequest, "Bad Request", name+" must be an ISO-8601 timestamp.")
-				return "", nil, 0, false
+				return nil, nil, false
 			}
 			values = append(values, parsed.UTC())
 			operator := ">="
@@ -200,11 +214,23 @@ func buildAlertQuery(w http.ResponseWriter, q url.Values, storeID string) (strin
 			conditions = append(conditions, `a.opened_at::timestamptz `+operator+` $`+itoa(len(values)))
 		}
 	}
+	return conditions, values, true
+}
+
+// buildAlertQuery returns the page query, the count query (same filters, no
+// cursor) with its arguments, and the page size.
+func buildAlertQuery(w http.ResponseWriter, q url.Values, storeID string) (string, []any, string, []any, int, bool) {
+	conditions, values, ok := alertFilters(w, q, storeID)
+	if !ok {
+		return "", nil, "", nil, 0, false
+	}
+	countQuery := `SELECT count(*) FROM alerts a WHERE ` + strings.Join(conditions, " AND ")
+	countValues := append([]any{}, values...)
 	if value := q.Get("cursor"); value != "" {
 		openedAt, alertID, ok := decodeAlertCursor(value)
 		if !ok {
 			writeError(w, http.StatusBadRequest, "Bad Request", "cursor is invalid.")
-			return "", nil, 0, false
+			return "", nil, "", nil, 0, false
 		}
 		values = append(values, openedAt, alertID)
 		conditions = append(conditions, `(a.opened_at, a.alert_id) < ($`+itoa(len(values)-1)+`, $`+itoa(len(values))+`)`)
@@ -214,13 +240,53 @@ func buildAlertQuery(w http.ResponseWriter, q url.Values, storeID string) (strin
 		parsed, err := strconv.Atoi(value)
 		if err != nil || parsed < 1 || parsed > 100 {
 			writeError(w, http.StatusBadRequest, "Bad Request", "limit must be between 1 and 100.")
-			return "", nil, 0, false
+			return "", nil, "", nil, 0, false
 		}
 		limit = parsed
 	}
 	values = append(values, limit+1)
 	query := alertSelect + ` WHERE ` + strings.Join(conditions, " AND ") + ` ORDER BY a.opened_at DESC, a.alert_id DESC LIMIT $` + itoa(len(values))
-	return query, values, limit, true
+	return query, values, countQuery, countValues, limit, true
+}
+
+// summarizeAlerts counts the store's alerts by status and event type, with
+// the same filters as the list (no cursor): the dashboard's totals and its
+// per-case counts, however many alerts there are.
+func (s *Server) summarizeAlerts(w http.ResponseWriter, r *http.Request, user principal) {
+	storeID := r.PathValue("storeId")
+	if !s.requireRole(w, r.Context(), user.ID, storeID, roleOperator) {
+		return
+	}
+	conditions, values, ok := alertFilters(w, r.URL.Query(), storeID)
+	if !ok {
+		return
+	}
+	rows, err := s.db.Query(r.Context(), `SELECT a.status, a.event_type, count(*) FROM alerts a WHERE `+
+		strings.Join(conditions, " AND ")+` GROUP BY 1, 2 ORDER BY 1, 2`, values...)
+	if err != nil {
+		s.internalError(w, err)
+		return
+	}
+	defer rows.Close()
+	type bucket struct {
+		Status    string `json:"status"`
+		EventType string `json:"eventType"`
+		Count     int    `json:"count"`
+	}
+	counts := []bucket{}
+	for rows.Next() {
+		var b bucket
+		if err := rows.Scan(&b.Status, &b.EventType, &b.Count); err != nil {
+			s.internalError(w, err)
+			return
+		}
+		counts = append(counts, b)
+	}
+	if err := rows.Err(); err != nil {
+		s.internalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"counts": counts})
 }
 
 func (s *Server) findAlert(w http.ResponseWriter, r *http.Request, user principal) {

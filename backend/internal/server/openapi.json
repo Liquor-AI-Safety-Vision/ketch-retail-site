@@ -482,40 +482,25 @@
             "name": "status",
             "in": "query",
             "schema": {
-              "type": "string",
-              "enum": [
-                "open",
-                "acknowledged",
-                "confirmed",
-                "dismissed"
-              ]
-            }
+              "type": "string"
+            },
+            "description": "One value or a comma-separated list."
           },
           {
             "name": "severity",
             "in": "query",
             "schema": {
-              "type": "string",
-              "enum": [
-                "warning",
-                "high",
-                "critical"
-              ]
-            }
+              "type": "string"
+            },
+            "description": "One value or a comma-separated list."
           },
           {
             "name": "eventType",
             "in": "query",
             "schema": {
-              "type": "string",
-              "enum": [
-                "suspected_cash_concealment",
-                "unknown_entry",
-                "staff_outside_schedule",
-                "watchlist_match",
-                "weapon_detected"
-              ]
-            }
+              "type": "string"
+            },
+            "description": "One value or a comma-separated list."
           },
           {
             "name": "pipelineType",
@@ -571,7 +556,7 @@
             "description": "Alert page"
           }
         },
-        "description": "Newest first by opened_at. Page with nextCursor (opaque)."
+        "description": "Newest first by opened_at. Page with nextCursor (opaque); total counts every alert matching the filters, independent of the page. status, severity and eventType accept a comma-separated list (up to 10), e.g. status=open,acknowledged."
       }
     },
     "/api/v1/stores/{storeId}/alerts/{alertId}": {
@@ -1459,6 +1444,86 @@
           },
           "503": {
             "description": "Live view disabled"
+          }
+        }
+      }
+    },
+    "/api/v1/stores/{storeId}/alerts/summary": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/StoreId"
+        }
+      ],
+      "get": {
+        "tags": [
+          "alerts"
+        ],
+        "summary": "Count alerts by status and event type",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "description": "operator or higher. Same filters as the list (status, severity, eventType, pipelineType, cameraId, from, to), no paging. Returns {counts: [{status, eventType, count}]}.",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "severity",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "eventType",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "pipelineType",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cameraId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Counts"
+          },
+          "404": {
+            "description": "Store not found for this user"
           }
         }
       }

@@ -77,6 +77,16 @@ func TestAccountsStoresAndCamerasOnTheAISchema(t *testing.T) {
 		len(cameras[0].Pipelines) != 1 || cameras[0].Pipelines[0] != "counter_cash_theft_v1" {
 		t.Fatalf("cameras = %+v", cameras)
 	}
+	// Online/offline comes from the AI's heartbeat in cameras.last_frame_at.
+	if cameras[0].Status != "unknown" || cameras[0].LastFrameAt != nil {
+		t.Fatalf("a camera the AI never reported: %+v", cameras[0])
+	}
+	api.exec(`UPDATE cameras SET last_frame_at=$1 WHERE camera_id='cam_a1'`, time.Now().UTC().Format("2006-01-02T15:04:05.000000+00:00"))
+	api.exec(`UPDATE cameras SET last_frame_at=$1 WHERE camera_id='cam_a2'`, time.Now().UTC().Add(-10*time.Minute).Format("2006-01-02T15:04:05.000000+00:00"))
+	doJSON(t, client, http.MethodGet, api.url("/api/v1/stores/store_a/cameras"), token, nil, http.StatusOK, &cameras)
+	if cameras[0].Status != "online" || cameras[1].Status != "offline" || cameras[0].LastFrameAt == nil {
+		t.Fatalf("heartbeat status: %+v", cameras)
+	}
 	doJSON(t, client, http.MethodGet, api.url("/api/v1/stores/store_a/cameras/cam_b1"), token, nil, http.StatusNotFound, nil)
 	var zones []zoneResponse
 	doJSON(t, client, http.MethodGet, api.url("/api/v1/stores/store_a/cameras/cam_a1/zones"), token, nil, http.StatusOK, &zones)

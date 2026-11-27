@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -31,13 +32,39 @@ type metadataZone struct {
 	PointsNorm [][]float64 `json:"points_norm"`
 }
 
-const cameraColumns = `camera_id, store_id, display_name, camera_type, source_type, is_active <> 0, metadata_json`
+const cameraColumns = `camera_id, store_id, display_name, camera_type, source_type, is_active <> 0, metadata_json, last_frame_at`
+
+// The AI refreshes cameras.last_frame_at about every 30 s while a camera's
+// frames flow (ai/src/runtime/business_tier.py, CAMERA_SEEN_S). A camera
+// silent for longer than this is offline: the stream dropped, or the AI is
+// not running.
+const cameraOfflineAfter = 2 * time.Minute
+
+// online | offline | unknown (the AI has never reported this camera) |
+// inactive (switched off in the manifest).
+func cameraStatus(isActive bool, lastFrameAt *string, now time.Time) string {
+	if !isActive {
+		return "inactive"
+	}
+	if lastFrameAt == nil {
+		return "unknown"
+	}
+	seen, err := time.Parse(time.RFC3339Nano, *lastFrameAt)
+	if err != nil {
+		return "unknown"
+	}
+	if now.Sub(seen) > cameraOfflineAfter {
+		return "offline"
+	}
+	return "online"
+}
 
 func scanCamera(row rowScanner, item *cameraResponse) error {
 	var rawMetadata string
-	if err := row.Scan(&item.ID, &item.StoreID, &item.Name, &item.CameraType, &item.SourceType, &item.IsActive, &rawMetadata); err != nil {
+	if err := row.Scan(&item.ID, &item.StoreID, &item.Name, &item.CameraType, &item.SourceType, &item.IsActive, &rawMetadata, &item.LastFrameAt); err != nil {
 		return err
 	}
+	item.Status = cameraStatus(item.IsActive, item.LastFrameAt, time.Now())
 	meta := parseCameraMetadata(rawMetadata)
 	item.Pipelines = meta.Pipelines
 	return nil
