@@ -19,8 +19,8 @@ const drawerWidth = 232;
 
 const navigation = [
   { label: 'Overview', to: '/dashboard', icon: <GridViewOutlinedIcon fontSize="small" /> },
-  { label: 'Alert', to: '/alerts', icon: <NotificationsActiveOutlinedIcon fontSize="small" /> },
-  { label: 'Camera', to: '/cameras', icon: <VideocamOutlinedIcon fontSize="small" /> },
+  { label: 'Alerts', to: '/alerts', icon: <NotificationsActiveOutlinedIcon fontSize="small" /> },
+  { label: 'Cameras', to: '/cameras', icon: <VideocamOutlinedIcon fontSize="small" /> },
 ];
 
 export function AppShell() {
@@ -87,9 +87,9 @@ export function AppShell() {
               color="text.primary"
               noWrap
               sx={{
-                fontSize: 13,
-                fontWeight: 650,
-                letterSpacing: '0.085em',
+                fontSize: 14,
+                fontWeight: 700,
+                letterSpacing: '0.08em',
                 lineHeight: 1.2,
               }}
             >
@@ -100,12 +100,17 @@ export function AppShell() {
               color="text.secondary"
               noWrap
               display="block"
-              sx={{ mt: 0.55, maxWidth: '100%', fontSize: 11.25, lineHeight: 1.25, letterSpacing: 0 }}
+              sx={{ mt: 0.55, maxWidth: '100%', fontSize: 12, lineHeight: 1.25, letterSpacing: 0 }}
             >
               Security dashboard
             </Typography>
           </Box>
         </Box>
+        {isDesktop && (
+          <IconButton onClick={toggleMode} aria-label={`Switch to ${mode === 'light' ? 'dark' : 'light'} mode`} size="small" sx={{ color: 'text.secondary', flexShrink: 0 }}>
+            {mode === 'light' ? <DarkModeOutlinedIcon fontSize="small" /> : <LightModeOutlinedIcon fontSize="small" />}
+          </IconButton>
+        )}
       </Box>
 
       <List component="nav" aria-label="Main navigation" disablePadding sx={{ px: 1.25 }}>
@@ -144,7 +149,7 @@ export function AppShell() {
               </ListItemIcon>
               <ListItemText
                 primary={item.label}
-                primaryTypographyProps={{ fontSize: 14, fontWeight: isActive ? 650 : 500, letterSpacing: '-0.01em' }}
+                primaryTypographyProps={{ fontSize: 14, fontWeight: isActive ? 600 : 400 }}
               />
             </ListItemButton>
           );
@@ -171,11 +176,10 @@ export function AppShell() {
           <ListItemIcon sx={{ minWidth: 31, color: 'inherit' }}>
             <ArrowBackRoundedIcon sx={{ fontSize: 18 }} />
           </ListItemIcon>
-          <ListItemText primary="Back to website" primaryTypographyProps={{ fontSize: 12.5, fontWeight: 550 }} />
+          <ListItemText primary="Back to website" primaryTypographyProps={{ fontSize: 14, fontWeight: 400 }} />
         </ListItemButton>
         <Divider sx={{ borderColor: 'divider', mb: 1.25 }} />
         <ListItemButton
-          aria-label="Open account menu"
           aria-haspopup="menu"
           aria-controls={accountMenuAnchor ? 'account-menu' : undefined}
           aria-expanded={accountMenuAnchor ? 'true' : undefined}
@@ -193,15 +197,15 @@ export function AppShell() {
         >
           <Avatar
             variant="rounded"
-            sx={{ width: 32, height: 32, borderRadius: 1.25, bgcolor: dark ? '#1B2922' : '#D8E2DB', color: 'primary.main', fontSize: 13, fontWeight: 750 }}
+            sx={{ width: 32, height: 32, borderRadius: 1.25, bgcolor: dark ? '#1B2922' : '#D8E2DB', color: 'primary.main', fontSize: 14, fontWeight: 700 }}
           >
             {user?.displayName.slice(0, 1).toUpperCase() ?? 'S'}
           </Avatar>
           <Box minWidth={0} sx={{ flex: 1, textAlign: 'left' }}>
-            <Typography variant="body2" fontWeight={650} color="text.primary" noWrap sx={{ fontSize: 12.75 }}>
+            <Typography variant="body2" fontWeight={600} color="text.primary" noWrap>
               {user?.displayName ?? 'Demo visitor'}
             </Typography>
-            <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11.25 }}>{isDemo ? 'Read-only demo' : store?.role ?? 'Signed in'}</Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ fontSize: 12 }}>{isDemo ? 'Read-only demo' : store?.role ?? 'Signed in'}</Typography>
           </Box>
           <MoreHorizRoundedIcon aria-hidden="true" sx={{ flexShrink: 0, color: 'text.secondary', fontSize: 20 }} />
         </ListItemButton>
@@ -227,19 +231,7 @@ export function AppShell() {
             }}
             sx={{ minHeight: 42 }}
           >
-            <ListItemText primary={isDemo ? 'Owner sign in' : 'Sign out'} primaryTypographyProps={{ fontSize: 13 }} />
-          </MenuItem>
-          <MenuItem
-            onClick={() => {
-              setAccountMenuAnchor(null);
-              toggleMode();
-            }}
-            sx={{ minHeight: 42 }}
-          >
-            <ListItemIcon>
-              {mode === 'light' ? <DarkModeOutlinedIcon fontSize="small" /> : <LightModeOutlinedIcon fontSize="small" />}
-            </ListItemIcon>
-            <ListItemText primary={`Switch to ${mode === 'light' ? 'dark' : 'light'} mode`} primaryTypographyProps={{ fontSize: 13 }} />
+            <ListItemText primary={isDemo ? 'Owner sign in' : 'Sign out'} primaryTypographyProps={{ fontSize: 14 }} />
           </MenuItem>
         </Menu>
       </Box>
@@ -247,7 +239,7 @@ export function AppShell() {
   );
 
   return (
-    <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: 'background.default', width: '100%', maxWidth: '100%', overflowX: 'hidden' }}>
+    <Box sx={{ display: 'flex', minHeight: '100dvh', bgcolor: 'background.default', width: '100%', maxWidth: '100%', overflowX: 'hidden' }}>
       <Box component="nav" sx={{ width: { md: drawerWidth }, flexShrink: { md: 0 } }}>
         <Drawer
           variant="temporary"
@@ -272,11 +264,11 @@ export function AppShell() {
           {drawer}
         </Drawer>
       </Box>
-      <Box component="main" sx={{ flexGrow: 1, minWidth: 0, minHeight: '100vh', bgcolor: 'transparent', display: 'flex', flexDirection: 'column' }}>
+      <Box component="main" sx={{ flexGrow: 1, minWidth: 0, minHeight: '100dvh', bgcolor: 'transparent', display: 'flex', flexDirection: 'column' }}>
         {!isDesktop && (
           <AppBar position="sticky" color="transparent" elevation={0} sx={{ backdropFilter: 'blur(18px)', borderBottom: '1px solid', borderColor: 'divider', bgcolor: dark ? 'rgba(11, 16, 14, 0.9)' : 'rgba(243, 245, 242, 0.92)' }}>
             <Toolbar sx={{ minHeight: 58, px: 2 }}>
-              <IconButton onClick={() => setIsMobileOpen(true)} edge="start" sx={{ color: 'text.primary', mr: 1 }}>
+              <IconButton onClick={() => setIsMobileOpen(true)} aria-label="Open navigation menu" aria-expanded={isMobileOpen} edge="start" sx={{ color: 'text.primary', mr: 1 }}>
                 <MenuIcon />
               </IconButton>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flex: 1, minWidth: 0 }}>
@@ -284,7 +276,7 @@ export function AppShell() {
                 <Typography
                   color="text.primary"
                   noWrap
-                  sx={{ fontSize: 12.5, fontWeight: 700, letterSpacing: '0.075em', lineHeight: 1 }}
+                  sx={{ fontSize: 14, fontWeight: 700, letterSpacing: '0.08em', lineHeight: 1 }}
                 >
                   LIQUOR STORE
                 </Typography>

@@ -23,7 +23,7 @@ export default function HeroSection() {
       <div className="relative z-10 mx-auto grid w-full max-w-[1280px] items-center gap-14 lg:grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)] lg:gap-16">
         <div className="max-w-[620px]">
           <div data-hero-kicker className="mb-7 flex items-center gap-4">
-            <span className="text-[11px] font-semibold uppercase tracking-[0.22em] text-teal-700">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-teal-700">
               Retail loss prevention
             </span>
             <span className="h-px w-12 bg-teal-600/45" />
@@ -51,7 +51,7 @@ export default function HeroSection() {
                 Book a pilot
               </LinkButton>
             </div>
-            <p className="mt-4 text-xs leading-relaxed text-ink-600/80">
+            <p className="mt-4 text-xs leading-relaxed text-ink-600">
               The demo is the public, read-only dashboard with sample store data — no sign-in required.
             </p>
           </div>
@@ -65,9 +65,9 @@ export default function HeroSection() {
             <div className="flex items-center justify-between border-b border-white/12 bg-[#0c1514] px-4 py-3 text-white">
               <div className="flex items-center gap-3">
                 <span className="h-2 w-2 rounded-full bg-[#79d5a5]" aria-hidden="true" />
-                <span className="text-[11px] font-semibold uppercase tracking-[0.17em]">Camera 06 / Counter</span>
+                <span className="text-[11px] font-semibold uppercase tracking-[0.08em]">Camera 06 / Counter</span>
               </div>
-              <span className="text-[10px] uppercase tracking-[0.16em] text-white/55">Sample camera view</span>
+              <span className="text-[11px] uppercase tracking-[0.08em] text-white/70">Sample camera view</span>
             </div>
 
             <div className="relative aspect-[16/10] overflow-hidden">
@@ -82,15 +82,15 @@ export default function HeroSection() {
               />
               <div className="absolute inset-x-0 bottom-0 z-10 grid grid-cols-2 border-t border-white/15 bg-black/55 text-white backdrop-blur-[2px] sm:grid-cols-3">
                 <div className="px-4 py-3">
-                  <p className="text-[9px] uppercase tracking-[0.18em] text-white/55">Zone</p>
+                  <p className="text-[11px] uppercase tracking-[0.08em] text-white/70">Zone</p>
                   <p className="mt-1 text-xs font-medium">Payment counter</p>
                 </div>
                 <div className="border-l border-white/15 px-4 py-3 sm:border-x">
-                  <p className="text-[9px] uppercase tracking-[0.18em] text-white/55">Tracking</p>
+                  <p className="text-[11px] uppercase tracking-[0.08em] text-white/70">Tracking</p>
                   <p className="mt-1 text-xs font-medium">Staff + customer</p>
                 </div>
                 <div className="hidden px-4 py-3 sm:block">
-                  <p className="text-[9px] uppercase tracking-[0.18em] text-white/55">State</p>
+                  <p className="text-[11px] uppercase tracking-[0.08em] text-white/70">State</p>
                   <p className="mt-1 text-xs font-medium">Drawer monitored</p>
                 </div>
               </div>

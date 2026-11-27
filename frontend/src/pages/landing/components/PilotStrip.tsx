@@ -48,7 +48,7 @@ export default function PilotStrip() {
             >
               <Icon size={22} weight="duotone" className="text-teal-700" aria-hidden="true" />
               <h3 className="text-base font-semibold tracking-[-0.02em] text-ink">
-                <span className="mr-2 text-xs text-ink-600/45">0{index + 1}</span>{title}
+                <span className="mr-2 text-xs text-ink-600">0{index + 1}</span>{title}
               </h3>
               <p className="col-start-2 text-sm leading-relaxed text-ink-600 md:col-start-3">{body}</p>
             </div>

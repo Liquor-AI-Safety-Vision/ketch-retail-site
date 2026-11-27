@@ -125,7 +125,7 @@ export default function StickyNav() {
       {/* Always rendered (hidden when closed) so aria-controls targets a real element. */}
       <div
         hidden={!open}
-        className="absolute inset-x-0 top-full border-b border-ink/10 bg-nav shadow-[0_20px_40px_-28px_rgba(10,30,28,0.5)] backdrop-blur-xl lg:hidden"
+        className="absolute inset-x-0 top-full border-b border-ink/10 bg-cream shadow-[0_20px_40px_-28px_rgba(10,30,28,0.5)] lg:hidden"
       >
         <nav id="landing-nav-menu" className="flex flex-col gap-1 px-5 py-5" aria-label="Section navigation">
           {links}

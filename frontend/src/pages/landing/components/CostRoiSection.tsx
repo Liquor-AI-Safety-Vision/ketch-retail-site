@@ -75,7 +75,7 @@ export default function CostRoiSection() {
           >
             <div className="flex items-center justify-between">
               <c.Icon size={24} weight="duotone" className="text-red" aria-hidden="true" />
-              <span aria-hidden="true" className="text-[10px] font-semibold tracking-[0.18em] text-ink-600/45">0{index + 1}</span>
+              <span aria-hidden="true" className="text-[11px] font-semibold tracking-[0.08em] text-ink-600">0{index + 1}</span>
             </div>
             <p className="mt-10 text-4xl font-semibold tracking-[-0.045em] text-ink">{c.stat}</p>
             <p className="mt-2 text-sm font-medium text-ink">{c.label}</p>
@@ -84,8 +84,8 @@ export default function CostRoiSection() {
               href={c.sourceHref}
               target="_blank"
               rel="noreferrer"
-              className="mt-auto inline-flex min-h-11 items-center self-start rounded-sm pt-7 text-[10px] font-medium uppercase
-                tracking-[0.08em] text-ink-600/80 underline decoration-ink/25 underline-offset-4 transition-colors hover:text-ink
+              className="mt-auto inline-flex min-h-11 items-center self-start rounded-sm pt-7 text-[11px] font-medium uppercase
+                tracking-[0.08em] text-ink-600 underline decoration-ink/25 underline-offset-4 transition-colors hover:text-ink
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600"
             >
               {c.source}
@@ -99,17 +99,17 @@ export default function CostRoiSection() {
         {/* Inputs */}
         <div className="border-b border-ink/10 p-7 lg:border-b-0 lg:border-r">
           <div className="flex flex-wrap items-center gap-3">
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-teal-700">
+            <p className="text-xs font-bold uppercase tracking-[0.08em] text-teal-700">
               Your numbers
             </p>
-            <span className="rounded-full border border-ink/15 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-600">
+            <span className="rounded-full border border-ink/15 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-600">
               Illustrative scenario
             </span>
           </div>
           <h3 className="mt-2 text-xl font-semibold tracking-tight text-ink">
             See it for your store
           </h3>
-          <p className="mt-2 text-xs leading-relaxed text-ink-600/80">
+          <p className="mt-2 text-xs leading-relaxed text-ink-600">
             An assumption-driven what-if, not a forecast and not a guaranteed return.
           </p>
 
@@ -128,7 +128,7 @@ export default function CostRoiSection() {
             className="mt-2 h-11 w-full cursor-pointer accent-teal-600"
             aria-label="Monthly sales in US dollars"
           />
-          <p className="mt-3 text-xs leading-relaxed text-ink-600/80">
+          <p className="mt-3 text-xs leading-relaxed text-ink-600">
             Estimated shrink applies the NRF survey's five-year average of 1.5% of annual
             retail sales to the revenue you enter. The same report lists a 1.4% FY2021 average.
             {' '}
@@ -157,7 +157,7 @@ export default function CostRoiSection() {
             className="mt-2 h-11 w-full cursor-pointer accent-teal-600"
             aria-label="Assumed avoidable share of total estimated shrink"
           />
-          <p className="mt-3 text-xs leading-relaxed text-ink-600/80">
+          <p className="mt-3 text-xs leading-relaxed text-ink-600">
             No published study verifies how much loss a monitored floor avoids, so this
             slider is your own assumption. It applies to the total estimated shrink above —
             adjust it to whatever you consider realistic.
@@ -185,7 +185,7 @@ export default function CostRoiSection() {
         </div>
       </div>
 
-      <p className="mt-5 max-w-[80ch] text-xs leading-relaxed text-ink-600/80">
+      <p className="mt-5 max-w-[80ch] text-xs leading-relaxed text-ink-600">
         The benchmark cards above are published industry averages from NACS, NRF, the FBI, and
         Jack L. Hayes — they describe the industry, not your store. The avoidable-share slider is
         an assumption with no published source, so the calculator output is an illustrative

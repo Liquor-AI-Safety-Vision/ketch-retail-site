@@ -9,8 +9,9 @@ import { useQueries, useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
-import { CameraEmptyState, InlineError, ScreenLoader, cameraAreaLabel, cameraCoverage } from '../components/common';
+import { CameraEmptyState, InlineError, ScreenLoader, cameraAreaLabel, cameraCoverage, formatAgo, formatDateTime } from '../components/common';
 import { getErrorMessage } from '../lib/api';
+import { useCameras } from '../lib/queries';
 import type { Camera, CameraFeed, CameraZone } from '../lib/types';
 
 interface FeedCard {
@@ -69,9 +70,9 @@ function ZoneOverlay({ zones }: { zones: CameraZone[] }) {
 
 const cameraStatusBadge: Record<string, string> = {
   online: 'ONLINE',
-  offline: 'OFFLINE',
-  unknown: 'NO DATA',
-  inactive: 'INACTIVE',
+  offline: 'NO SIGNAL',
+  unknown: 'NOT CONNECTED',
+  inactive: 'TURNED OFF',
 };
 
 function feedLabel(feed: CameraFeed | null, short: boolean) {
@@ -94,6 +95,7 @@ function FeedVideo({ feed, onSize, onError }: {
     const video = ref.current;
     if (!video) return;
     let destroyed = false;
+    let retryTimer: number | undefined;
     let cleanup = () => {};
     if (feed.kind === 'hls' && !video.canPlayType('application/vnd.apple.mpegurl')) {
       void import('hls.js').then(({ default: Hls }) => {
@@ -108,7 +110,9 @@ function FeedVideo({ feed, onSize, onError }: {
           if (!data.fatal) return;
           if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
             onError('Live stream unavailable. Retrying…');
-            window.setTimeout(() => hls.startLoad(), 3000);
+            // Cleared on close: a retry must not restart a destroyed player.
+            window.clearTimeout(retryTimer);
+            retryTimer = window.setTimeout(() => { if (!destroyed) hls.startLoad(); }, 3000);
           } else {
             hls.recoverMediaError();
           }
@@ -121,7 +125,7 @@ function FeedVideo({ feed, onSize, onError }: {
     } else {
       video.src = feed.videoUrl;
     }
-    return () => { destroyed = true; cleanup(); };
+    return () => { destroyed = true; window.clearTimeout(retryTimer); cleanup(); };
   }, [feed.kind, feed.videoUrl, onError]);
   return (
     <Box
@@ -144,6 +148,42 @@ function FeedVideo({ feed, onSize, onError }: {
   );
 }
 
+function statusHeadline(camera: Camera) {
+  if (camera.status === 'inactive') return 'CAMERA TURNED OFF';
+  if (camera.status === 'unknown') return 'NEVER CONNECTED';
+  const ago = formatAgo(camera.lastFrameAt);
+  return ago ? `NO SIGNAL · LAST FRAME ${ago.toUpperCase()}` : 'NO SIGNAL';
+}
+
+// What the owner is told when there is no picture: the real state, never
+// reassurance that the camera is being watched when it is not.
+function cameraNotice(camera: Camera): { title: string; detail: string } {
+  switch (camera.status) {
+    case 'online':
+      return {
+        title: 'Live view is not set up on this server.',
+        detail: 'The AI is receiving and analysing this camera. Its alerts and clips appear under Alerts.',
+      };
+    case 'offline': {
+      const ago = formatAgo(camera.lastFrameAt);
+      return {
+        title: ago ? `No signal from this camera since ${formatDateTime(camera.lastFrameAt)} (${ago}).` : 'No signal from this camera.',
+        detail: 'The AI is not receiving its video, so nothing it sees raises an alert. Check the camera\'s power and network cable, and that the AI server is running.',
+      };
+    }
+    case 'unknown':
+      return {
+        title: 'This camera has never sent video to the AI.',
+        detail: 'Nothing it sees raises an alert yet. Check that the AI server has been started with this store\'s camera list and that the camera address is correct.',
+      };
+    default:
+      return {
+        title: 'This camera is turned off.',
+        detail: 'It is disabled in the store\'s configuration and is not being analysed.',
+      };
+  }
+}
+
 export function CamerasPage() {
   const restoredScrollRef = useRef(false);
   const { store, api } = useAuth();
@@ -164,14 +204,7 @@ export function CamerasPage() {
     isLoading,
     isFetching,
     refetch,
-  } = useQuery({
-    queryKey: ['cameras', store?.id],
-    queryFn: () => api.getCameras(store!.id),
-    enabled: Boolean(store),
-    staleTime: 30_000,
-    gcTime: 10 * 60_000,
-    refetchInterval: 60_000,
-  });
+  } = useCameras();
 
   const feedQueries = useQueries({
     queries: cameras.map((camera) => ({
@@ -254,7 +287,7 @@ export function CamerasPage() {
     <Stack spacing={3} sx={{ overflowX: 'hidden' }}>
       <Box sx={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'end', gap: 2 }}>
         <Box sx={{ maxWidth: 760 }}>
-          <Typography component="h1" variant="h4">Live camera</Typography>
+          <Typography component="h1" variant="h4">Cameras</Typography>
           <Typography color="text.secondary" sx={{ mt: 0.75 }}>
             Select a camera to open its feed and the zones its AI pipelines watch.
           </Typography>
@@ -342,7 +375,6 @@ export function CamerasPage() {
               <Card key={feed.camera.id} className="live-feed" sx={{ overflow: 'hidden', '&:hover': { borderColor: 'primary.main' }, transition: 'border-color 160ms ease' }}>
                 <CardActionArea
                   onClick={() => setSelectedFeedId(feed.camera.id)}
-                  aria-label={`Open camera view for ${feed.camera.name}`}
                   sx={{ touchAction: 'pan-y', '&:hover': { bgcolor: 'rgba(216,163,93,.025)' } }}
                 >
                   <Box sx={{ position: 'relative', aspectRatio: '16 / 9', bgcolor: '#050606', overflow: 'hidden' }}>
@@ -353,17 +385,17 @@ export function CamerasPage() {
                         <VideocamOffOutlinedIcon sx={{ fontSize: 34 }} />
                       </Box>
                     )}
-                    <Box sx={{ position: 'absolute', top: 10, left: 10, display: 'flex', alignItems: 'center', gap: 0.6, bgcolor: 'rgba(9,11,12,.82)', color: online ? '#9BD2AC' : '#C6C9C7', px: 1, py: 0.45, borderRadius: 0.5, fontSize: 10, fontWeight: 750, letterSpacing: '.08em' }}>
+                    <Box sx={{ position: 'absolute', top: 10, left: 10, display: 'flex', alignItems: 'center', gap: 0.6, bgcolor: 'rgba(9,11,12,.82)', color: online ? '#9BD2AC' : '#C6C9C7', px: 1, py: 0.45, borderRadius: 0.5, fontSize: 12, fontWeight: 700, letterSpacing: '0.08em' }}>
                       <FiberManualRecordIcon sx={{ fontSize: 9 }} />
                       {online ? feedLabel(feed.feed, true) : cameraStatusBadge[feed.camera.status]}
                     </Box>
-                    <Box sx={{ position: 'absolute', right: 10, bottom: 9, display: 'flex', alignItems: 'center', gap: 0.65, px: 0.8, py: 0.35, bgcolor: 'rgba(9,11,12,.78)', color: '#D5D8D6', fontSize: 10, fontFamily: 'monospace' }}>
+                    <Box sx={{ position: 'absolute', right: 10, bottom: 9, display: 'flex', alignItems: 'center', gap: 0.65, px: 0.8, py: 0.35, bgcolor: 'rgba(9,11,12,.78)', color: '#D5D8D6', fontSize: 12, fontWeight: 600, letterSpacing: '0.08em', fontVariantNumeric: 'tabular-nums' }}>
                       <OpenInFullIcon sx={{ fontSize: 12 }} />
                       CAM {String(feed.channelNumber).padStart(2, '0')}
                     </Box>
                   </Box>
                   <Box sx={{ px: 1.75, py: 1.4, textAlign: 'left' }}>
-                    <Typography fontWeight={650} noWrap>{feed.camera.name}</Typography>
+                    <Typography fontWeight={600} noWrap>{feed.camera.name}</Typography>
                     <Typography variant="caption" color="text.secondary" noWrap display="block" sx={{ mt: 0.25 }}>{feed.area} · {feed.coverage}</Typography>
                   </Box>
                 </CardActionArea>
@@ -386,7 +418,7 @@ export function CamerasPage() {
         }}
       >
         {selectedFeed && (
-          <Box sx={{ position: 'relative', bgcolor: '#020303', aspectRatio: '16 / 9', maxHeight: 'calc(100vh - 170px)', width: '100%' }}>
+          <Box sx={{ position: 'relative', bgcolor: '#020303', aspectRatio: '16 / 9', maxHeight: 'calc(100dvh - 170px)', width: '100%' }}>
             {selectedFeedOnline && selectedFeed.feed ? (
               /* The frame keeps the video's own aspect ratio, so the zones --
                  fractions of the frame -- land on the picture exactly. */
@@ -403,25 +435,26 @@ export function CamerasPage() {
                   {showZones && selectedZones.length > 0 && <ZoneOverlay zones={selectedZones} />}
                 </Box>
                 {playError && (
-                  <Typography sx={{ position: 'absolute', bottom: 14, left: 18, right: 18, color: '#E6B3AE', fontSize: 13 }}>{playError}</Typography>
+                  <Typography sx={{ position: 'absolute', bottom: 14, left: 18, right: 18, color: '#E6B3AE', fontSize: 14 }}>{playError}</Typography>
                 )}
               </Box>
             ) : (
               <Box sx={{ width: '100%', height: '100%', display: 'grid', placeItems: 'center', color: '#8A918F', textAlign: 'center', px: 3 }}>
                 <Box>
                   <VideocamOffOutlinedIcon sx={{ fontSize: 44 }} />
-                  <Typography sx={{ mt: 1, color: 'inherit' }}>
-                    {selectedFeedOnline ? 'Live view is not enabled for this store yet.' : 'This camera is inactive.'}
-                  </Typography>
-                  <Typography variant="body2" sx={{ mt: 0.5, color: '#6A716F' }}>
-                    The AI service is still analysing it; alerts and their clips appear under Alerts.
+                  <Typography sx={{ mt: 1, color: '#E4E7E5', fontWeight: 600 }}>{cameraNotice(selectedFeed.camera).title}</Typography>
+                  <Typography variant="body2" sx={{ mt: 0.75, color: '#AEB5B2', maxWidth: 520, mx: 'auto', lineHeight: 1.6 }}>
+                    {cameraNotice(selectedFeed.camera).detail}
                   </Typography>
                 </Box>
               </Box>
             )}
             <Box sx={{ position: 'absolute', inset: 0, pointerEvents: 'none', background: 'linear-gradient(180deg, rgba(0,0,0,.52), transparent 22%)' }} />
-            <Box sx={{ position: 'absolute', top: 16, left: 18, display: 'flex', alignItems: 'center', gap: 0.8, color: selectedFeedOnline ? '#A8DAB7' : '#C6C9C7', fontSize: 11, fontWeight: 800, letterSpacing: '.12em' }}>
-              <FiberManualRecordIcon sx={{ fontSize: 10 }} /> {!selectedFeedOnline ? 'CAMERA INACTIVE' : feedLabel(selectedFeed.feed, false)}
+            <Box sx={{ position: 'absolute', top: 16, left: 18, right: 64, display: 'flex', alignItems: 'center', gap: 0.8, color: selectedFeed.camera.status === 'online' ? '#A8DAB7' : '#F0B4A8', fontSize: 12, fontWeight: 700, letterSpacing: '0.08em' }}>
+              <FiberManualRecordIcon sx={{ fontSize: 10 }} />
+              <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {selectedFeed.camera.status === 'online' ? feedLabel(selectedFeed.feed, false) : statusHeadline(selectedFeed.camera)}
+              </Box>
             </Box>
             <IconButton onClick={() => setSelectedFeedId(null)} aria-label="Close live view" sx={{ position: 'absolute', top: 9, right: 10, color: '#FFF', bgcolor: 'rgba(0,0,0,.5)', '&:hover': { bgcolor: 'rgba(0,0,0,.78)' } }}>
               <CloseIcon />
@@ -433,15 +466,15 @@ export function CamerasPage() {
              bottom-left corner, so the caption sits under the frame instead of
              on top of it, and repeats only what the footage does not carry. */
           <Box sx={{ px: 2.25, py: 1.2, bgcolor: '#050606', borderTop: '1px solid #232927', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap' }}>
-            <Typography noWrap sx={{ color: 'rgba(255,255,255,.78)', fontSize: 13 }}>{selectedFeed.camera.name} · {selectedFeed.coverage}</Typography>
+            <Typography noWrap sx={{ color: 'rgba(255,255,255,.78)', fontSize: 14 }}>{selectedFeed.camera.name} · {selectedFeed.coverage}</Typography>
             {selectedZones.length > 0 && !selectedFeed.feed && (
-              <Typography sx={{ color: 'rgba(255,255,255,.6)', fontSize: 13 }}>{selectedZones.length} AI zones configured</Typography>
+              <Typography sx={{ color: 'rgba(255,255,255,.72)', fontSize: 14 }}>{selectedZones.length} AI zones configured</Typography>
             )}
             {selectedZones.length > 0 && selectedFeed.feed && (
               <FormControlLabel
                 control={<Switch size="small" checked={showZones} onChange={(event) => setShowZones(event.target.checked)} />}
                 label={`AI zones (${selectedZones.length})`}
-                sx={{ color: 'rgba(255,255,255,.78)', mr: 0, '& .MuiFormControlLabel-label': { fontSize: 13 } }}
+                sx={{ color: 'rgba(255,255,255,.78)', mr: 0, '& .MuiFormControlLabel-label': { fontSize: 14 } }}
               />
             )}
           </Box>

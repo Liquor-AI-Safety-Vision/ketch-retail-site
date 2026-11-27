@@ -2,6 +2,7 @@ import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import VideocamOffOutlinedIcon from '@mui/icons-material/VideocamOffOutlined';
 import VideocamOutlinedIcon from '@mui/icons-material/VideocamOutlined';
 import { Alert, Box, Chip, Paper, Skeleton, Stack, Typography } from '@mui/material';
+import { alpha, useTheme } from '@mui/material/styles';
 import type { AlertSeverity, AlertStatus } from '../lib/types';
 
 export function ScreenLoader({ label = 'Loading dashboard…' }: { label?: string }) {
@@ -50,19 +51,73 @@ export const alertStatusLabels: Record<AlertStatus, string> = {
   dismissed: 'False alarm',
 };
 
+// Status is about the owner's decision, so it never borrows the severity
+// colours: neutral while undecided, green once confirmed.
 export function AlertStatusChip({ status }: { status: AlertStatus }) {
-  const colors: Record<AlertStatus, 'error' | 'info' | 'default' | 'success'> = {
-    open: 'error',
+  const colors: Record<AlertStatus, 'info' | 'default' | 'success'> = {
+    open: 'default',
     acknowledged: 'info',
     confirmed: 'success',
     dismissed: 'default',
   };
-  return <Chip size="small" color={colors[status] ?? 'default'} label={alertStatusLabels[status] ?? toTitle(status)} />;
+  return (
+    <Chip
+      size="small"
+      variant={status === 'open' ? 'filled' : 'outlined'}
+      color={colors[status] ?? 'default'}
+      label={alertStatusLabels[status] ?? toTitle(status)}
+    />
+  );
 }
 
+// One severity scale everywhere: warning amber, high orange, critical red.
+const severityColors: Record<AlertSeverity, { light: string; dark: string }> = {
+  warning: { light: '#8A5A00', dark: '#E2B33F' },
+  high: { light: '#B4470F', dark: '#F08A4B' },
+  critical: { light: '#B42318', dark: '#F07167' },
+};
+
+export function severityColor(severity: AlertSeverity, mode: 'light' | 'dark') {
+  return (severityColors[severity] ?? severityColors.warning)[mode];
+}
+
+const severityLabels: Record<AlertSeverity, string> = { warning: 'Warning', high: 'High', critical: 'Critical' };
+
 export function SeverityChip({ severity }: { severity: AlertSeverity }) {
-  const color = severity === 'critical' ? 'error' : severity === 'high' ? 'warning' : 'default';
-  return <Chip size="small" variant="outlined" color={color} label={toTitle(severity)} />;
+  const theme = useTheme();
+  const color = severityColor(severity, theme.palette.mode);
+  return (
+    <Chip
+      size="small"
+      variant="outlined"
+      label={severityLabels[severity] ?? toTitle(severity)}
+      sx={{
+        color,
+        borderColor: alpha(color, 0.55),
+        bgcolor: alpha(color, theme.palette.mode === 'dark' ? 0.14 : 0.08),
+        ...(severity === 'critical' && { bgcolor: color, borderColor: color, color: theme.palette.mode === 'dark' ? '#1A0B09' : '#FFFFFF' }),
+      }}
+    />
+  );
+}
+
+// Why the AI raised an alert, in an owner's words. Codes without a plain
+// meaning for an owner are kept out of the main view (technical details).
+const reasonLabels: Record<string, string> = {
+  ZONE_ENTRY_CONFIRMED: 'Entered the restricted area',
+  UNKNOWN_PERSON_ENTERED_STORAGE: 'Person not recognised as staff',
+  STAFF_ENTERED_OUTSIDE_ALLOWED_WINDOW: 'Outside the staff member\'s allowed hours',
+  OUTSIDE_ALLOWED_WINDOW: 'Outside allowed hours',
+  WATCHLIST_FACE_MATCHED: 'Face matched the watchlist',
+  UNKNOWN_FACE: 'Face not recognised',
+  NO_FACE_CAPTURED: 'No usable face captured',
+  FACE_IDENTIFICATION_FAILED: 'Face could not be identified',
+  DRAWER_OPEN_CONFIRMED: 'Cash drawer was open',
+  NO_CUSTOMER_AT_STATION: 'No customer at the counter',
+};
+
+export function reasonLabel(code: string): string | null {
+  return reasonLabels[code] ?? null;
 }
 
 // One title per event type the AI pipelines emit (ai/src/pipelines).
@@ -75,6 +130,19 @@ const eventTitles: Record<string, string> = {
 };
 
 export const knownEventTypes = Object.keys(eventTitles);
+
+/** "3 min ago", "2 h ago", "5 days ago". */
+export function formatAgo(value: string | null | undefined, now = Date.now()) {
+  if (!value) return null;
+  const at = new Date(value).getTime();
+  if (Number.isNaN(at)) return null;
+  const minutes = Math.max(0, Math.round((now - at) / 60_000));
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 48) return `${hours} h ago`;
+  return `${Math.round(hours / 24)} days ago`;
+}
 
 export function formatDateTime(value: string | null | undefined) {
   if (!value) return 'Unavailable';

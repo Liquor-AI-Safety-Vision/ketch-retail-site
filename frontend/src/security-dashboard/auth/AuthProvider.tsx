@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { api, type DashboardApi } from '../lib/api';
 import { demoApi, demoStore } from '../lib/demoApi';
 import type { CurrentUser, Store } from '../lib/types';
@@ -42,6 +43,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(session.user);
     setStore(firstStore);
   }, [queryClient]);
+
+  // A session that dies mid-use (expired, revoked) ends here: cached store
+  // data is dropped and the owner is sent to sign in, with a reason.
+  const navigate = useNavigate();
+  useEffect(() => {
+    api.onSessionExpired = () => {
+      rememberOwnerSignIn(false);
+      void queryClient.cancelQueries();
+      queryClient.clear();
+      setUser(null);
+      setStore(null);
+      navigate('/login', { replace: true, state: { expired: true } });
+    };
+    return () => { api.onSessionExpired = null; };
+  }, [navigate, queryClient]);
 
   useEffect(() => {
     void (async () => {

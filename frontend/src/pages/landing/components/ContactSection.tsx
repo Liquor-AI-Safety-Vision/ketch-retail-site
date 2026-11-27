@@ -42,7 +42,7 @@ export default function ContactSection() {
             </div>
 
             <div className="mt-8 flex flex-col gap-3 border-t border-ink/10 pt-6">
-              <p className="text-xs uppercase tracking-[0.14em] text-ink-600">Prefer to write directly?</p>
+              <p className="text-xs uppercase tracking-[0.08em] text-ink-600">Prefer to write directly?</p>
               <a
                 href="mailto:info@ketchenterprise.net"
                 className="flex min-h-11 items-center gap-3 rounded-sm text-sm text-ink-600 transition-colors hover:text-ink
@@ -108,7 +108,7 @@ export default function ContactSection() {
             </div>
             <div className="flex flex-col gap-1.5">
               <label htmlFor="message" className="text-xs font-semibold text-ink-600 uppercase tracking-wide">
-                Message <span className="text-ink-600/50 font-normal normal-case tracking-normal">(optional)</span>
+                Message <span className="text-ink-600 font-normal normal-case tracking-normal">(optional)</span>
               </label>
               <textarea
                 id="message"
@@ -130,7 +130,7 @@ export default function ContactSection() {
             >
               Continue in your email app
             </button>
-            <p className="text-xs leading-relaxed text-ink-600/80">
+            <p className="text-xs leading-relaxed text-ink-600">
               This site does not send the message itself. The button opens a pre-filled draft in
               your own email app — review it and press send there. Only what you type above goes
               into the draft; no marketing list, no third-party CRM.

@@ -24,6 +24,8 @@ class ApiClient implements DashboardApi {
   readonly readOnly = false;
   private accessToken: string | null = null;
   private refreshPromise: Promise<AuthSession> | null = null;
+  /** Called when a signed-in session can no longer be refreshed. */
+  onSessionExpired: (() => void) | null = null;
 
   async login(email: string, password: string) {
     const session = await this.rawRequest<AuthSession>('/auth/login', {
@@ -124,8 +126,19 @@ class ApiClient implements DashboardApi {
     try {
       return await this.rawRequest<T>(path, options, true);
     } catch (error) {
-      if (retry && error instanceof ApiError && error.status === 401) {
-        await this.refresh();
+      if (retry && error instanceof ApiError && error.status === 401 && this.accessToken) {
+        try {
+          await this.refresh();
+        } catch (refreshError) {
+          // The session is over (expired, revoked, signed out elsewhere):
+          // tell the app once, so it can send the owner to sign in again
+          // instead of leaving every page showing an error.
+          if (refreshError instanceof ApiError && (refreshError.status === 401 || refreshError.status === 403)) {
+            this.accessToken = null;
+            this.onSessionExpired?.();
+          }
+          throw refreshError;
+        }
         return this.request<T>(path, options, false);
       }
       throw error;

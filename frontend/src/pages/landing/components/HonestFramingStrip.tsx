@@ -27,7 +27,7 @@ export default function HonestFramingStrip() {
           >
             <div className="flex items-center gap-3 text-teal-700">
               <Icon size={21} weight="duotone" aria-hidden="true" />
-              <span className="text-[10px] font-semibold uppercase tracking-[0.2em]">{label}</span>
+              <span className="text-[11px] font-semibold uppercase tracking-[0.08em]">{label}</span>
             </div>
             <h2 className="mt-8 max-w-[18ch] text-2xl font-semibold leading-tight tracking-[-0.035em] text-ink md:text-3xl">{title}</h2>
             <p className="mt-4 max-w-[52ch] text-sm leading-relaxed text-ink-600 md:text-base">{body}</p>

@@ -6,12 +6,12 @@ import ReplayIcon from '@mui/icons-material/Replay';
 import VideocamOutlinedIcon from '@mui/icons-material/VideocamOutlined';
 import { Box, Button, Paper, Stack, Typography } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
-import { useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
 import { InlineError, ScreenLoader } from '../components/common';
 import { getErrorMessage } from '../lib/api';
+import { startOfToday, useAlertSummary, useCameras } from '../lib/queries';
 import type { AlertSummaryCount, Camera } from '../lib/types';
 
 interface Metric {
@@ -35,24 +35,20 @@ function countOf(counts: AlertSummaryCount[], statuses: string[]) {
 
 export function DashboardPage() {
   const theme = useTheme();
-  const { store, api } = useAuth();
 
-  const { data, error, isLoading, isFetching, refetch } = useQuery({
-    queryKey: ['overview', store?.id],
-    queryFn: async (): Promise<OverviewData> => {
-      const midnight = new Date();
-      midnight.setHours(0, 0, 0, 0);
-      const [cameras, all, today] = await Promise.all([
-        api.getCameras(store!.id),
-        api.getAlertSummary(store!.id),
-        api.getAlertSummary(store!.id, { from: midnight.toISOString() }),
-      ]);
-      return { cameras, all: all.counts, today: today.counts };
-    },
-    enabled: Boolean(store),
-    staleTime: 15_000,
-    refetchInterval: 30_000,
-  });
+  const { store } = useAuth();
+  // Same cache entries as the Cameras and Alerts pages: no duplicate requests.
+  const cameras = useCameras({ refetchInterval: 30_000 });
+  const all = useAlertSummary();
+  const today = useAlertSummary(startOfToday());
+  const queries = [cameras, all, today];
+  const isLoading = queries.some((query) => query.isLoading);
+  const isFetching = queries.some((query) => query.isFetching);
+  const error = queries.find((query) => query.error)?.error ?? null;
+  const refetch = () => Promise.all(queries.map((query) => query.refetch()));
+  const data = useMemo<OverviewData | undefined>(() => (cameras.data && all.data && today.data
+    ? { cameras: cameras.data, all: all.data, today: today.data }
+    : undefined), [cameras.data, all.data, today.data]);
 
   const metrics = useMemo<Metric[]>(() => {
     const cameras = data?.cameras ?? [];
@@ -74,7 +70,7 @@ export function DashboardPage() {
       {
         label: 'Cameras online',
         value: `${onlineTotal}/${cameraTotal}`,
-        helper: onlineTotal === cameraTotal ? 'All cameras are being analysed' : `${cameraTotal - onlineTotal} without signal`,
+        helper: onlineTotal === cameraTotal ? 'All cameras are being analysed' : `${cameraTotal - onlineTotal} with no signal: not being analysed`,
         icon: <VideocamOutlinedIcon />,
         tone: onlineTotal === cameraTotal ? theme.palette.success.main : theme.palette.warning.main,
         to: '/cameras',
@@ -160,7 +156,7 @@ export function DashboardPage() {
           }}
         >
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
-            <Typography color="text.secondary" fontWeight={650}>{priorityMetric.label}</Typography>
+            <Typography color="text.secondary" fontWeight={600}>{priorityMetric.label}</Typography>
             <Box sx={{ color: priorityMetric.tone, display: 'grid', placeItems: 'center', '& svg': { fontSize: 25 } }}>
               {priorityMetric.icon}
             </Box>
@@ -170,16 +166,16 @@ export function DashboardPage() {
             <Typography
               sx={{
                 color: priorityMetric.tone,
-                fontSize: { xs: 68, md: 88 },
+                fontSize: { xs: 52, md: 88 },
                 lineHeight: 0.9,
-                letterSpacing: '-0.065em',
-                fontWeight: 650,
+                letterSpacing: '-0.04em',
+                fontWeight: 600,
                 fontVariantNumeric: 'tabular-nums',
               }}
             >
               {priorityMetric.value}
             </Typography>
-            <Typography sx={{ mt: 2.5, maxWidth: 310, fontSize: { xs: 20, md: 23 }, lineHeight: 1.25, fontWeight: 620, letterSpacing: '-0.025em' }}>
+            <Typography sx={{ mt: 2.5, maxWidth: 310, fontSize: 20, lineHeight: 1.3, fontWeight: 600, letterSpacing: '-0.01em' }}>
               {priorityMetric.helper}
             </Typography>
             <Box sx={{ mt: 3, display: 'flex', alignItems: 'center', gap: 0.75, color: priorityMetric.tone }}>
@@ -221,16 +217,16 @@ export function DashboardPage() {
               <Box sx={{ mt: 'auto', pt: 4 }}>
                 <Typography
                   sx={{
-                    fontSize: { xs: 46, md: 52 },
+                    fontSize: { xs: 34, md: 52 },
                     lineHeight: 1,
-                    letterSpacing: '-0.055em',
-                    fontWeight: 640,
+                    letterSpacing: '-0.03em',
+                    fontWeight: 600,
                     fontVariantNumeric: 'tabular-nums',
                   }}
                 >
                   {metric.value}
                 </Typography>
-                <Typography fontWeight={650} sx={{ mt: 2 }}>{metric.label}</Typography>
+                <Typography fontWeight={600} sx={{ mt: 2 }}>{metric.label}</Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 0.65, lineHeight: 1.45 }}>
                   {metric.helper}
                 </Typography>

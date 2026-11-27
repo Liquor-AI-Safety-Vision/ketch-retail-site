@@ -15,7 +15,7 @@ export default function StatStrip() {
             key={item.label}
             className={`px-4 py-7 md:px-7 md:py-8 ${index % 2 === 1 ? 'border-l border-band-border' : ''} ${index > 1 ? 'border-t border-band-border' : ''} ${index > 0 ? 'md:border-l md:border-band-border' : ''} md:border-t-0`}
           >
-            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-band-faint">{item.label}</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-band-faint">{item.label}</p>
             <p className="mt-2 text-base font-medium tracking-[-0.01em] text-band-text md:text-lg">{item.value}</p>
           </div>
         ))}

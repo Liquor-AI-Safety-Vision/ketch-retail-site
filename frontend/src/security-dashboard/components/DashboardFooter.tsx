@@ -26,10 +26,10 @@ export function DashboardFooter() {
       >
         <Box sx={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
           <Box minWidth={0}>
-            <Typography sx={{ color: 'text.primary', fontSize: 12.5, fontWeight: 650, lineHeight: 1.25 }}>
+            <Typography sx={{ color: 'text.primary', fontSize: 14, fontWeight: 600, lineHeight: 1.25 }}>
               Ketch Enterprise <Box component="span" sx={{ color: 'primary.main' }}>AI</Box>
             </Typography>
-            <Typography sx={{ color: 'text.secondary', fontSize: 11.25, lineHeight: 1.35 }}>
+            <Typography sx={{ color: 'text.secondary', fontSize: 12, lineHeight: 1.35 }}>
               Retail loss prevention
             </Typography>
           </Box>
@@ -44,11 +44,11 @@ export function DashboardFooter() {
             color: 'text.secondary',
           }}
         >
-          <Typography sx={{ fontSize: 11.25 }}>Runs fully on-prem.</Typography>
+          <Typography sx={{ fontSize: 12 }}>Runs fully on-prem.</Typography>
           <Divider orientation="vertical" flexItem sx={{ display: { xs: 'none', sm: 'block' } }} />
-          <Typography sx={{ fontSize: 11.25 }}>Video stays in your building.</Typography>
+          <Typography sx={{ fontSize: 12 }}>Video stays in your building.</Typography>
           <Divider orientation="vertical" flexItem sx={{ display: { xs: 'none', md: 'block' } }} />
-          <Typography sx={{ width: { xs: '100%', md: 'auto' }, fontSize: 11.25, color: 'text.disabled' }}>
+          <Typography sx={{ width: { xs: '100%', md: 'auto' }, fontSize: 12, color: 'text.secondary' }}>
             © 2026 Ketch Enterprise AI
           </Typography>
         </Box>

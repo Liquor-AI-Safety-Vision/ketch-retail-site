@@ -45,7 +45,7 @@ export default function CoverageBand() {
           >
             <div className="flex items-center justify-between">
               <Icon size={26} weight="duotone" className="text-band-accent" aria-hidden="true" />
-              <span className="text-[10px] font-semibold tracking-[0.2em] text-band-faint">{index}</span>
+              <span className="text-[11px] font-semibold tracking-[0.08em] text-band-faint">{index}</span>
             </div>
             <h3 className="mt-12 text-xl font-semibold tracking-[-0.025em] text-band-text">{title}</h3>
             <p className="mt-3 max-w-[36ch] text-sm leading-relaxed text-band-muted">{body}</p>
