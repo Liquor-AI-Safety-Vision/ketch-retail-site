@@ -9,8 +9,7 @@
     "test:security": "node --experimental-strip-types --test tests/*.test.mjs",
     "test:browser": "node tests/browser-security.mjs",
     "lint": "eslint .",
-    "preview": "vite preview",
-    "deploy": "npm run build && npx wrangler pages deploy dist --project-name=ketch-enterprise --branch=main"
+    "preview": "vite preview"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",

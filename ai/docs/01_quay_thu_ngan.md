@@ -893,7 +893,7 @@ không di chuyển giữa chừng, và `TillRegistry` chỉ ghi nhận toạ đ�
    | | chia camera | trong 1 nhóm |
    |---|---|---|
    | Đường monolithic (`supervisor.py`, **đã gỡ 01/09/2026**) | `shards[i % num_workers]` | `ThreadPoolExecutor` |
-   | Đường split (`run_split_pipeline.py`) | `_shard(specs, businesses)` = `items[i::n]` | `ThreadPoolExecutor`, [business_tier.py](../ai/src/runtime/business_tier.py) |
+   | Đường split (`run_split_pipeline.py`) | `_shard(specs, businesses)` = `items[i::n]` | `ThreadPoolExecutor`, [business_tier.py](../src/runtime/business_tier.py) |
 
    (Đường monolithic đã bị gỡ khi split trở thành kiến trúc triển khai duy nhất;
    giữ lại dòng trên vì bài học không nằm ở kiến trúc nào mà ở chỗ **nhiều camera

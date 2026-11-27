@@ -56,7 +56,7 @@
         "tags": [
           "auth"
         ],
-        "summary": "Create the first owner and store",
+        "summary": "Create an owner for an existing store (only when REGISTER_ENABLED)",
         "requestBody": {
           "required": true,
           "content": {

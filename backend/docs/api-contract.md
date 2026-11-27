@@ -1,97 +1,115 @@
 # REST API contract
 
-All application endpoints use the `/api/v1` prefix, JSON bodies and ISO-8601 timestamps. Authenticated endpoints require a bearer access token and an ACTIVE user account. Responses use `401` for unauthenticated or suspended/deleted accounts, `403` for insufficient store role and `404` when the requested resource is outside the caller's store scope.
+The authoritative, always-current reference is [`internal/server/openapi.json`](../internal/server/openapi.json)
+(served at `/docs` when `SWAGGER_ENABLED=true`); `openapi_sync_test.go` fails if it and the mounted
+routes ever differ. This page is a generated overview of it.
 
-## Authentication
+- Prefix `/api/v1`, JSON bodies, ISO-8601 timestamps.
+- Authenticated routes take `Authorization: Bearer <access token>` and an `active` owner account.
+  `401` = not signed in / account unavailable, `403` = store role too low, `404` = outside the caller's stores.
+- In production, state-changing browser requests must carry an `Origin` equal to `WEB_ORIGIN`.
+- Ids are the AI schema's text ids (`store_test_01`, `st01_counter`, alert UUIDs). Vocabulary is lowercase:
+  roles `owner > manager > operator`; alert status `open → acknowledged | confirmed | dismissed`;
+  severity `warning | high | critical`.
+- Stores, cameras and zones are read-only: the AI service writes them from its manifest.
+- Alert lists page with an opaque `nextCursor`; `total` counts every match. `status`, `severity` and
+  `eventType` accept comma-separated lists. `/alerts/summary` gives counts by status and event type.
+- Review decisions: anyone with access may acknowledge or dismiss an open alert; `confirm` and any change
+  to a confirmed/dismissed alert need manager or owner. Each decision is serialized and recorded in
+  `alert_status_history`.
+- Media is never served from R2 directly: `…/media/{mediaId}/playback-url` returns a short-lived
+  `/api/v1/notification-review/{token}` link that streams the object (with Range support).
+- Live view: `POST /stores/{storeId}/live-session` sets a cookie scoped to `/live/`; the reverse proxy
+  checks every HLS request with `GET /live/authorize` (see `internal/server/live.go`).
+
+## Auth
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| POST | `/auth/register` | Create the first user, store and owner membership atomically. |
-| POST | `/auth/login` | Create a session with email and password. |
-| POST | `/auth/refresh` | Rotate the refresh session and return a new access token. |
-| POST | `/auth/logout` | Revoke the active refresh session. |
-| GET | `/auth/me` | Return the caller and accessible stores. |
+| POST | `/auth/login` | Log in |
+| POST | `/auth/logout` | Revoke refresh session |
+| GET | `/auth/me` | Current user and stores |
+| POST | `/auth/refresh` | Rotate refresh session |
+| POST | `/auth/register` | Create an owner for an existing store (only when REGISTER_ENABLED) |
 
-## Stores and members
+## Users
 
-| Method | Path | Minimum role |
+| Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/stores` | authenticated |
-| POST | `/stores` | existing active owner; initial bootstrap uses explicitly enabled registration |
-| GET, PATCH | `/stores/:storeId` | store member / owner |
-| GET, POST | `/stores/:storeId/members` | manager / owner |
-| PATCH, DELETE | `/stores/:storeId/members/:userId` | owner |
+| GET | `/users/me` | Get owner profile |
+| PATCH | `/users/me` | Update owner profile |
 
-## Cameras and zones
+## Stores
 
-| Method | Path | Minimum role |
+| Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/stores/:storeId/cameras` | operator |
-| POST | `/stores/:storeId/cameras` | manager |
-| GET | `/stores/:storeId/cameras/:cameraId` | operator |
-| PATCH, DELETE | `/stores/:storeId/cameras/:cameraId` | manager |
-| GET | `/stores/:storeId/cameras/:cameraId/zones` | operator |
-| POST | `/stores/:storeId/cameras/:cameraId/zones` | manager |
-| PATCH, DELETE | `/stores/:storeId/cameras/:cameraId/zones/:zoneId` | manager |
+| GET | `/stores` | List accessible stores |
+| GET | `/stores/{storeId}` | Get store |
+| GET | `/stores/{storeId}/members` | List store members |
+| POST | `/stores/{storeId}/members` | Add existing user to store |
+| DELETE | `/stores/{storeId}/members/{memberId}` | Remove member |
+| PATCH | `/stores/{storeId}/members/{memberId}` | Update member role |
 
-`POST`/`PATCH` camera payloads contain only metadata and `streamGatewayRef`, never camera credentials. A zone payload has `name`, `kind`, `polygon`, optional `dwellThresholdSeconds` and optional `expectedPersonCategory`.
+## Cameras
 
-For a cashier camera, configuration must create an inner-counter zone with `expectedPersonCategory=EMPLOYEE` and an outer-counter zone with `expectedPersonCategory=CUSTOMER`. The classification is based on the detected person's position in the image, not identity recognition.
-
-Live-stream connectivity and playback endpoints are specified in the [streaming design](streaming-design.md). They return gateway health or a short-lived browser-safe playback URL, never RTSP credentials.
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/stores/{storeId}/cameras` | List cameras |
+| GET | `/stores/{storeId}/cameras/{cameraId}` | Get camera |
+| GET | `/stores/{storeId}/cameras/{cameraId}/zones` | Zones the camera's AI pipelines use (display only) |
 
 ## Alerts
 
-| Method | Path | Minimum role |
+| Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/stores/:storeId/alerts` | operator |
-| GET | `/stores/:storeId/alerts/:alertId` | operator |
-| POST | `/stores/:storeId/alerts/:alertId/acknowledge` | operator |
-| POST | `/stores/:storeId/alerts/:alertId/dismiss` | operator |
-| POST | `/stores/:storeId/alerts/:alertId/resolve` | manager |
-| GET | `/stores/:storeId/alerts/:alertId/evidence/:evidenceId/playback-url` | operator |
+| GET | `/notification-review/{token}` | Stream evidence through an expiring opaque review token |
+| GET | `/stores/{storeId}/alerts` | List and filter alerts |
+| GET | `/stores/{storeId}/alerts/summary` | Count alerts by status and event type |
+| GET | `/stores/{storeId}/alerts/{alertId}` | Get alert detail and evidence |
+| POST | `/stores/{storeId}/alerts/{alertId}/acknowledge` | Acknowledge alert |
+| POST | `/stores/{storeId}/alerts/{alertId}/confirm` | Confirm alert as a real incident |
+| POST | `/stores/{storeId}/alerts/{alertId}/dismiss` | Dismiss alert |
+| GET | `/stores/{storeId}/alerts/{alertId}/media/{mediaId}/playback-url` | Create a short-lived playback URL for one clip or snapshot |
 
-`GET /alerts` supports `status`, `severity`, `type`, `subjectPersonCategory`, `cameraId`, `from`, `to`, `cursor` and `limit`. It sorts by `detectedAt` descending with cursor pagination. `correlationId` groups observations of the same incident across cameras.
-
-Alerts are never hard-deleted once they have notification deliveries - the database enforces this via `ON DELETE RESTRICT` on the delivery foreign key. Hiding or archiving such an alert is handled through alert status in a later task; no hard-delete endpoint is exposed.
-
-## Internal AI ingestion
-
-`POST /api/v1/internal/ai/alerts` is the service-to-service ingestion boundary implemented in task 6. It is disabled unless `AI_INGEST_TOKEN` is configured and accepts that opaque secret only as a Bearer token. The token must contain at least 32 characters and is never logged or returned.
-
-The request contains `sourceEventId`, optional incident-level `correlationId`, `storeId`, an enabled `cameraId`, optional enabled `zoneId`, `type`, `severity`, optional `confidence`, detection timestamps, object metadata and one to five relative video evidence keys. Evidence accepts only `video/mp4` or `video/webm`; URLs, absolute paths, traversal segments and duplicate keys are rejected. Repeating the same `sourceEventId` returns the original alert and route deliveries with `200` and creates no new rows.
-
-When an ingested alert matches an enabled notification rule, the alert transaction also creates an idempotent notification delivery. Telegram is the first delivery route; a configured WhatsApp route waits as fallback. The worker executes retries/fallback and records immutable attempts; both Telegram Bot API and WhatsApp Cloud API adapters are registered when the worker is enabled. See [notification-design.md](notification-design.md).
-
-The alert UUID, all evidence rows and all matching outbox deliveries commit atomically. A storage-key conflict or enqueue failure rolls the entire request back. Alert list/detail responses include `hasVideoEvidence`; dashboard clients use it to retain real evidence-backed alerts and request a fresh authenticated playback URL when the owner opens one.
-
-Notification configuration resources follow the soft-disable policy: `DELETE` removes an endpoint or rule only when no delivery references it, and otherwise responds `409` so the caller can disable it with `PATCH`. The endpoint test-message route records its send as an explicit TEST-kind delivery with the same immutable attempt history, even though no real alert exists.
-
-## Notification configuration (implemented in task 3)
-
-All routes below require an authenticated store **OWNER**. Resources outside the caller's store return `404`.
+## Live
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET, POST | `/stores/:storeId/notification-endpoints` | List or create Telegram/WhatsApp endpoint configuration. |
-| PATCH, DELETE | `/stores/:storeId/notification-endpoints/:endpointId` | Update or delete an endpoint without delivery history. |
-| POST | `/stores/:storeId/notification-endpoints/:endpointId/test` | Enqueue a TEST-kind delivery; returns `202` with only the delivery id and status. |
-| GET, POST | `/stores/:storeId/notification-rules` | List or create emergency routing rules. |
-| PATCH, DELETE | `/stores/:storeId/notification-rules/:ruleId` | Update or delete a rule without delivery history. |
-| GET, POST | `/stores/:storeId/notification-rules/:ruleId/channels` | List or add ordered channel routes for a rule. |
-| PATCH, DELETE | `/stores/:storeId/notification-rules/:ruleId/channels/:channelId` | Update priority/delay/enabled flag or delete a channel without delivery history. |
-| GET | `/stores/:storeId/notification-deliveries` | OWNER-only filtered/paginated delivery audit list. |
-| GET | `/stores/:storeId/notification-deliveries/:deliveryId` | OWNER-only delivery detail with immutable attempt log. |
-| GET, POST | `/webhooks/whatsapp` | Public Meta verification handshake and HMAC-verified WhatsApp delivery receipts. |
+| GET | `/live/authorize` | Reverse-proxy check for one /live/ request (forward_auth) |
+| POST | `/stores/{storeId}/live-session` | Start a live-view session for this store |
 
-Behavior implemented in task 3:
+## Notifications
 
-- Endpoint responses replace `credentialRef` with `credentialConfigured: true/false` and mask destinations (`destinationMasked`, last four characters only). `credentialRef` must use `env://` or `render-secret://`; raw Telegram tokens (`123456789:AAE...`) and Meta tokens (`EAA...`) are rejected. `config` rejects `token`/`secret`/`password`/`credential` keys and token-like values.
-- Provider is immutable after creation; PATCH bodies with unknown fields (including `provider`/`endpointId`) are rejected as are empty bodies. Enabling WHATSAPP requires a decimal `providerAccountRef` (Meta Phone Number ID), an E.164 `destinationRef`, a decimal `config.wabaId`, the exact Meta-approved `emergency_security_alert` template with `config.templateLanguage=en`, a supported internal template contract, plus RFC3339 `optIn.capturedAt`, `optIn.source` and `optIn.policyVersion`; violations are 400, never a Meta API call. Version 2 is the default for new endpoints and deliveries. Version 1 remains accepted for immutable legacy delivery snapshots during the compatibility window.
-- Rule matching is `minimumSeverity AND alertTypes` with empty `alertTypes` matching every type that passes severity. Duplicate alert types are normalized. Create defaults follow the migration: omitted fields become `minimumSeverity=CRITICAL`, `alertTypes=[]`, `cooldownSeconds=0`, `isEnabled=true`; PATCH stays partial and never reapplies create defaults. Nonzero `cooldownSeconds` is evaluated transactionally against the exact incident fingerprint; emergency rules remain at zero so independent emergencies are never suppressed.
-- Channels order routes by ascending `priority` (lower routes first); duplicate rule+endpoint or duplicate priority within a rule returns `409`.
-- `POST .../test` requires a UUID `requestId`, is idempotent per `requestId`, enqueues only an outbox row pinned to `endpointId` (no provider call), refuses disabled endpoints with `409`, and unknown/cross-store endpoints return `404`.
-- Validation failures return `400`; duplicate destination/priority/endpoint conflicts and delete-blocked history return `409`.
-- ALERT dedupe is incident-scoped: the key `alert:{correlationId|alertId}:{ruleId}:{endpointId}` excludes templateVersion, so one correlated incident yields a single delivery per rule+endpoint even across cameras or template changes, while distinct incidents stay independent. Camera observations remain separate alerts/evidence for review.
-- Task 5 implements the worker, retry/backoff, fallback activation, lease recovery, cooldown evaluation, immutable attempt logs, delivery-history APIs, HMAC-verified WhatsApp receipt webhooks and evidence-scoped expiring review links. It does not make the worker active unless `NOTIFICATION_WORKER_ENABLED=true`.
-- Task 4 supplies both Telegram Bot API and WhatsApp Cloud API provider adapters. The active Meta-approved WhatsApp version 2 contract uses the `emergency_security_alert` `en` template with a secure HTTPS video header, four reviewed body parameters and one dynamic URL button parameter containing only the alert ID. Version 2 is the default for new deliveries; version 1 remains legacy snapshot support only. Missing or unsafe video links fail closed so fallback behavior remains auditable.
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/stores/{storeId}/notification-deliveries` | List notification delivery history (OWNER only) |
+| GET | `/stores/{storeId}/notification-deliveries/{deliveryId}` | Get delivery, attempt log and provider receipts (OWNER only) |
+| GET | `/stores/{storeId}/notification-endpoints` | List notification endpoints (OWNER only) |
+| POST | `/stores/{storeId}/notification-endpoints` | Create notification endpoint (OWNER only) |
+| DELETE | `/stores/{storeId}/notification-endpoints/{endpointId}` | Delete endpoint without delivery history (OWNER only) |
+| PATCH | `/stores/{storeId}/notification-endpoints/{endpointId}` | Update notification endpoint (OWNER only) |
+| POST | `/stores/{storeId}/notification-endpoints/{endpointId}/test` | Enqueue a TEST-kind delivery (OWNER only) |
+| GET | `/stores/{storeId}/notification-rules` | List notification rules (OWNER only) |
+| POST | `/stores/{storeId}/notification-rules` | Create notification rule (OWNER only) |
+| DELETE | `/stores/{storeId}/notification-rules/{ruleId}` | Delete rule without delivery history (OWNER only) |
+| PATCH | `/stores/{storeId}/notification-rules/{ruleId}` | Update notification rule (OWNER only) |
+| GET | `/stores/{storeId}/notification-rules/{ruleId}/channels` | List rule channels ordered by priority (OWNER only) |
+| POST | `/stores/{storeId}/notification-rules/{ruleId}/channels` | Add a channel route to a rule (OWNER only) |
+| DELETE | `/stores/{storeId}/notification-rules/{ruleId}/channels/{channelId}` | Delete channel without delivery history (OWNER only) |
+| PATCH | `/stores/{storeId}/notification-rules/{ruleId}/channels/{channelId}` | Update channel priority, delay or enabled flag (OWNER only) |
+| GET | `/webhooks/whatsapp` | Verify the Meta WhatsApp webhook |
+| POST | `/webhooks/whatsapp` | Receive signed WhatsApp delivery receipts |
+
+## Health
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/health` | Health check |
+
+## Notification behaviour
+
+Delivery, retry, fallback and WhatsApp template rules are in [notification-design.md](notification-design.md)
+and [whatsapp-emergency-template.md](whatsapp-emergency-template.md). Notification configuration routes
+require the store `owner`; endpoint responses mask destinations and only report whether a credential is
+configured. The API turns new AI alerts into deliveries itself (`internal/notifications/dispatcher.go`);
+there is no ingestion endpoint.

@@ -54,7 +54,7 @@ type Config struct {
 }
 
 func Load() (Config, error) {
-	// Local development may use apps/api-go/.env. Real process environment
+	// Local development may use backend/.env. Real process environment
 	// variables always take precedence in production.
 	_ = godotenv.Load(".env")
 

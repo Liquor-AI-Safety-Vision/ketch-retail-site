@@ -20,18 +20,23 @@ points at the old API's own Neon project, not the AI service's, so only its
 JWT TTLs and Telegram/WhatsApp values carry over; `AI_INGEST_TOKEN` no longer
 exists. Its `JWT_ACCESS_SECRET` is a placeholder: generate a fresh key.
 
-For a first local run, fill the two development database URLs and generate a
-JWT signing key. Telegram, WhatsApp and Cloudflare credentials are unnecessary.
-Enable registration only long enough to bootstrap a local owner/store, then
-disable it. AI ingestion and outbound notifications are separate opt-in features.
+For a first local run, fill the two database URLs (a database the AI service has
+written stores and cameras to) and generate a JWT signing key. Telegram and
+WhatsApp credentials are unnecessary. Create an account with `cmd/create-owner`
+(or enable registration briefly: it links a new owner to an existing store).
+Outbound notifications are a separate opt-in feature.
+
+On the deployment server, `deploy/bin/run-api.sh` sets `PORT`, `NODE_ENV=production`,
+`LIVE_VIEW_MODE`, `PUBLIC_API_BASE_URL`, `WEB_ORIGIN`, `TRUST_PROXY` and
+`TRUSTED_PROXY_CIDRS` from `deploy/liquor.env`; `backend/.env` there holds only secrets.
 
 ## Core API and database
 
 | Variable | Local setup / source | Private? |
 |---|---|---|
 | `NODE_ENV` | `development` locally; `production` on a hosted API. This Go app also uses this name. | No |
-| `PORT` | `3000` locally. Render supplies its port at runtime. | No |
-| `WEB_ORIGIN` | Exact browser origin, initially `http://localhost:5173`. `127.0.0.1` is a different origin; choose one consistently. | No |
+| `PORT` | `3000`. | No |
+| `WEB_ORIGIN` | Exact browser origin, initially `http://localhost:5173`. `127.0.0.1` is a different origin; choose one consistently. In production it must be HTTPS, except a loopback origin reached through an SSH tunnel. | No |
 | `DATABASE_URL` | Runtime connection to your development PostgreSQL database; Neon pooled connection if using a development branch. | **Yes**, includes credentials |
 | `DIRECT_URL` | Direct/unpooled connection to the **same** database for migrations; may equal the local runtime URL. If blank, migration falls back to `DATABASE_URL`. | **Yes** |
 | `JWT_ACCESS_SECRET` | Generate a separate random key for each environment; at least 32 characters in production. | **Yes** |
@@ -39,12 +44,12 @@ disable it. AI ingestion and outbound notifications are separate opt-in features
 | `JWT_ISSUER` | `liquor-store-security-api`; must stay consistent for issuing/verifying tokens. | No |
 | `JWT_AUDIENCE` | `liquor-store-owner-dashboard`; same consistency requirement. | No |
 | `REFRESH_TOKEN_TTL_DAYS` | Positive integer, default `30`. | No |
-| `REGISTER_ENABLED` | `false`; temporarily `true` to bootstrap the local owner/store. | No |
+| `REGISTER_ENABLED` | `false`; temporarily `true` to let a new owner sign up for an existing store. Prefer `cmd/create-owner`. | No |
 | `MEMBER_MANAGEMENT_ENABLED` | `false`; enable when developing store-member management. | No |
 | `SWAGGER_ENABLED` | `false` in the example; set `true` for local `/docs` and `/docs-json`. | No |
 | `TRUST_PROXY` | `false` locally. Only enable behind verified trusted ingress. | No |
 | `TRUSTED_PROXY_CIDRS` | Blank locally. Explicit comma-separated CIDRs if trusting a proxy; do not guess or copy another environment's ranges. | No |
-| `SEED_STORE_CODE` | `liquor-store-demo`; must identify an existing store before seeding. Read by the seed command. | No |
+| `LIVE_VIEW_MODE` | Blank disables live view. `test` or `production` (the deployment's MODE) enables `/live-session` and the reverse proxy's `/live/authorize` check. | No |
 
 Generate a key, then paste it into your ignored `.env`:
 
@@ -53,21 +58,21 @@ node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
 ```
 
 Run this independently for `JWT_ACCESS_SECRET` and, when needed,
-`AI_INGEST_TOKEN` and `WHATSAPP_WEBHOOK_VERIFY_TOKEN`. These are different secrets.
+`WHATSAPP_WEBHOOK_VERIFY_TOKEN`. These are different secrets.
 Do not regenerate an existing shared environment's keys just to run locally.
 
-## AI ingestion
+## Shared with the AI service
 
 | Variable | Local setup / source | Private? |
 |---|---|---|
-| `AI_INGEST_TOKEN` | Blank disables the ingestion route. To connect AI, generate at least 32 characters and set the same value in the API and the external AI sender. | **Yes** |
+| `R2_ENDPOINT`, `R2_BUCKET` | The same Cloudflare R2 bucket the AI service uploads clips and snapshots to (`ai/.env`). | Endpoint includes the account id |
+| `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | Read access is enough. Required for media playback and the notification worker. | **Yes** |
 
-The AI service calls `POST /api/v1/internal/ai/alerts` with
-`Authorization: Bearer <AI_INGEST_TOKEN>`. This token is independent of owner
-login/JWT and provider tokens. Never put it in a `VITE_*` variable. See the
-[request example and evidence contract](ai-integration.md).
+There is no ingestion endpoint or AI token: the AI service writes alerts straight into
+the shared database and R2, and the API reads them (`internal/notifications/dispatcher.go`
+turns new alerts into notifications).
 
-## Delivery worker and evidence playback
+## Delivery worker and media playback
 
 | Variable | Local setup / source | Private? |
 |---|---|---|
@@ -76,26 +81,26 @@ login/JWT and provider tokens. Never put it in a `VITE_*` variable. See the
 | `NOTIFICATION_POLL_INTERVAL` | Positive duration, default `2s`. | No |
 | `NOTIFICATION_LEASE_DURATION` | Default `45s`; must exceed `10s` with the worker enabled. | No |
 | `NOTIFICATION_BATCH_SIZE` | Integer `1`–`100`, default `10`. | No |
-| `NOTIFICATION_TEST_STORE_ID` | UUID of a controlled test store; used by opted-in provider/production tests, not required by normal API startup. | Internal ID |
-| `PUBLIC_API_BASE_URL` | `http://localhost:3000` locally; externally reachable HTTPS API origin for real notifications. | No |
+| `NOTIFICATION_TEST_STORE_ID` | store_id of a controlled test store; used by opted-in provider/production tests, not required by normal API startup. | Internal ID |
+| `NOTIFICATION_MAX_ALERT_AGE` | Default `15m`. Older alerts are never notified (e.g. everything already in the database when the worker first starts). | No |
+| `NOTIFICATION_CLIP_WAIT` | Default `90s`. How long an alert waits for its clip before being sent without one. | No |
+| `PUBLIC_API_BASE_URL` | Origin that browsers and notification recipients reach the API on; playback and review links are built from it. HTTPS in production (loopback excepted). | No |
 | `SECURE_VIDEO_LINK_TTL` | Positive duration, default `15m`. | No |
-| `EVIDENCE_ORIGIN_BASE_URL` | Blank for initial metadata-only testing. For playback, HTTP(S) origin serving the actual `storageKey` paths; API must reach it. | No |
-| `EVIDENCE_ORIGIN_AUTH_TOKEN` | Optional bearer credential if that evidence origin requires authentication. | **Yes** |
 
-Example binding shape (replace the UUID with your development store ID):
+Example binding shape:
 
 ```json
-[{"storeId":"11111111-1111-4111-8111-111111111111","provider":"TELEGRAM","providerAccountRef":"","credentialRef":"env://TELEGRAM_BOT_TOKEN"}]
+[{"storeId":"store_test_01","provider":"TELEGRAM","providerAccountRef":"","credentialRef":"env://TELEGRAM_BOT_TOKEN"}]
 ```
 
 Tokens stay in environment variables. Database endpoints contain refs such as
 `env://TELEGRAM_BOT_TOKEN`, never raw tokens. Current runtime supports the
-allowlisted `env://` refs; `render-secret://` is not a working resolver.
-Enabling the worker also requires both evidence origins and matching database
-endpoints, rules and channels. Filling provider variables alone does not configure
+allowlisted `env://` refs.
+Enabling the worker also requires `PUBLIC_API_BASE_URL`, the `R2_*` variables and
+matching database endpoints, rules and channels. Filling provider variables alone does not configure
 routing. For optional delivery tests use a dedicated test recipient and the
 [notification runbook](emergency-notification-production.md), not a copied
-production database. Keep outbound delivery off while connecting AI initially.
+production database.
 
 ## Telegram and WhatsApp (optional)
 
@@ -119,26 +124,18 @@ the database; changing an environment value alone does not update an existing
 endpoint. The last recorded production WhatsApp blocker was business verification;
 see the runbook for the measured status rather than assuming delivery works.
 
-## Frontends and deployment-only variables
+## Frontend
 
-| Location / variable | Value or source | Private? |
+| Variable | Value | Private? |
 |---|---|---|
-| Either frontend: `VITE_API_BASE_URL` | `/api/v1` locally; Vite proxies `/api` to `http://localhost:3000`. Use an absolute API URL only for an intentional cross-origin setup. | No; included in browser code |
-| Ketch Pages Function: `API_ORIGIN` | Backend origin, default `https://liquor-store-api-7tq2.onrender.com`; configured on Cloudflare, not in Vite `.env`. | No |
-| Ketch Pages Function: `API_TRUSTED_ORIGIN` | Origin forwarded to the API. Must match that deployment's `WEB_ORIGIN`. | No |
-| Ketch GitHub Actions: `CLOUDFLARE_API_TOKEN` | Existing Pages deployment credential in GitHub Actions secrets. Not needed for local development. | **Yes** |
-| Ketch GitHub Actions: `CLOUDFLARE_ACCOUNT_ID` | Account containing Pages project `ketch-enterprise`. | Account ID |
-
-For the Ketch frontend, also read
-[its README](https://github.com/gaztrabisme/ketch-retail-site#readme). The
-standalone dashboard and the Ketch frontend both default to port 5173; start one.
+| `VITE_API_BASE_URL` (`frontend/.env`) | `/api/v1`. Vite proxies `/api` to `http://localhost:3000` in development; in deployment Caddy serves both on one origin. | No; included in browser code |
 
 ## What to share separately
 
 Share repository access and these examples first. A colleague can create a local
-database, local owner account, JWT key and AI token without production credentials.
+database, local owner account and JWT key without production credentials.
 For an approved shared environment, hand over only the values needed for that
 environment through a private channel/password manager: database connection
-strings, signing/AI tokens, provider tokens, webhook secrets, evidence-origin
-credentials and any test destinations. Specify the environment alongside each
+strings, signing keys, R2 keys, provider tokens, webhook secrets and any test
+destinations. Specify the environment alongside each
 value. Keep actual values out of README, Git, screenshots and `VITE_*` variables.

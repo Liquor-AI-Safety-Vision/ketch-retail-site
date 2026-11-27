@@ -14,8 +14,6 @@ dist-ssr
 .env.*
 !.env.example
 
-# Cloudflare wrangler local state — carries the deploying account's identity
-.wrangler/
 
 # Non-shipping clip archive. NEVER commit: third-party CCTV, identifiable people.
 .demo_archive/
