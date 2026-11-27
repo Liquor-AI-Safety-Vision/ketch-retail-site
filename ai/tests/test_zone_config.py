@@ -85,7 +85,7 @@ def test_a_divider_scales_with_the_frame_it_is_given():
 def test_drawn_on_is_provenance_and_nothing_reads_it():
     """If any loader started scaling by it again, the old coupling is back."""
     readers = [BACKEND / "src/perception/zones.py",
-               BACKEND / "src/perception/problem2_fsm.py"]
+               BACKEND / "src/perception/cash_concealment_fsm.py"]
     bad = []
     for f in readers:
         for node in ast.walk(ast.parse(f.read_text())):

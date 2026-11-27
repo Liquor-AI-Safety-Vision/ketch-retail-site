@@ -287,7 +287,7 @@ def main():
     sess, inp_name = export_onnx()
 
     from ai.src.perception import stream_track as S
-    from ai.src.perception.uae_tracker import Detection, Tracker
+    from ai.src.perception.person_tracker import Detection, Tracker
     S.MODEL, S.CONF = a.pose, a.conf
     det, emb = S.Detector(), S.Embedder()
     print(f"pose: {os.path.basename(a.pose)} @conf={a.conf}, sampling {a.fps} fps\n")

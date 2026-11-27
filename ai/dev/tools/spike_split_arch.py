@@ -131,13 +131,13 @@ def _decode_pose(out: np.ndarray, meta) -> tuple[np.ndarray, list]:
 
 
 def _new_tracker(h: int, w: int, fps: float):
-    from ai.src.perception.uae_tracker import Tracker
+    from ai.src.perception.person_tracker import Tracker
 
     return Tracker(img_h=h, img_w=w, fps=fps)
 
 
 def _track(tracker, boxes, feats, kpts, frame_idx):
-    from ai.src.perception.uae_tracker import Detection
+    from ai.src.perception.person_tracker import Detection
 
     dets = [Detection(boxes[i, :4], boxes[i, 4], feats[i], kpts[i]) for i in range(len(boxes))]
     live, _removed = tracker.update(dets, frame_idx)

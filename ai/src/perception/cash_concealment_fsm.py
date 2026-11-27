@@ -1,6 +1,6 @@
 """Problem 2, Pipeline A: the drawer-to-body concealment FSM.
 
-    python3 scripts/problem2_fsm.py --clip cvlp_h3_00043_ --side Left
+    python3 scripts/cash_concealment_fsm.py --clip cvlp_h3_00043_ --side Left
 
 Reads the per-frame perception dump written by probe_wrist.py rather than
 re-running the models. Perception costs 220 ms/frame and does not change while

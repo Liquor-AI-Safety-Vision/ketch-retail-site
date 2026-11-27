@@ -214,11 +214,11 @@ def test_the_model_key_the_pipelines_read_is_the_key_the_schema_accepts():
 def test_a_reid_model_path_reaches_the_bootstrap_and_not_the_tracker():
     """It lives in person_tracker but is a filename, not a tracker setting.
 
-    _tracker_overrides has to drop it, or camera_config() looks for a
+    tracker_overrides has to drop it, or camera_config() looks for a
     REID_MODEL_PATH attribute on Config, does not find one, and raises -- so
     the one key that selects a ReID model would crash the camera that set it.
     """
-    from ai.src.pipelines.storage_intrusion import _tracker_overrides
+    from ai.src.perception.camera_tracker import tracker_overrides as _tracker_overrides
 
     class _Spec:
         perception_profile = {"person_tracker": {
@@ -267,7 +267,7 @@ def test_loading_a_manifest_emits_the_warnings_once_per_process(caplog=None):
 def test_no_manifest_still_carries_match_thres():
     """Untraceable, unread in every commit, and above the different-person mark.
 
-    0.65 has no counterpart in uae-main's defaults.py, and uae_tracker's own
+    0.65 has no counterpart in uae-main's defaults.py, and person_tracker's own
     note beside STEP_B_EMBED_GATE puts different people above 0.5 cosine on
     this OSNet. Wiring that number into the association gate would have
     loosened tracking on no evidence, so the key is gone.
@@ -278,7 +278,7 @@ def test_no_manifest_still_carries_match_thres():
 
 
 def test_the_tracker_default_is_still_the_one_every_benchmark_ran():
-    from ai.src.perception.uae_tracker import Config
+    from ai.src.perception.person_tracker import Config
 
     assert Config.STEP_A_MAX_COST == 0.25, (
         "0.25 is uae-main's default and the value behind every recorded "
@@ -292,7 +292,7 @@ def test_tracker_tuning_is_per_camera_when_a_camera_asks_for_it():
     addressed by the Config attribute's own name -- no alias, because the one
     alias that existed could not be traced to a meaning.
     """
-    from ai.src.perception.uae_tracker import Config, camera_config
+    from ai.src.perception.person_tracker import Config, camera_config
 
     strict = camera_config({"step_a_max_cost": 0.2}, camera_id="counter_1")
     loose = camera_config({"step_a_max_cost": 0.3}, camera_id="storage_2")
@@ -305,7 +305,7 @@ def test_tracker_tuning_is_per_camera_when_a_camera_asks_for_it():
 
 
 def test_a_tracker_setting_the_tracker_does_not_have_is_refused():
-    from ai.src.perception.uae_tracker import camera_config
+    from ai.src.perception.person_tracker import camera_config
 
     try:
         camera_config({"mach_thres": 0.5}, camera_id="cam_x")

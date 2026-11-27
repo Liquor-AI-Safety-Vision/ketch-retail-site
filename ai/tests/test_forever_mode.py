@@ -237,7 +237,7 @@ def test_business_flushes_its_outbox_before_reporting_stats():
 
         business_tier._run_business_process(
             [spec], {spec.camera_id: None}, {spec.camera_id: queue.Queue()},
-            {spec.camera_id: business_q}, "unused.sqlite", "unused_media", "unused.sqlite",
+            {spec.camera_id: business_q}, "unused.sqlite", "unused_media",
             None, _Queue(), _Go(), _StatsQ(),
             lambda n: None, ThreadPoolExecutor, lambda root: object(), _Outbox)
     finally:

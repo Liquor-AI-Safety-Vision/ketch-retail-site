@@ -1,7 +1,7 @@
 """Writing a video file that players will actually open.
 
 Extracted from run_warehouse.py, which stayed behind in ai/dev/ as an offline
-runner. run_counter.py needs this one function and nothing else from it, so
+runner. till_state.py needs this one function and nothing else from it, so
 keeping the whole runner in backend just to reach to_h264 would have dragged
 a CLI, its argument parser and its repo-relative default paths along with it.
 """

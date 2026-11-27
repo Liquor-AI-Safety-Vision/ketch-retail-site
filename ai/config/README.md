@@ -52,7 +52,7 @@ rồi chi phối **cả nguồn lẫn nghiệp vụ**:
 | nguồn (video **và** rtsp) | `source_step = native_fps / target_fps` — quyết định lấy frame nào |
 | tracker | `max(1, round(giây × fps))` cho `MAX_AGE_S`, `N_FEAT_S`, `PERSON_GRACE_S`, `HAND_TRAJ_S`… |
 | FSM quầy | 8 hằng thời gian, `frames_10fps × fps / 10` |
-| zone kho | `warehouse.Config(fps=)` → `entry_frames`, `exit_frames` |
+| zone kho | `zone_monitor.Config(fps=)` → `entry_frames`, `exit_frames` |
 | till | `compute_till_schedule(fps, till_confirm_frames, till_fps)` |
 | clip cảnh báo | `AlertClipBuffer(fps, pre_s, post_s)` |
 | `customer_recent_window_s` | `round(giây × fps)` |
@@ -133,7 +133,7 @@ có gì báo lỗi. `uri` ở cấp `stream` vẫn phải khai (schema yêu cầ
 | --- | --- |
 | `person_detector.conf_thres` | ngưỡng detect người |
 | `person_detector.model_path` | file pose model của riêng camera này |
-| `person_tracker.<tên_config>` | bất kỳ trường nào của `uae_tracker.Config`, viết thường — ví dụ `step_a_max_cost` |
+| `person_tracker.<tên_config>` | bất kỳ trường nào của `person_tracker.Config`, viết thường — ví dụ `step_a_max_cost` |
 | `person_tracker.reid_model_path` | file ReID model |
 | `face_identity.face_conf` | ngưỡng **detect** khuôn mặt |
 | `face_identity.match_threshold` / `match_margin` | ngưỡng **match** khuôn mặt |
@@ -225,7 +225,7 @@ Nạp store, nhân viên và owner: `ai/tools/seed_cloud_store.py`.
 Nó có trong mọi manifest từ commit đầu, **không code nào đọc**, và không có
 khoá tương ứng nào trong `uae-main` (`defaults.py` chỉ có `STEP_A/B/C/D.MAX_COST`).
 Nên giá trị 0.65 không truy được ra nghĩa gì — trong khi 0.65 nằm trên mốc 0.5
-mà chính `uae_tracker.py` chú thích là "hai người khác nhau".
+mà chính `person_tracker.py` chú thích là "hai người khác nhau".
 
 Tracker vẫn chạy `STEP_A_MAX_COST = 0.25`, đúng mặc định của uae-main và đúng
 con số mọi vòng benchmark đã dùng. Muốn chỉnh theo camera thì khai bằng tên thật:

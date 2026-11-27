@@ -5,7 +5,7 @@ end to end). This asks the question that actually decides whether it can
 replace v4: does it call the drawer's state correctly?
 
 There is a documented baseline to beat, from the comment on --till in
-scripts/run_counter.py: over the first 25 s of cash_till_open_1 the left
+scripts/till_state.py: over the first 25 s of cash_till_open_1 the left
 drawer is closed the whole time, and v4 called it Open in 0 of 249 frames
 while v2 called it Open in 84%. A replacement that regresses that number is
 not a replacement, however fast it is.
@@ -34,7 +34,7 @@ import numpy as np
 ROOT = _Path(__file__).resolve().parents[3]
 
 from ai.src.perception import stream_track as S  # noqa: E402
-from ai.src.perception.run_counter import Till  # noqa: E402
+from ai.src.perception.till_state import Till  # noqa: E402
 from ai.src.common.paths import model_path
 
 COLOR = {"Open": (0, 0, 235), "Close": (0, 200, 0)}
@@ -76,7 +76,7 @@ def main():
     p.add_argument("--label-a", default="v4 medium")
     p.add_argument("--label-b", default="nano")
     p.add_argument("--conf", type=float, default=0.70,
-                   help="matches run_counter.py's --till-conf default")
+                   help="matches till_state.py's --till-conf default")
     p.add_argument("--imgsz", type=int, default=640)
     p.add_argument("--stride", type=int, default=2)
     p.add_argument("--max-frames", type=int, default=0)

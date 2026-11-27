@@ -2,10 +2,10 @@
 
 The employee is handed money across the counter and puts it on their body
 instead of into the till. No drawer opening is involved, which is what makes
-this a separate machine rather than another branch of problem2_fsm: that FSM
+this a separate machine rather than another branch of cash_concealment_fsm: that FSM
 is entered from DRAWER_OPEN_CONFIRMED, and measured on the four
 cctv_counter_v2 clips the till detector reports Close on 48 of 48 samples in
-every one of them. problem2_fsm would sit in IDLE through the whole event.
+every one of them. cash_concealment_fsm would sit in IDLE through the whole event.
 
 It is also the more serious behaviour of the two. Money out of an open till
 is at least money the till knows about; money that never reaches the drawer
@@ -18,7 +18,7 @@ watches one window: hand crosses to the customer, hand comes back, and then
 either the cash reaches the drawer (a sale) or it reaches the body (an
 alert).
 
-Tuning is passed in, never read from module globals. problem2_fsm keeps its
+Tuning is passed in, never read from module globals. cash_concealment_fsm keeps its
 thresholds in globals and that cost this repo a real bug: several cameras
 run as threads in one process, so the second camera to bootstrap retuned the
 first one's FSM. That was fixed by giving each pipeline a private copy of the
@@ -33,7 +33,7 @@ from dataclasses import dataclass, field
 import cv2
 import numpy as np
 
-from ai.src.perception.problem2_fsm import (
+from ai.src.perception.cash_concealment_fsm import (
     WRI_L, WRI_R, pocket_targets,
 )
 
@@ -410,7 +410,7 @@ def step(ev: CustomerCashEvent, frame: int, k, torso: float,
                 ev.body_dwell[side] = ev.body_dwell[side] + 1 if near else 0
             else:
                 # Pose lost inside the target zone supports the conclusion;
-                # it never reaches it alone. problem2_fsm learned this the
+                # it never reaches it alone. cash_concealment_fsm learned this the
                 # expensive way -- an alert on cash_till_open_2 whose only
                 # evidence was the hand vanishing.
                 ev.body_miss[side] += 1

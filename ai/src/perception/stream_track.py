@@ -1,12 +1,12 @@
-"""Streaming person tracking: YOLO26n-pose (ONNX/CoreML) -> uae_tracker DeepSORT.
+"""Streaming person tracking: YOLO26n-pose (ONNX/CoreML) -> person_tracker DeepSORT.
 
 Simulates an RTSP-style camera: a producer thread downsamples the source to
 TARGET_FPS and pushes frames into a depth-1 queue, dropping the frame if the
 consumer is still busy - what a real stream does under backpressure.
 
-All identity logic lives in uae_tracker.py. This file only detects, embeds,
+All identity logic lives in person_tracker.py. This file only detects, embeds,
 paces the stream, and draws. There is no re-identification gallery: a track that
-stays unmatched past its max age is REMOVED and its id is gone. See uae_tracker's
+stays unmatched past its max age is REMOVED and its id is gone. See person_tracker's
 module docstring for why.
 
 Keypoints ride into the tracker on the Detection and come back out on the Track,
@@ -37,7 +37,7 @@ import numpy as np
 import onnxruntime as ort
 
 from ai.src.perception import zones
-from ai.src.perception.uae_tracker import Config, Detection, Tracker
+from ai.src.perception.person_tracker import Config, Detection, Tracker
 from ai.src.common.paths import model_path
 
 # NumPy 2.0 on macOS/Accelerate raises spurious divide-by-zero / overflow /

@@ -23,7 +23,7 @@ from ai.src.perception.customer_cash_fsm import (  # noqa: E402
     CONCEALED, ENDED, IDLE, RESOLVED, TRANSACTION,
     CustomerCashEvent, HandHistory, Observation, Sample, Tuning, step,
 )
-from ai.src.perception.problem2_fsm import (  # noqa: E402
+from ai.src.perception.cash_concealment_fsm import (  # noqa: E402
     HIP_L, HIP_R, SHO_L, SHO_R, WRI_L, WRI_R,
 )
 
@@ -254,7 +254,7 @@ def test_a_hand_lost_at_the_pocket_still_counts_but_is_labelled():
 
 def test_occlusion_alone_without_ever_seeing_the_hand_does_not_alert():
     """No valid sample at the target ever means there is nothing to support.
-    This is the false positive problem2_fsm shipped and had to take back."""
+    This is the false positive cash_concealment_fsm shipped and had to take back."""
     hidden = [pose(conf=0.0) for _ in range(TUN.decision_window + 2)]
     ev, _ = run(_through_withdrawal() + hidden, lambda i: customer_present())
     assert ev.state == ENDED
@@ -270,7 +270,7 @@ def test_seconds_convert_at_the_cameras_frame_rate():
 
 
 def test_two_tunings_are_independent_objects():
-    """The bug problem2_fsm had: one camera's settings reaching another. A
+    """The bug cash_concealment_fsm had: one camera's settings reaching another. A
     frozen value object cannot express it, and this asserts that stays true."""
     a = Tuning.from_seconds(10.0, dwell_confirm_s=0.5)
     b = Tuning.from_seconds(24.0, dwell_confirm_s=2.0)

@@ -3,9 +3,9 @@
 
     python3 demo_counter_normal.py --video videos/cctv_counter/cash_till_open_2.mp4
 
-Reuses run_counter.py's Till/TillRegistry unchanged (the till does not care
+Reuses till_state.py's Till/TillRegistry unchanged (the till does not care
 which demo is asking about it). Only the person overlay differs from
-run_counter's default: no track id, and the box colour encodes the role
+till_state's default: no track id, and the box colour encodes the role
 (green=customer, orange=staff) instead of a per-id random colour, since this
 clip exists to show "here is a normal sale", not "here is how re-id survives
 an occlusion".
@@ -25,8 +25,8 @@ import cv2
 
 from ai.src.perception import stream_track as S
 from ai.src.perception import zones
-from ai.src.perception.run_counter import Till, draw_till
-from ai.src.perception.uae_tracker import Detection, Tracker
+from ai.src.perception.till_state import Till, draw_till
+from ai.src.perception.person_tracker import Detection, Tracker
 
 warnings.filterwarnings("ignore", message=".*encountered in matmul",
                         category=RuntimeWarning)

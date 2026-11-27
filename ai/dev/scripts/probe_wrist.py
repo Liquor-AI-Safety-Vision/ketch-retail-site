@@ -27,8 +27,8 @@ ROOT = str(_Path(__file__).resolve().parents[3])
 sys.path.insert(0, f"{ROOT}/scripts")
 
 from ai.src.perception import stream_track as S                       # noqa: E402
-from ai.src.perception.run_counter import Till                   # noqa: E402
-from ai.src.perception.uae_tracker import Detection, Tracker      # noqa: E402
+from ai.src.perception.till_state import Till                   # noqa: E402
+from ai.src.perception.person_tracker import Detection, Tracker      # noqa: E402
 
 L_WRIST, R_WRIST = 9, 10
 L_ELBOW, R_ELBOW = 7, 8

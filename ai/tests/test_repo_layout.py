@@ -105,7 +105,7 @@ def test_every_name_dev_imports_from_ai_exists():
             for alias in node.names:
                 if alias.name == "*" or hasattr(mod, alias.name):
                     continue
-                # `from ai.src.perception import warehouse` imports a
+                # `from ai.src.perception import zone_monitor` imports a
                 # submodule, which is not an attribute of the package until
                 # something imports it. hasattr alone would call every such
                 # line broken.

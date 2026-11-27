@@ -1,6 +1,6 @@
 """Two cameras must not retune each other's concealment FSM.
 
-problem2_fsm keeps its tuning in module globals -- FPS, the confirm counts,
+cash_concealment_fsm keeps its tuning in module globals -- FPS, the confirm counts,
 ANY_HAND, WRIST_CONF_TH -- and reads them from inside step(), the function
 that decides whether a concealment becomes a theft alert. One camera per
 process, that is fine. The split business tier runs several cameras as
@@ -103,12 +103,12 @@ def test_configuring_the_second_camera_does_not_move_the_first():
 
 
 def test_the_shared_module_is_left_alone():
-    """Nothing may write into the canonical problem2_fsm any more.
+    """Nothing may write into the canonical cash_concealment_fsm any more.
 
     Other callers -- the standalone scripts the FSM was written for -- still
     import it normally, and a pipeline reaching into it would retune them.
     """
-    from ai.src.perception import problem2_fsm as shared
+    from ai.src.perception import cash_concealment_fsm as shared
 
     baseline = (shared.FPS, shared.ANY_HAND, shared.WRIST_CONF_TH)
     _FakePipeline("counter_1", 7.0, {"any_hand": True, "wrist_conf_th": 0.9}).configure()
@@ -135,12 +135,12 @@ def test_each_pipeline_gets_a_distinct_module_object():
     first, second = load_private_fsm(), load_private_fsm()
     assert first is not second
     # And neither is the shared one.
-    from ai.src.perception import problem2_fsm as shared
+    from ai.src.perception import cash_concealment_fsm as shared
     assert first is not shared
 
     # Not registered in sys.modules: the canonical name keeps meaning the
     # canonical module for every other importer.
-    assert sys.modules.get("ai.src.perception.problem2_fsm") is shared
+    assert sys.modules.get("ai.src.perception.cash_concealment_fsm") is shared
     assert first.__name__ not in sys.modules
 
 
@@ -210,13 +210,13 @@ def test_every_tunable_the_schema_advertises_actually_reaches_the_fsm():
     the manifest validates and the setting evaporates -- which is the whole
     class of bug the schema was introduced to end.
     """
-    from ai.src.perception import problem2_fsm
+    from ai.src.perception import cash_concealment_fsm
     from ai.src.pipelines import fsm_tuning
 
     missing = []
     for const in ([c for c, _ in fsm_tuning.TIMING_FRAMES_AT_10FPS.values()]
                   + list(fsm_tuning.GEOMETRY.values())
                   + list(fsm_tuning.FLAGS.values())):
-        if not hasattr(problem2_fsm, const):
+        if not hasattr(cash_concealment_fsm, const):
             missing.append(const)
-    assert not missing, f"fsm_tuning names globals problem2_fsm does not have: {missing}"
+    assert not missing, f"fsm_tuning names globals cash_concealment_fsm does not have: {missing}"

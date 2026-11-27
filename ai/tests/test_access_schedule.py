@@ -117,15 +117,15 @@ def test_missing_timestamp_is_not_allowed():
 def test_the_zone_thresholds_are_reachable_from_a_manifest():
     """Entry was configurable; exit, presence and anchor were not.
 
-    warehouse.Config's own comment sources exit_confirmation_s = 4.0 from one
+    zone_monitor.Config's own comment sources exit_confirmation_s = 4.0 from one
     clip, where a person in a doorway crossed the boundary three times in
     15 s. Exit is the side that decides whether someone leaving is seen to
     leave at all -- a doorway at the frame edge, a busier aisle or a camera
     further back all move it, and none of those are properties of the system.
     """
-    from ai.src.perception import warehouse
+    from ai.src.perception import zone_monitor
 
-    cfg = warehouse.Config(fps=5.0)
+    cfg = zone_monitor.Config(fps=5.0)
     assert (cfg.exit_confirmation_s, cfg.presence_confirmation_frames) == (4.0, 5)
     assert cfg.exit_on_loss_min_frames == 3 and cfg.anchor == "pelvis"
 
@@ -163,7 +163,6 @@ def _apply_zone_params(params, fps):
     media store; the block under test reads self.params and self.spec.
     """
     import types
-    from ai.src.perception import warehouse
     from ai.src.pipelines.storage_intrusion import StorageIntrusionPipeline
 
     holder = types.SimpleNamespace(
@@ -171,25 +170,9 @@ def _apply_zone_params(params, fps):
         spec=types.SimpleNamespace(
             target_fps=fps, camera_id="storage_1",
             perception_profile={"person_detector": {"conf_thres": 0.45}}),
-        zone_cfg={},
-        timing=_NullTiming(),
-        _business_ready=False,
+        min_box_h_frac=0.14,
     )
-    captured = {}
-
-    class _Monitor:
-        def __init__(self, zone_norm, w, h, cfg):
-            captured["cfg"] = cfg
-
-    real_monitor, real_tracker = warehouse.ZoneMonitor, None
-    warehouse.ZoneMonitor = _Monitor
-    try:
-        holder.zone_cfg = {"zone_norm": [[0, 0], [1, 0], [1, 1]]}
-        StorageIntrusionPipeline._bootstrap_business(
-            holder, types.SimpleNamespace(image_bgr=_Frame()))
-    finally:
-        warehouse.ZoneMonitor = real_monitor
-    return captured["cfg"]
+    return StorageIntrusionPipeline._zone_monitor_config(holder)
 
 
 class _Frame:

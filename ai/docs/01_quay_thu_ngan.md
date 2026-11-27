@@ -86,7 +86,7 @@ flowchart LR
 CameraPipeline(camera_id)
 ├── FrameSampler
 ├── PersonPoseDetector
-├── MultiObjectTracker          <- uae_tracker.py
+├── MultiObjectTracker          <- person_tracker.py
 ├── ZoneCalibration / RoleAssignment
 ├── CashDrawerStateDetector
 ├── TemporalStateCache
@@ -712,7 +712,7 @@ tầng pose chưa cho được cổ tay đúng ([11.2](#112-hạn-chế-chính))
 |---|---|---|---|
 | Phase 1 | Module dùng chung | Ổn định stream, zone, drawer state, event deduplication | Phần lớn xong, event dedup còn thiếu — xem [Phụ lục D](#phụ-lục-d-trạng-thái-triển-khai) |
 | Phase 2 | Chốt model perception | Quyết định góc camera; nếu giữ top-down thì fine-tune pose model trên footage thật. Điều kiện tiên quyết lý tưởng của Bài 2. | Chưa bắt đầu — **nhưng Phase 3 đã triển khai trước, xem ghi chú rủi ro dưới đây** |
-| Phase 3 | Pipeline A cho Bài 2 | Xây FSM, `active_hand`, trajectory và evidence clip | **Đã code** (`ai/src/pipelines/counter_cash_theft.py`, `ai/src/perception/problem2_fsm.py`) — độ tin cậy vị trí cổ tay chưa được Phase 2 xác nhận; còn thiếu 3 điểm đặc tả, xem [Phụ lục D](#phụ-lục-d-trạng-thái-triển-khai) |
+| Phase 3 | Pipeline A cho Bài 2 | Xây FSM, `active_hand`, trajectory và evidence clip | **Đã code** (`ai/src/pipelines/counter_cash_theft.py`, `ai/src/perception/cash_concealment_fsm.py`) — độ tin cậy vị trí cổ tay chưa được Phase 2 xác nhận; còn thiếu 3 điểm đặc tả, xem [Phụ lục D](#phụ-lục-d-trạng-thái-triển-khai) |
 | Phase 4 | Thu thập/label sequence hành vi | Tạo taxonomy normal/suspicious và bộ dữ liệu đa camera | Chưa bắt đầu |
 | Phase 5 | Pipeline B baseline | So sánh ST-GCN với CNN+BiLSTM | Chưa bắt đầu |
 | Phase 6 | Fusion + deployment | Kết hợp rule score và DL probability; tối ưu latency | Chưa bắt đầu |
@@ -770,7 +770,7 @@ FPS và yêu cầu ưu tiên recall hay precision.
 | Toàn văn | Xoá Bài toán 1 (`SUSPICIOUS_DRAWER_OPEN`) khỏi tiêu đề, diagram tổng quan, bảng mục 2, mục 5 (đặc tả cũ giữ trong lịch sử git) |
 | 11.3 | Cập nhật trạng thái: Phase 3 (Pipeline A cho Bài 2) **đã code**, chạy trước khi Phase 2 (chốt pose model) hoàn tất — thêm ghi chú rủi ro tường minh thay vì để ngầm định |
 | Phụ lục D | Cập nhật bảng trạng thái theo code thực tế 28/08/2026; thêm mục liệt kê lỗ hổng so với đặc tả: thiếu gate theo `bbox_source: predicted` (gap #1), confirm open/close đối xứng thay vì lệch nhau (gap #2), ngưỡng FSM module-level global đụng nhau khi nhiều camera share 1 process (gap #3). Hai nghi vấn ban đầu — thiếu `event_cooldown`, `last_till_box` không có grace timeout — đã rà soát lại và loại khỏi danh sách vì không phải gap thật (xem lý do trong Phụ lục D) |
-| Phụ lục D | **Gap #3 đã sửa cùng ngày**: mỗi pipeline nạp một bản `problem2_fsm` riêng (`load_private_fsm`), ngưỡng thành per-camera; runtime guard cũ bỏ đi vì nó biến cấu hình per-camera thành cấu hình không hỗ trợ. Gap #1 và #2 vẫn còn |
+| Phụ lục D | **Gap #3 đã sửa cùng ngày**: mỗi pipeline nạp một bản `cash_concealment_fsm` riêng (`load_private_fsm`), ngưỡng thành per-camera; runtime guard cũ bỏ đi vì nó biến cấu hình per-camera thành cấu hình không hỗ trợ. Gap #1 và #2 vẫn còn |
 
 **v1.2** — sau khi đo model perception trên footage thật:
 
@@ -832,11 +832,11 @@ Tính đến 28/08/2026.
 |---|---|---|
 | `FrameSampler` | `ai/src/perception/stream_track.py` | Xong. Thiếu adaptive FPS ([4.1](#41-video-ingestion-và-frame-sampling)) |
 | `PersonPoseDetector` | `ai/src/perception/stream_track.py` | Xong. YOLO26n-pose ONNX, CoreML EP |
-| `MultiObjectTracker` | `ai/src/perception/uae_tracker.py` | Xong. DeepSORT 4 pass + OSNet-x0.25 re-id feature. `bbox_source: predicted/detected` được tracker trả về đúng, nhưng **pipeline tiêu thụ nó không dùng tag này** — xem gap #1 dưới đây |
+| `MultiObjectTracker` | `ai/src/perception/person_tracker.py` | Xong. DeepSORT 4 pass + OSNet-x0.25 re-id feature. `bbox_source: predicted/detected` được tracker trả về đúng, nhưng **pipeline tiêu thụ nó không dùng tag này** — xem gap #1 dưới đây |
 | `ZoneCalibration / RoleAssignment` | `ai/src/perception/zones.py` | Xong (đọc polygon từ file cấu hình, MVP theo [4.3](#43-module-c--phân-chia-phía-nhân-viên-và-phía-khách-hàng)) |
-| `CashDrawerStateDetector` | `ai/src/perception/run_counter.py::Till`, `TillRegistry`, `TillState` | Xong về debounce N-frame. Thiếu confirm bất đối xứng open/close — gap #2 |
+| `CashDrawerStateDetector` | `ai/src/perception/till_state.py::Till`, `TillRegistry`, `TillState` | Xong về debounce N-frame. Thiếu confirm bất đối xứng open/close — gap #2 |
 | `TemporalStateCache` | `ai/src/pipelines/till_schedule.py` | Xong (lịch sample/confirm quy đổi theo giây, một nguồn công thức duy nhất) |
-| `Problem2PipelineA` | `ai/src/pipelines/counter_cash_theft.py`, `ai/src/perception/problem2_fsm.py` | **Đã code**, đủ 7 state theo [6.1](#61-các-trạng-thái-chính). Chạy trước khi Phase 2 (chốt pose model) xong — xem cảnh báo rủi ro ở [11.3](#113-lộ-trình-triển-khai-đề-xuất). Thiếu gate theo `predicted` — gap #1. Ngưỡng FSM per-camera đã sửa 28/08 (`load_private_fsm`) — gap #3 |
+| `Problem2PipelineA` | `ai/src/pipelines/counter_cash_theft.py`, `ai/src/perception/cash_concealment_fsm.py` | **Đã code**, đủ 7 state theo [6.1](#61-các-trạng-thái-chính). Chạy trước khi Phase 2 (chốt pose model) xong — xem cảnh báo rủi ro ở [11.3](#113-lộ-trình-triển-khai-đề-xuất). Thiếu gate theo `predicted` — gap #1. Ngưỡng FSM per-camera đã sửa 28/08 (`load_private_fsm`) — gap #3 |
 | `Problem2PipelineB` | — | Chưa có |
 | `EvidenceRecorder + AlertPublisher` | `ai/src/pipelines/alert_clip_buffer.py`, `ai/src/infra/sqlite_alert_store.py`, `ai/src/infra/local_media_store.py` | Xong (ring buffer pre/post-event, snapshot + clip, SQLite alert store) |
 
@@ -860,14 +860,14 @@ không di chuyển giữa chừng, và `TillRegistry` chỉ ghi nhận toạ đ�
    (`ai/src/pipelines/counter_cash_theft.py`) nhận `_source` từ tracker rồi bỏ
    luôn (`for track, _source in live`), và vòng lặp FSM chạy `F.step(...)` bằng
    `track.kpts` bất kể track đang `detected` hay `predicted`. Vì `Track.kpts` chỉ được
-   cập nhật khi có detection thật (`ai/src/perception/uae_tracker.py`, `_record_pose`), một track predicted
+   cập nhật khi có detection thật (`ai/src/perception/person_tracker.py`, `_record_pose`), một track predicted
    vẫn mang keypoints cũ và có thể đẩy state qua `HAND_IN_DRAWER` / `CONCEALED` từ dữ
    liệu không phải của frame hiện tại.
 
 2. **Confirm đối xứng open/close, đặc tả yêu cầu bất đối xứng.**
    Phụ lục A tách riêng `open_confirmation` (0.3–0.5s) và `close_confirmation`
    (0.8–1.5s, dài hơn cố ý để tránh closed giả do occlusion). `TillState.update`
-   (`ai/src/perception/run_counter.py`) dùng chung một số `confirm` cho cả hai chiều chuyển trạng thái.
+   (`ai/src/perception/till_state.py`) dùng chung một số `confirm` cho cả hai chiều chuyển trạng thái.
    **Cách sửa đề xuất:** tách `confirm` thành `confirm_open` (giữ ~5 frame) và
    `confirm_close` (dài hơn, ví dụ ~10 frame ở cùng FPS); `TillState.update` so
    streak với `confirm_open` khi ứng viên là "Open", với `confirm_close` khi ứng
@@ -906,7 +906,7 @@ không di chuyển giữa chừng, và `TillRegistry` chỉ ghi nhận toạ đ�
    số — lỗi sẽ nổ lần đầu tiên một cửa hàng chạy hai quầy khác FPS, tức là một thay đổi
    **cấu hình**, không phải thay đổi code.
 
-   *Đã sửa:* mỗi pipeline nạp **một bản `problem2_fsm` riêng** (`load_private_fsm()`
+   *Đã sửa:* mỗi pipeline nạp **một bản `cash_concealment_fsm` riêng** (`load_private_fsm()`
    trong `counter_cash_theft.py`), nên các global đó thành per-camera — đúng ý nghĩa
    ban đầu của chúng. Runtime guard cũ (raise khi hai giá trị tranh nhau ghi) đã bỏ:
    nó chặn được hỏng âm thầm nhưng biến cấu hình per-camera thành cấu hình *không hỗ
@@ -915,7 +915,7 @@ không di chuyển giữa chừng, và `TillRegistry` chỉ ghi nhận toạ đ�
    Chọn cách này thay vì luồn tuning qua tham số vì đó là 21 hằng số rải khắp 703 dòng
    của chính đoạn quyết định có báo trộm hay không; cách hiện tại đạt cùng mức cách ly
    mà không sửa một dòng nào trong FSM. Chi phí đo được: **1.11 ms và 47 KiB mỗi
-   camera**. Các bản copy không đăng ký vào `sys.modules`, nên `import problem2_fsm`
+   camera**. Các bản copy không đăng ký vào `sys.modules`, nên `import cash_concealment_fsm`
    vẫn là một module dùng chung duy nhất cho các script standalone.
 
    Kiểm chứng: `ai/tests/test_fsm_globals_guard.py` — hai camera khác FPS mỗi cái

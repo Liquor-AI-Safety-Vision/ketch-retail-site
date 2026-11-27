@@ -1,4 +1,4 @@
-"""Run run_counter.py over every counter-generated clip and tabulate the result.
+"""Run till_state.py over every counter-generated clip and tabulate the result.
 
     python3 scripts/batch_counter.py [--limit N] [--no-video]
 
@@ -25,7 +25,7 @@ CLIPS = f"{ROOT}/data/videos/counter-generated"
 OUT = f"{ROOT}/ai/dev/outputs/counter-generated"
 ZONES = f"{ROOT}/ai/dev/outputs/top-side-view/top-side-view_zones.json"
 
-# the numbers run_counter prints at the end, which are the point of the batch
+# the numbers till_state prints at the end, which are the point of the batch
 PAT = {
     "persons_mean": r"persons/frame: mean=([\d.]+)",
     "persons_max": r"persons/frame: mean=[\d.]+ max=(\d+)",
@@ -66,7 +66,7 @@ def main():
         tag = f"{stem}{side}"
         out_v = f"{OUT}/annotated/{tag}.mp4"
         out_e = f"{OUT}/events/{tag}.jsonl"
-        cmd = [sys.executable, f"{ROOT}/scripts/run_counter.py",
+        cmd = [sys.executable, f"{ROOT}/scripts/till_state.py",
                "--video", video, "--zones", ZONES,
                "--out", out_v, "--events", out_e]
         r = subprocess.run(cmd, capture_output=True, text=True)

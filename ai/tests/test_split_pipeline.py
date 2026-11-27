@@ -65,14 +65,12 @@ def _local_tracks(spec):
     """Pose -> ReID -> Tracker, called directly against the real video stream.
 
     Deliberately bare -- pose, ReID and tracker.update() only, matching what
-    the split side's tracker actually sees. storage_intrusion's own
-    min_box_h filter, zone monitor and entry windows sit on top of this in
-    both architectures identically (same handle_perceived code either way),
-    so they are not what this test is checking; the split's own zone/entry
-    logic isn't a second implementation to drift against.
+    the split side's tracker actually sees. The camera's min_box_h filter,
+    zone monitor and entry windows sit on top of this and are not what this
+    test checks.
     """
     from ai.src.perception import stream_track as S
-    from ai.src.perception.uae_tracker import Detection, Tracker
+    from ai.src.perception.person_tracker import Detection, Tracker
 
     from ai.src.runtime.shared_inference import SharedInferenceRegistry
     from ai.src.runtime.virtual_video_stream import VirtualVideoStreamSource
@@ -130,8 +128,7 @@ def test_split_matches_local_tracking(tmp_path):
     local_per_frame, local_tracks = _local_tracks(spec)
     stats = _split_run(spec, tmp_path)
 
-    pipeline_id = spec.pipeline_bindings[0].pipeline_id
-    pm = stats.pipeline_metrics[pipeline_id]
+    pm = stats.tracking_metrics
 
     assert stats.frames_processed == len(local_per_frame), (
         f"split processed {stats.frames_processed} frames, local processed "

@@ -21,7 +21,7 @@ if str(ROOT) not in sys.path:
 import cv2  # noqa: E402
 import numpy as np  # noqa: E402
 
-from ai.src.perception import run_counter as RC  # noqa: E402
+from ai.src.perception import till_state as RC  # noqa: E402
 from ai.src.perception import stream_track as S  # noqa: E402
 from ai.src.common.paths import model_path
 

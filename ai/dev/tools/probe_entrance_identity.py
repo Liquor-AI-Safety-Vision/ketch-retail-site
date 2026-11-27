@@ -40,7 +40,7 @@ for p in (str(ROOT),):
         sys.path.insert(0, p)
 
 from ai.src.perception import stream_track as S  # noqa: E402
-from ai.src.perception import warehouse  # noqa: E402
+from ai.src.perception import zone_monitor  # noqa: E402
 from ai.src.perception.face_align import ARCFACE_112, FaceDetector, align  # noqa: E402
 
 
@@ -73,7 +73,7 @@ def align_umeyama(frame, lm, size=112):
     M = umeyama(lm, ARCFACE_112)
     return cv2.warpAffine(frame, M, (size, size), borderValue=0)
 from ai.src.perception.face_identity import ArcFaceEmbedder  # noqa: E402
-from ai.src.perception.uae_tracker import Detection, Tracker  # noqa: E402
+from ai.src.perception.person_tracker import Detection, Tracker  # noqa: E402
 from ai.src.common.paths import model_path, outputs_dir
 
 
@@ -96,7 +96,7 @@ def main() -> None:
     import json
     import math
 
-    cfg = warehouse.Config(fps=a.fps, anchor="pelvis")
+    cfg = zone_monitor.Config(fps=a.fps, anchor="pelvis")
     cfg.person_conf = a.conf
     cfg.entry_confirmation_s = a.entry_s
     cfg.__post_init__()
@@ -113,7 +113,7 @@ def main() -> None:
     fd = FaceDetector(a.face_model, conf=a.face_conf)
     arc = ArcFaceEmbedder(a.arcface)
     tracker = Tracker(img_h=H, img_w=W, fps=cfg.fps)
-    mon = warehouse.ZoneMonitor(zone_norm, W, H, cfg)
+    mon = zone_monitor.ZoneMonitor(zone_norm, W, H, cfg)
 
     # track_id -> list of (score, embedding, chip)
     per_track: dict[int, list] = defaultdict(list)
@@ -141,7 +141,7 @@ def main() -> None:
                             for t, src in live], idx)
 
         for tid, ltrb, _k, st, _pt, _s in items:
-            if st == warehouse.OUTSIDE:
+            if st == zone_monitor.OUTSIDE:
                 came_from_outside.add(tid)
             elif tid not in came_from_outside:
                 continue

@@ -50,19 +50,19 @@ for p in (str(ROOT),):
         sys.path.insert(0, p)
 
 from ai.src.perception import stream_track as S  # noqa: E402
-from ai.src.perception import warehouse  # noqa: E402
+from ai.src.perception import zone_monitor  # noqa: E402
 from ai.src.perception.face_align import FaceDetector  # noqa: E402
-from ai.src.perception.uae_tracker import Detection, Tracker  # noqa: E402
+from ai.src.perception.person_tracker import Detection, Tracker  # noqa: E402
 from ai.src.common.paths import model_path, outputs_dir
 
 from demo_entrance_face import FaceWindow, face_in_person, transcode  # noqa: E402
 
-STATE_TEXT = {warehouse.OUTSIDE: "OUTSIDE",
-              warehouse.PENDING_IN: "PENDING",
-              warehouse.INSIDE: "INSIDE"}
-STATE_COLOR = {warehouse.OUTSIDE: (170, 170, 170),
-               warehouse.PENDING_IN: (60, 200, 255),
-               warehouse.INSIDE: (90, 240, 90)}
+STATE_TEXT = {zone_monitor.OUTSIDE: "OUTSIDE",
+              zone_monitor.PENDING_IN: "PENDING",
+              zone_monitor.INSIDE: "INSIDE"}
+STATE_COLOR = {zone_monitor.OUTSIDE: (170, 170, 170),
+               zone_monitor.PENDING_IN: (60, 200, 255),
+               zone_monitor.INSIDE: (90, 240, 90)}
 ALERT = (60, 60, 235)
 FACE_BOX = (255, 120, 255)
 
@@ -122,7 +122,7 @@ def main() -> None:
                    help="0 = pick the track that confirms entry inside the clip")
     a = p.parse_args()
 
-    cfg = warehouse.Config(fps=a.fps, anchor="pelvis")
+    cfg = zone_monitor.Config(fps=a.fps, anchor="pelvis")
     cfg.person_conf = a.conf
     cfg.entry_confirmation_s = a.entry_s
     cfg.__post_init__()
@@ -140,7 +140,7 @@ def main() -> None:
     det, emb = S.Detector(), S.Embedder()
     fd = FaceDetector(a.face_model, conf=a.face_conf)
     tracker = Tracker(img_h=H, img_w=W, fps=cfg.fps)
-    mon = warehouse.ZoneMonitor(zone_norm, W, H, cfg)
+    mon = zone_monitor.ZoneMonitor(zone_norm, W, H, cfg)
 
     out_path = Path(a.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -194,7 +194,7 @@ def main() -> None:
 
         drawn = []
         for tid, ltrb, _k, st, _pt, _s in items:
-            if st == warehouse.OUTSIDE:
+            if st == zone_monitor.OUTSIDE:
                 came_from_outside.add(tid)
             elif tid not in came_from_outside:
                 continue          # walking out; not what this demo is about

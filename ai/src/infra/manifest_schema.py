@@ -43,7 +43,7 @@ def _tracker_keys():
     later is configurable without editing two files -- and, more to the point,
     so this list cannot drift into promising a knob that no longer exists.
     """
-    from ai.src.perception.uae_tracker import Config, TRACKER_ALIASES
+    from ai.src.perception.person_tracker import Config, TRACKER_ALIASES
 
     # reid_model_path, not reid_model: the pipelines read
     # person_tracker.get("reid_model_path"), and this schema used to declare
@@ -135,7 +135,7 @@ PIPELINE_PARAMS: dict[str, Section] = {
     ),
     "storage_intrusion_v1": Section(
         keys={
-            # warehouse.Config's zone thresholds. Entry was the only one a
+            # zone_monitor.Config's zone thresholds. Entry was the only one a
             # manifest could reach; exit, presence and anchor were fixed at
             # values measured on one storage clip, and exit is the side that
             # decides whether someone leaving is seen to leave.

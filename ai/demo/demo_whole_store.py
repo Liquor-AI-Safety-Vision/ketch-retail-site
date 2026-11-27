@@ -10,7 +10,7 @@ visually harmless.
 
     python3 demo_whole_store.py --video videos/whole_store/cold_drinks.mp4
 
-Offline by design, like run_counter.py: every downsampled frame is processed,
+Offline by design, like till_state.py: every downsampled frame is processed,
 none dropped, so the output is reviewable frame by frame.
 """
 import sys as _sys
@@ -28,7 +28,7 @@ import cv2
 import numpy as np
 
 from ai.src.perception import stream_track as S
-from ai.src.perception.uae_tracker import Detection, Tracker
+from ai.src.perception.person_tracker import Detection, Tracker
 
 warnings.filterwarnings("ignore", message=".*encountered in matmul",
                         category=RuntimeWarning)

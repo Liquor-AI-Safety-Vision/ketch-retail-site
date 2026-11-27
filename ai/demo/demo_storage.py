@@ -25,7 +25,7 @@ best-scoring chip seen over the track's life is what gets shown. So the
 picture in the corner is a real, aligned crop of that person; only the name
 next to it is asserted rather than recognized.
 
-Reuses warehouse.ZoneMonitor unchanged for the zone state machine (doc 02);
+Reuses zone_monitor.ZoneMonitor unchanged for the zone state machine (doc 02);
 only adds the face chip and the identity label on top of run_warehouse.py's
 drawing.
 """
@@ -47,17 +47,17 @@ import numpy as np
 from ai.src.perception.face_align import FaceDetector, align, best_face_in_box
 from ai.src.perception.face_identity import FaceIdentifier
 from ai.src.perception import stream_track as S
-from ai.src.perception import warehouse
-from ai.src.perception.uae_tracker import Detection, Tracker
+from ai.src.perception import zone_monitor
+from ai.src.perception.person_tracker import Detection, Tracker
 
 warnings.filterwarnings("ignore", message=".*encountered in matmul",
                         category=RuntimeWarning)
 
 HERE = str(_Path(__file__).resolve().parents[2])
 
-STATE_COLOR = {warehouse.OUTSIDE: (170, 170, 170),
-               warehouse.PENDING_IN: (60, 200, 255),
-               warehouse.INSIDE: (60, 60, 255)}
+STATE_COLOR = {zone_monitor.OUTSIDE: (170, 170, 170),
+               zone_monitor.PENDING_IN: (60, 200, 255),
+               zone_monitor.INSIDE: (60, 60, 255)}
 
 # Whoever gets the first confirmed ZONE_ENTRY of the run is labelled this;
 # every other track is "Unknown". Checked against the source footage: in
@@ -68,8 +68,8 @@ UNKNOWN = "Unknown"
 FACE_SCORE_MIN = 0.20   # below this a "face" is more likely shelf glare
 CHIP = 140              # corner thumbnail size, px
 ENTRY_FACE_WINDOW_S = 1.0
-STATE_LABEL = {warehouse.OUTSIDE: "outside", warehouse.PENDING_IN: "entering",
-               warehouse.INSIDE: "inside"}
+STATE_LABEL = {zone_monitor.OUTSIDE: "outside", zone_monitor.PENDING_IN: "entering",
+               zone_monitor.INSIDE: "inside"}
 
 
 class FaceChip:
@@ -121,9 +121,9 @@ def draw(img, items, poly, chips, identities, hud):
         p2 = (int(ltrb[2]), int(ltrb[3]))
         cv2.rectangle(img, p1, p2, c, th)
         tag = identities.get(tid, "Unknown")
-        if st == warehouse.PENDING_IN:
+        if st == zone_monitor.PENDING_IN:
             tag += f" entering {streak}/{poly_cfg.entry_frames}"
-        elif st == warehouse.INSIDE and streak:
+        elif st == zone_monitor.INSIDE and streak:
             tag += f" leaving {streak}/{poly_cfg.exit_frames}"
         (tw, tht), _ = cv2.getTextSize(tag, cv2.FONT_HERSHEY_SIMPLEX, fs, th)
         cv2.rectangle(img, (p1[0], p1[1] - tht - 8), (p1[0] + tw + 8, p1[1]), c, -1)
@@ -190,7 +190,7 @@ def main():
                         "drawing/writing a video, for inspecting track churn")
     a = p.parse_args()
 
-    cfg = warehouse.Config(fps=a.fps)
+    cfg = zone_monitor.Config(fps=a.fps)
     S.MODEL, S.REID_MODEL, S.CONF = a.model, a.reid, cfg.person_conf
     poly_cfg = cfg
 
@@ -217,7 +217,7 @@ def main():
             prefer_coreml=not a.face_cpu)
         face_det = None
     tracker = Tracker(img_h=H, img_w=W, fps=cfg.fps)
-    mon = warehouse.ZoneMonitor(zone_norm, W, H, cfg)
+    mon = zone_monitor.ZoneMonitor(zone_norm, W, H, cfg)
     min_h = cfg.min_box_h_frac * H
 
     first_entrant_name = FIRST_ENTRANT_NAME.get(a.room, "Staff")
@@ -275,9 +275,9 @@ def main():
         for tid, st in state_of.items():
             if face_id is None:
                 continue
-            if st == warehouse.PENDING_IN:
+            if st == zone_monitor.PENDING_IN:
                 entry_windows.setdefault(tid, EntryFaceWindow(idx))
-            elif st == warehouse.OUTSIDE:
+            elif st == zone_monitor.OUTSIDE:
                 entry_windows.pop(tid, None)
         for e in mon.events[n_events:]:
             if e["event"] != "ZONE_ENTRY":
@@ -339,10 +339,10 @@ def main():
             for tid, win in list(entry_windows.items()):
                 st = state_of.get(tid)
                 if win.end_frame is None:
-                    if st not in (warehouse.PENDING_IN, warehouse.INSIDE):
+                    if st not in (zone_monitor.PENDING_IN, zone_monitor.INSIDE):
                         entry_windows.pop(tid, None)
                     continue
-                if idx < win.end_frame and st in (warehouse.PENDING_IN, warehouse.INSIDE):
+                if idx < win.end_frame and st in (zone_monitor.PENDING_IN, zone_monitor.INSIDE):
                     continue
                 resolved = win.resolved_identity()
                 if resolved is not None:

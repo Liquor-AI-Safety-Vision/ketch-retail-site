@@ -55,6 +55,7 @@ tolerate a decision landing after the fact.
 from __future__ import annotations
 
 import logging
+import os
 import sys
 import threading
 import time
@@ -276,7 +277,8 @@ class FaceCameraConfig:
 
 def run_face_process(face_model: str, arcface_model: str, gallery_db_path: str,
                      camera_configs: dict[str, FaceCameraConfig], face_q, business_qs: dict,
-                     ready_q, go_evt, stats_q, cpu_only: bool = False) -> None:
+                     ready_q, go_evt, stats_q, cpu_only: bool = False,
+                     gpu: int | None = None) -> None:
     """Entry point for the face-identity process: its own CUDA context.
 
     A real, small third context alongside the pose/ReID processes'. Worth
@@ -289,6 +291,7 @@ def run_face_process(face_model: str, arcface_model: str, gallery_db_path: str,
     from ai.src.runtime.shared_inference import SharedFaceIdentifier, SharedInferenceRegistry
     from ai.src.runtime.tier_status import tier_guard
 
+    pin_gpu(gpu)
     with tier_guard("face", ready_q, stats_q):
         _run_face_process(face_model, arcface_model, gallery_db_path, camera_configs,
                           face_q, business_qs, ready_q, go_evt, stats_q, cpu_only,
@@ -516,6 +519,16 @@ class InferenceLane:
         ))
 
 
+def pin_gpu(gpu: int | None) -> None:
+    """Make this process use only GPU `gpu` (None: leave the choice to CUDA).
+
+    Must run before the process creates its first CUDA session, which is when
+    CUDA reads CUDA_VISIBLE_DEVICES; every tier entry point calls it first.
+    """
+    if gpu is not None:
+        os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu)
+
+
 @dataclass
 class InferenceConfig:
     pose_model: str
@@ -538,6 +551,8 @@ class InferenceConfig:
     # silently gets.
     reid_shared: bool = False
     reid_num_workers: int = 1
+    #: The GPU this process runs on, on a machine with several (see run_split_pipeline).
+    gpu: int | None = None
 
 
 def run_inference_process(config: InferenceConfig, lane_decode_qs: list,
@@ -560,6 +575,7 @@ def run_inference_process(config: InferenceConfig, lane_decode_qs: list,
     from ai.src.runtime.shared_inference import SharedInferenceRegistry
     from ai.src.runtime.tier_status import tier_guard
 
+    pin_gpu(config.gpu)
     with tier_guard("inference", ready_q, stats_q):
         _run_inference_process(config, lane_decode_qs, business_qs, ring_specs,
                                ready_q, go_evt, stats_q, needs_till,

@@ -26,7 +26,7 @@ E2E một cửa hàng, 180 s:
 
 Chạy raw detection (bỏ qua debounce của `TillRegistry`, vì registry sinh ra để
 che giấu flicker — đo qua nó thì giấu mất đúng thứ cần đo), `conf=0.70` khớp
-mặc định của `run_counter.py`.
+mặc định của `till_state.py`.
 
 | | v4 medium | nano | |
 |---|---|---|---|
@@ -34,7 +34,7 @@ mặc định của `run_counter.py`.
 | **`cash_till_open_1`, toàn bộ 59 s** | Open **27** | Open **27** | ✅ đạt |
 | **`cash_till_open_2`, toàn bộ 210 s** | Open **102** | Open **46** | ❌ **bỏ sót 55%** |
 
-Mốc 25 s đầu là mốc đã ghi sẵn trong comment `--till` của `run_counter.py`: v2 cũ
+Mốc 25 s đầu là mốc đã ghi sẵn trong comment `--till` của `till_state.py`: v2 cũ
 báo Open sai ở 84% số frame, v4 sửa xuống 0. Nano giữ được thành tựu đó — nó
 **không báo Open nhầm** bao giờ.
 

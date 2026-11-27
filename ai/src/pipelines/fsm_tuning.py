@@ -8,7 +8,7 @@ setting that is either refused for no reason or accepted and read by nobody.
 
 It lives in its own module rather than on the pipeline class because
 manifest_schema would otherwise have to import counter_cash_theft to see the
-tables, and that pulls in stream_track, run_counter and onnxruntime -- a
+tables, and that pulls in stream_track, till_state and onnxruntime -- a
 GPU-stack import in the path of validating a JSON file.
 
 Both groups are per camera. Neither is a property of the system:

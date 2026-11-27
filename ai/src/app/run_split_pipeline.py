@@ -43,8 +43,11 @@ the given manifests, since rings and queues are keyed by it.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import multiprocessing as mp
 import os
+import shutil
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -94,6 +97,24 @@ DEFAULT_REID_MODEL = model_path("osnet_x0_25_msmt17.onnx")
 DEFAULT_TILL_MODEL = model_path("till_seg_v4_640.onnx")
 DEFAULT_FACE_MODEL = model_path("yolov6s_face.onnx")
 DEFAULT_ARCFACE_MODEL = model_path("ms1mv3_arcface_r18.onnx")
+
+
+def detect_gpus() -> int:
+    """NVIDIA GPUs on this machine (nvidia-smi -L); 1 when it cannot tell."""
+    if shutil.which("nvidia-smi") is None:
+        return 1
+    try:
+        out = subprocess.run(["nvidia-smi", "-L"], capture_output=True, text=True,
+                             timeout=10, check=True).stdout
+    except (OSError, subprocess.SubprocessError):
+        return 1
+    return max(1, sum(1 for line in out.splitlines() if line.startswith("GPU ")))
+
+
+def _gpu_for(process_index: int, gpus: int) -> int | None:
+    """Round-robin over the GPUs; None on a one-GPU machine, which leaves CUDA's
+    own choice (and the environment) exactly as it was."""
+    return process_index % gpus if gpus > 1 else None
 
 
 def _shard(items, n):
@@ -159,7 +180,8 @@ def run(specs, *, decoders: int, inferers: int, infer_threads: int, businesses: 
        gallery_db_path: str, slots_per_camera: int,
        pose_num_workers: int = 1, pose_max_batch: int = 1,
        pose_blob_dtype: str = POSE_BLOB_DTYPE, reid_shared: bool = False,
-       reid_num_workers: int = 1, storage_mode: str = "local-db", stop_evt=None):
+       reid_num_workers: int = 1, storage_mode: str = "local-db", stop_evt=None,
+       gpus: int = 1):
     from ai.src.runtime.business_tier import run_business_process
     from ai.src.runtime.decode_tier import run_decoder_process
     from ai.src.runtime.frame_ring import FrameRing
@@ -235,7 +257,7 @@ def run(specs, *, decoders: int, inferers: int, infer_threads: int, businesses: 
                     slots_per_camera=slots_per_camera, pose_num_workers=pose_num_workers,
                     pose_max_batch=pose_max_batch, pose_blob_dtype=pose_blob_dtype,
                     reid_shared=reid_shared, reid_num_workers=reid_num_workers,
-                    storage_mode=storage_mode, stop_evt=stop_evt)
+                    storage_mode=storage_mode, stop_evt=stop_evt, gpus=gpus)
     finally:
         # The rings are owned here, so this is the only place that can unlink
         # them. Without the finally, any failure between allocation and the
@@ -280,7 +302,8 @@ def _run(specs, *, ctx, rings, free_qs, ring_specs, camera_decode_cfg, camera_fa
          till_model, till_imgsz, face_model, arcface_model, db_path, media_root,
          gallery_db_path, slots_per_camera, pose_num_workers=1, pose_max_batch=1,
          pose_blob_dtype=POSE_BLOB_DTYPE, reid_shared: bool = False,
-         reid_num_workers: int = 1, storage_mode: str = "local-db", stop_evt=None):
+         reid_num_workers: int = 1, storage_mode: str = "local-db", stop_evt=None,
+         gpus: int = 1):
     """Start the tiers, run them, shut them down in the order frames flow.
 
     Split out from run() so the rings run() owns are closed in its finally
@@ -333,15 +356,17 @@ def _run(specs, *, ctx, rings, free_qs, ring_specs, camera_decode_cfg, camera_fa
                         for shard in my_lanes for spec in shard}
         infer_procs.append(ctx.Process(
             target=run_inference_process, name=f"inference-{k}",
-            args=(infer_config, my_lane_qs, business_qs, my_ring_specs,
-                 ready_q, go_evt, stats_q, needs_till)))
+            args=(dataclasses.replace(infer_config, gpu=_gpu_for(k, gpus)), my_lane_qs,
+                  business_qs, my_ring_specs, ready_q, go_evt, stats_q, needs_till)))
 
     face_proc = None
     if camera_face_cfg:
         face_proc = ctx.Process(
             target=run_face_process, name="face",
             args=(face_model, arcface_model, gallery_db_path, camera_face_cfg, face_q,
-                 business_qs, ready_q, go_evt, stats_q))
+                 business_qs, ready_q, go_evt, stats_q),
+            # The last GPU: inference processes fill the GPUs from the first.
+            kwargs=dict(gpu=_gpu_for(gpus - 1, gpus)))
 
     biz_procs = []
     for i, shard in enumerate(biz_shards):
@@ -351,7 +376,7 @@ def _run(specs, *, ctx, rings, free_qs, ring_specs, camera_decode_cfg, camera_fa
         biz_procs.append(ctx.Process(
             target=run_business_process, name=f"business-{i}",
             args=(shard, my_ring_specs, my_free_qs, my_business_qs, db_path, media_root,
-                 gallery_db_path, face_q, ready_q, go_evt, stats_q, storage_mode)))
+                 face_q, ready_q, go_evt, stats_q, storage_mode)))
 
     all_procs = dec_procs + infer_procs + ([face_proc] if face_proc else []) + biz_procs
     for p in all_procs:
@@ -487,6 +512,11 @@ def main() -> None:
     p.add_argument("--infer-threads", type=int, default=2)
     p.add_argument("--business", type=int, default=2)
     p.add_argument("--slots-per-camera", type=int, default=8)
+    p.add_argument("--gpus", default="auto",
+                   help="GPUs to spread the inference processes over, round-robin "
+                        "(inference-k runs on GPU k %% gpus, the face tier on the last). "
+                        "'auto' counts them with nvidia-smi. Use at least as many "
+                        "--inferers as GPUs, or some GPUs stay idle")
     p.add_argument(
         "--storage-mode", choices=["local-db", "cloud-db"], default="local-db",
         help="local-db: SQLite (--db-path) + video files under --media-root, today's "
@@ -510,12 +540,17 @@ def main() -> None:
         args.gallery_db = (os.environ["DATABASE_URL"] if args.storage_mode == "cloud-db"
                            else args.db_path)
 
+    gpus = detect_gpus() if args.gpus == "auto" else max(1, int(args.gpus))
+    if args.inferers < gpus:
+        print(f"warning: {gpus} GPUs but only {args.inferers} inference processes; "
+              f"{gpus - args.inferers} GPU(s) will stay idle", file=sys.stderr)
+
     from ai.src.infra.local_config import camera_specs_from_manifests
 
     specs = camera_specs_from_manifests(args.manifest)[:args.cameras]
     stores = sorted({spec.store_id for spec in specs})
     print(f"stores={stores} cameras={len(specs)} decoders={args.decoders} "
-         f"inferers={args.inferers}x{args.infer_threads} business={args.business}",
+         f"inferers={args.inferers}x{args.infer_threads} business={args.business} gpus={gpus}",
          file=sys.stderr)
 
     stop_evt = mp.get_context("spawn").Event()
@@ -530,7 +565,7 @@ def main() -> None:
         face_model=args.face_model, arcface_model=args.arcface_model,
         db_path=args.db_path, media_root=args.media_root,
         gallery_db_path=args.gallery_db, slots_per_camera=args.slots_per_camera,
-        storage_mode=args.storage_mode, stop_evt=stop_evt)
+        storage_mode=args.storage_mode, stop_evt=stop_evt, gpus=gpus)
 
     frames = sum(s.frames_processed for s in biz_stats)
     alerts = sum(s.alerts_emitted for s in biz_stats)

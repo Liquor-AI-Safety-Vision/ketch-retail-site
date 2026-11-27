@@ -73,15 +73,15 @@ for p in (str(ROOT),):
         sys.path.insert(0, p)
 
 from ai.src.perception import stream_track as S  # noqa: E402
-from ai.src.perception import warehouse  # noqa: E402
+from ai.src.perception import zone_monitor  # noqa: E402
 from ai.src.perception.face_align import FaceDetector  # noqa: E402
-from ai.src.perception.uae_tracker import Detection, Tracker  # noqa: E402
+from ai.src.perception.person_tracker import Detection, Tracker  # noqa: E402
 from ai.src.common.paths import model_path, outputs_dir
 
 STATE_COLOR = {
-    warehouse.OUTSIDE: (150, 150, 150),      # grey: seen, but not our problem
-    warehouse.PENDING_IN: (60, 200, 255),    # amber: inside, not yet confirmed
-    warehouse.INSIDE: (90, 240, 90),         # green: confirmed
+    zone_monitor.OUTSIDE: (150, 150, 150),      # grey: seen, but not our problem
+    zone_monitor.PENDING_IN: (60, 200, 255),    # amber: inside, not yet confirmed
+    zone_monitor.INSIDE: (90, 240, 90),         # green: confirmed
 }
 FACE_COLOR = (255, 120, 255)
 REJECT_COLOR = (80, 80, 200)   # kept on screen so the filter is visible
@@ -196,7 +196,7 @@ def draw(frame, items, faces, poly, hud, cfg, born_inside=()):
         cv2.circle(frame, (int(pt[0]), int(pt[1])), 7, col, -1)
         cv2.circle(frame, (int(pt[0]), int(pt[1])), 7, (0, 0, 0), 2)
         tag = f"#{tid} {st}"
-        if st == warehouse.PENDING_IN:
+        if st == zone_monitor.PENDING_IN:
             tag += f" {streak}/{cfg.entry_frames}"
         if tid in born_inside:
             # says WHY this person never gets a face box, so an empty result
@@ -255,13 +255,13 @@ def main() -> None:
     p.add_argument("--faces-dir", default=str(outputs_dir() / "entrance/best_faces"))
     p.add_argument("--min-h", type=float, default=0.0,
                    help="minimum person height as a fraction of frame height. "
-                        "Default 0 = off: warehouse.Config's 0.14 is a "
+                        "Default 0 = off: zone_monitor.Config's 0.14 is a "
                         "storage_1 measurement and applying it here unmeasured "
                         "would drop real tracks silently")
     p.add_argument("--max-frames", type=int, default=0)
     a = p.parse_args()
 
-    cfg = warehouse.Config(fps=a.fps, anchor="pelvis")
+    cfg = zone_monitor.Config(fps=a.fps, anchor="pelvis")
     cfg.person_conf = a.conf
     cfg.entry_confirmation_s = a.entry_s
     cfg.__post_init__()          # recompute entry_frames/exit_frames
@@ -284,7 +284,7 @@ def main() -> None:
     det, emb = S.Detector(), S.Embedder()
     face_det = FaceDetector(a.face_model, conf=a.face_conf)
     tracker = Tracker(img_h=H, img_w=W, fps=cfg.fps)
-    mon = warehouse.ZoneMonitor(zone_norm, W, H, cfg)
+    mon = zone_monitor.ZoneMonitor(zone_norm, W, H, cfg)
 
     out_path = Path(a.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -361,7 +361,7 @@ def main() -> None:
             # A track that has been OUTSIDE at some point is walking in; one
             # that was never OUTSIDE was already on the shop floor when it
             # appeared, and is on its way out.
-            if st == warehouse.OUTSIDE:
+            if st == zone_monitor.OUTSIDE:
                 came_from_outside.add(tid)
             elif tid not in came_from_outside:
                 born_inside.add(tid)

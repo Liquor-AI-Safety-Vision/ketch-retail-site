@@ -3,7 +3,7 @@
     python3 run_warehouse.py --room storage_1
 
 Reuses the shared perception stack unchanged (detector, embedder, tracker from
-stream_track / uae_tracker); only the business rules differ, which is the split
+stream_track / person_tracker); only the business rules differ, which is the split
 doc 02 section 3.1 asks for. Offline by design - this exists to judge tracking
 quality and the entry/exit logic, so every frame is processed and none dropped.
 """
@@ -25,8 +25,8 @@ import cv2
 import numpy as np
 
 from ai.src.perception import stream_track as S
-from ai.src.perception import warehouse
-from ai.src.perception.uae_tracker import Detection, Tracker
+from ai.src.perception import zone_monitor
+from ai.src.perception.person_tracker import Detection, Tracker
 
 warnings.filterwarnings("ignore", message=".*encountered in matmul",
                         category=RuntimeWarning)
@@ -48,9 +48,9 @@ def to_h264(path):
         print(f"! re-encode failed: {r.stderr.decode()[:200]}")
         return
     os.replace(tmp, path)
-STATE_COLOR = {warehouse.OUTSIDE: (170, 170, 170),
-               warehouse.PENDING_IN: (60, 200, 255),
-               warehouse.INSIDE: (70, 70, 255)}
+STATE_COLOR = {zone_monitor.OUTSIDE: (170, 170, 170),
+               zone_monitor.PENDING_IN: (60, 200, 255),
+               zone_monitor.INSIDE: (70, 70, 255)}
 
 
 def draw(img, items, poly, hud, cfg):
@@ -68,9 +68,9 @@ def draw(img, items, poly, hud, cfg):
         p1 = (int(ltrb[0]), int(ltrb[1]))
         cv2.rectangle(img, p1, (int(ltrb[2]), int(ltrb[3])), c, th)
         tag = f"ID{tid} {st}"
-        if st == warehouse.PENDING_IN:
+        if st == zone_monitor.PENDING_IN:
             tag += f" {streak}/{cfg.entry_frames}"
-        elif st == warehouse.INSIDE and streak:
+        elif st == zone_monitor.INSIDE and streak:
             tag += f" leaving {streak}/{cfg.exit_frames}"
         (tw, tht), _ = cv2.getTextSize(tag, cv2.FONT_HERSHEY_SIMPLEX, fs, th)
         cv2.rectangle(img, (p1[0], p1[1] - tht - 8), (p1[0] + tw + 8, p1[1]), c, -1)
@@ -100,7 +100,7 @@ def main():
                         "under waist-height occlusion")
     a = p.parse_args()
 
-    cfg = warehouse.Config(fps=a.fps, anchor=a.anchor)
+    cfg = zone_monitor.Config(fps=a.fps, anchor=a.anchor)
     if a.conf is not None:
         cfg.person_conf = a.conf
     S.MODEL, S.CONF = a.model, cfg.person_conf
@@ -121,7 +121,7 @@ def main():
 
     det, emb = S.Detector(), S.Embedder()
     tracker = Tracker(img_h=H, img_w=W, fps=cfg.fps)
-    mon = warehouse.ZoneMonitor(zone_norm, W, H, cfg)
+    mon = zone_monitor.ZoneMonitor(zone_norm, W, H, cfg)
 
     out_video = f"{HERE}/data/videos/{a.room}_warehouse.mp4"
     os.makedirs(f"{HERE}/ai/dev/outputs/{a.room}", exist_ok=True)
@@ -142,7 +142,7 @@ def main():
     # A confirmation window longer than the tracker's max age can never complete
     # for someone who leaves the camera's view, which is how people usually
     # leave a room. Say so rather than let ZONE_EXIT quietly go missing.
-    from ai.src.perception.uae_tracker import Config as TCfg
+    from ai.src.perception.person_tracker import Config as TCfg
     for label, age in (("max_age", TCfg.MAX_AGE_S),
                        ("near_border_max_age", TCfg.NEAR_BORDER_MAX_AGE_S)):
         if cfg.exit_confirmation_s > age:

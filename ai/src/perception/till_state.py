@@ -1,6 +1,6 @@
 """Counter camera: person tracking + staff/customer roles + cash-till state.
 
-    python3 run_counter.py --video videos/top-side-view.mp4
+    python3 till_state.py --video videos/top-side-view.mp4
 
 Two models on one frame. They share nothing except the pixels: the pose model
 feeds the tracker, the segmentation model reads the till. Keeping them apart is
@@ -22,7 +22,7 @@ import numpy as np
 
 from ai.src.perception import stream_track as S
 from ai.src.perception import zones
-from ai.src.perception.uae_tracker import Detection, Tracker
+from ai.src.perception.person_tracker import Detection, Tracker
 from ai.src.common.paths import model_path
 
 warnings.filterwarnings("ignore", message=".*encountered in matmul",

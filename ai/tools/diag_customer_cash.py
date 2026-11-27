@@ -26,9 +26,9 @@ import numpy as np
 
 from ai.src.perception import stream_track as S
 from ai.src.perception import zones
-from ai.src.perception.problem2_fsm import (
+from ai.src.perception.cash_concealment_fsm import (
     WRI_L, WRI_R, load_checkout_zones, torso_len)
-from ai.src.perception.uae_tracker import Detection, Tracker
+from ai.src.perception.person_tracker import Detection, Tracker
 
 
 def main():

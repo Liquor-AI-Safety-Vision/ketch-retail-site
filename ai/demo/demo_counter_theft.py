@@ -1,14 +1,14 @@
-"""Counter theft demo: same FSM as problem2_fsm.py, a cleaner render.
+"""Counter theft demo: same FSM as cash_concealment_fsm.py, a cleaner render.
 
     python3 demo_counter_theft.py --clip cvlp_h3_00043_ --side Left
     python3 demo_counter_theft.py --clip cvlp_h3_00013_ --side Right
 
-problem2_fsm.render() was built to show every internal signal at once (id,
+cash_concealment_fsm.render() was built to show every internal signal at once (id,
 role, state, active hand, reason codes) for debugging the FSM itself, and a
 6px full-frame border plus a 74px banner on every CONCEALED frame. That is
 the right view for tuning thresholds and the wrong one for a demo: a viewer
 should see "staff, ordinary" then "staff, THEFT SUSPECTED", not a state
-machine's internals scrolling past. This reuses problem2_fsm.run() for the
+machine's internals scrolling past. This reuses cash_concealment_fsm.run() for the
 FSM itself - untouched, so the two views can never disagree on when an
 alert fires - and only replaces render().
 """
@@ -24,7 +24,7 @@ import os
 import cv2
 import numpy as np
 
-from ai.src.perception import problem2_fsm as fsm
+from ai.src.perception import cash_concealment_fsm as fsm
 from ai.src.perception import zones
 
 HERE = str(_Path(__file__).resolve().parents[2])

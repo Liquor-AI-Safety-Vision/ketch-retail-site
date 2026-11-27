@@ -1,12 +1,9 @@
 """CUDA-free processes: turn perception into tracks, alerts, clips.
 
-One worker here can hold several cameras, each running the SAME pipeline
-class (CounterCashTheftPipeline / StorageIntrusionPipeline /
-TrackingBaselinePipeline) the current architecture already uses -- the
-split does not reimplement tracking, FSM, zone logic or alerting, it only
-changes where the boxes/features/till-detections those classes consume come
-from. Each camera keeps its own tracker, till registry, clip buffer and
-SQLite connection; nothing here changes that.
+One business process holds several cameras, one thread each. Per frame, a
+camera tracks people once (perception/camera_tracker.py) and hands the tracks
+to every pipeline bound to it (pipelines/base.py), so pipelines share one set
+of track ids and nobody is tracked twice.
 
 This tier is the last to touch a frame's pixels, and the one that releases
 the ring slot back to the free list -- after tracking and after any crop
@@ -18,7 +15,7 @@ Face identity is fire-and-forget from here. A camera's thread sends a
 FaceRequest (a small cropped patch, not a slot reference -- see
 inference_server.crop_face_patch) and moves on; the answer lands later on
 this same per-camera queue as a FaceAnswer, dispatched to
-pipeline.handle_face_answer() whenever it arrives, which is exactly what
+pipeline.on_face_answer() whenever it arrives, which is exactly what
 EntryFaceWindow.consider() was built to tolerate. Because of that, a
 camera's queue carries two message types and this tier discriminates by
 isinstance rather than needing two queues per camera.
@@ -32,7 +29,9 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-from ai.src.pipelines.registry import COUNTER_CASH_THEFT, FACE_TARGET_IDS, build_pipeline
+from ai.src.perception.camera_tracker import CameraTracker
+from ai.src.pipelines.base import FaceTarget, TrackedFrame
+from ai.src.pipelines.registry import build_pipeline
 from ai.src.runtime.frame_ring import FrameRing
 from ai.src.runtime.inference_server import FaceAnswer, FaceRequest, PerceptionResult, crop_face_patch
 
@@ -45,15 +44,6 @@ HEARTBEAT_S = 60.0
 CAMERA_SEEN_S = 30.0
 
 
-def _build_pipeline(spec, binding, alert_store, media_store, run_id, gallery_db_path):
-    """The one mapping, via the registry, so an unknown pipeline_id fails at
-    bootstrap instead of falling through to the tracking pipeline."""
-    return build_pipeline(
-        spec, binding, alert_store=alert_store, media_store=media_store,
-        run_id=run_id, gallery_db_path=gallery_db_path,
-        cpu_only=False, shared_inference=None)
-
-
 @dataclass
 class BusinessStats:
     camera_id: str
@@ -64,6 +54,8 @@ class BusinessStats:
     processing_started_at: float
     processing_ended_at: float
     pipeline_metrics: dict = field(default_factory=dict)
+    #: the camera's tracker: detections, tracks created, track lifetime
+    tracking_metrics: dict = field(default_factory=dict)
     target_fps: float = 0.0
     #: Decode -> business-done per frame, in ms: mean/p50/p95 over the most
     #: recent frames, max over the whole run.
@@ -71,10 +63,9 @@ class BusinessStats:
 
 
 class _CameraWorker:
-    """One camera's state, fed from PerceptionResult messages rather than
-    calling det/emb itself -- those live in the inference tier."""
+    """One camera: its tracker and its pipelines, fed from PerceptionResult messages."""
 
-    def __init__(self, spec, alert_store, media_store, gallery_db_path, face_q):
+    def __init__(self, spec, alert_store, media_store, face_q):
         self.spec = spec
         self.alert_store = alert_store
         self.media_store = media_store
@@ -83,9 +74,14 @@ class _CameraWorker:
             spec.camera_id, source_ref=spec.source_uri,
             metrics={"camera_type": spec.camera_type})
         self.handlers = [
-            _build_pipeline(spec, binding, alert_store, media_store, self.run_id, gallery_db_path)
+            build_pipeline(spec, binding, alert_store=alert_store, media_store=media_store,
+                           run_id=self.run_id)
             for binding in spec.pipeline_bindings if binding.enabled
         ]
+        # The smallest box any pipeline still wants, so none of them loses a
+        # person it would have tracked on its own.
+        self.tracking = CameraTracker(spec, min_box_h_frac=min(
+            (h.min_box_h_frac for h in self.handlers), default=0.0))
         self.frames_processed = 0
         self.alerts_emitted = 0
         self.events_emitted = 0
@@ -159,26 +155,20 @@ class _CameraWorker:
 
     def handle_perception(self, result: PerceptionResult, frame_bgr) -> None:
         frame = result.frame_meta.to_envelope(frame_bgr)
+        live, removed = self.tracking.update(
+            frame.frame_idx, frame_bgr.shape, result.boxes, result.kpts, result.feats)
+        tracked = TrackedFrame(frame=frame, live=live, removed=removed,
+                               till_detections=result.till_detections)
         for handler in self.handlers:
-            # Dispatching on the id here picks a call signature, not a class --
-            # counter takes till detections, storage returns face targets. The
-            # ids come from registry so this cannot drift from _build_pipeline,
-            # and an unregistered one has already failed at bootstrap.
-            if handler.binding.pipeline_id == COUNTER_CASH_THEFT:
-                out = handler.handle_perceived(frame, result.boxes, result.kpts, result.feats,
-                                               result.till_detections)
-            elif handler.binding.pipeline_id in FACE_TARGET_IDS:
-                out, face_targets = handler.handle_perceived(frame, result.boxes, result.kpts, result.feats)
-                for track_id, ltrb, store_id, company_id in face_targets:
-                    self._send_face_request(handler, track_id, ltrb, frame_bgr, store_id, company_id)
-            else:
-                out = handler.handle_perceived(frame, result.boxes, result.kpts, result.feats)
-            self.alerts_emitted += int(out.get("alerts_emitted", 0))
-            self.events_emitted += int(out.get("events_emitted", 0))
+            out = handler.on_frame(tracked)
+            for target in out.face_targets:
+                self._send_face_request(target, frame_bgr)
+            self.alerts_emitted += out.alerts_emitted
+            self.events_emitted += out.events_emitted
         self.frames_processed += 1
         self._record_latency(result.frame_meta)
 
-    def _send_face_request(self, handler, track_id, ltrb, frame_bgr, store_id, company_id) -> None:
+    def _send_face_request(self, target: FaceTarget, frame_bgr) -> None:
         if self.face_q is None:
             # The pipeline only produces face targets when its manifest turns
             # face identity on, so reaching here means the caller wired up a
@@ -190,16 +180,17 @@ class _CameraWorker:
                 f"{self.spec.camera_id} has face identity enabled and produced a face "
                 f"target, but no face queue was provided; this run would silently drop "
                 f"every identification")
-        patch, box_in_patch = crop_face_patch(frame_bgr, ltrb)
+        track_id = int(target.track_id)
+        patch, box_in_patch = crop_face_patch(frame_bgr, target.ltrb)
         self.face_q.put(FaceRequest(
-            camera_id=self.spec.camera_id, track_id=int(track_id), patch_bgr=patch,
-            person_box_xyxy=box_in_patch, store_id=store_id, company_id=company_id))
+            camera_id=self.spec.camera_id, track_id=track_id, patch_bgr=patch,
+            person_box_xyxy=box_in_patch, store_id=target.store_id,
+            company_id=target.company_id))
         self.pending_face_count[track_id] = self.pending_face_count.get(track_id, 0) + 1
 
     def handle_face_answer(self, answer: FaceAnswer) -> None:
         for handler in self.handlers:
-            if hasattr(handler, "handle_face_answer"):
-                handler.handle_face_answer(answer.track_id, answer.decision)
+            handler.on_face_answer(answer.track_id, answer.decision)
         remaining = self.pending_face_count.get(answer.track_id, 1) - 1
         if remaining <= 0:
             self.pending_face_count.pop(answer.track_id, None)
@@ -213,15 +204,11 @@ class _CameraWorker:
     def finish(self, started_at: float) -> BusinessStats:
         pipeline_metrics = {}
         for handler in self.handlers:
-            finalize = getattr(handler, "finalize", None)
-            if callable(finalize):
-                # finalize can emit alerts of its own -- a zone entry in the
-                # last second of a stream has an open face window when the
-                # frames run out. Those land after the last handle_perceived,
-                # so they have to be added here or the run's summary
-                # undercounts what is actually in the alert store.
-                self.alerts_emitted += int(finalize() or 0)
-            pipeline_metrics[handler.binding.pipeline_id] = getattr(handler, "metrics", {})
+            # finalize can raise alerts of its own -- a zone entry in the last
+            # second of a stream has an open face window when the frames run
+            # out -- so they count toward the run's total too.
+            self.alerts_emitted += int(handler.finalize() or 0)
+            pipeline_metrics[handler.binding.pipeline_id] = handler.metrics
         ended_at = time.time()
         self.alert_store.finish_run(self.run_id, status="completed", metrics={
             "status": "completed", "camera_id": self.spec.camera_id,
@@ -229,12 +216,14 @@ class _CameraWorker:
             "alerts_emitted": self.alerts_emitted, "events_emitted": self.events_emitted,
             "processing_started_at": started_at, "processing_ended_at": ended_at,
             "pipeline_metrics": pipeline_metrics,
+            "tracking_metrics": self.tracking.metrics,
         })
         return BusinessStats(
             camera_id=self.spec.camera_id, camera_type=self.spec.camera_type,
             frames_processed=self.frames_processed, alerts_emitted=self.alerts_emitted,
             events_emitted=self.events_emitted, processing_started_at=started_at,
             processing_ended_at=ended_at, pipeline_metrics=pipeline_metrics,
+            tracking_metrics=dict(self.tracking.metrics),
             target_fps=float(self.spec.target_fps), latency_ms=self.latency_summary())
 
 
@@ -274,7 +263,7 @@ def _recording_of(spec) -> dict | None:
 
 
 def run_business_process(shard: list, ring_specs: dict, free_qs: dict, business_qs: dict,
-                         db_path: str, media_root: str, gallery_db_path: str, face_q,
+                         db_path: str, media_root: str, face_q,
                          ready_q, go_evt, stats_q, storage_mode: str = "local-db") -> None:
     """Entry point for one business process: several cameras, each on its own thread.
 
@@ -291,13 +280,13 @@ def run_business_process(shard: list, ring_specs: dict, free_qs: dict, business_
 
     with tier_guard("business", ready_q, stats_q):
         _run_business_process(shard, ring_specs, free_qs, business_qs, db_path, media_root,
-                              gallery_db_path, face_q, ready_q, go_evt, stats_q,
+                              face_q, ready_q, go_evt, stats_q,
                               cap_native_threads, ThreadPoolExecutor,
                               LocalMediaStore, AlertOutbox, storage_mode)
 
 
 def _run_business_process(shard, ring_specs, free_qs, business_qs, db_path, media_root,
-                          gallery_db_path, face_q, ready_q, go_evt, stats_q,
+                          face_q, ready_q, go_evt, stats_q,
                           cap_native_threads, ThreadPoolExecutor,
                           LocalMediaStore, AlertOutbox, storage_mode="local-db") -> None:
     cap_native_threads(1)
@@ -330,8 +319,7 @@ def _run_business_process(shard, ring_specs, free_qs, business_qs, db_path, medi
             media_store = RecordingClipMediaStore(
                 media_store, clip_worker, playback_url=recording["playback_url"],
                 path=recording.get("path", spec.camera_id))
-        workers[spec.camera_id] = _CameraWorker(spec, alert_outbox, media_store,
-                                                gallery_db_path, face_q)
+        workers[spec.camera_id] = _CameraWorker(spec, alert_outbox, media_store, face_q)
 
     ready_q.put(("business", 1))
     go_evt.wait()

@@ -218,17 +218,32 @@ def _answer(score, face_box, person=None, top1=None):
         person=person, top1=top1 or person)
 
 
+def _step(pipeline, tracker, idx, top):
+    """One frame through the camera's tracker and the pipeline, as the business tier does."""
+    from ai.src.pipelines.base import TrackedFrame
+
+    frame = _frame(idx)
+    live, removed = tracker.update(idx, frame.image_bgr.shape, *_person(top))
+    return pipeline.on_frame(TrackedFrame(frame=frame, live=live, removed=removed)).face_targets
+
+
+def _tracker_for(pipeline):
+    from ai.src.perception.camera_tracker import CameraTracker
+
+    return CameraTracker(pipeline.spec, min_box_h_frac=pipeline.min_box_h_frac)
+
+
 def _walk_in(pipeline, answers_for):
     """A person walking from outside into the zone; answers_for(idx) gives
     the face answers returned for each face request on that frame."""
     requested = set()
+    tracker = _tracker_for(pipeline)
     for idx in range(45):
         top = min(40.0 * idx, 900.0)    # pelvis crosses y=720 around frame 11
-        _out, targets = pipeline.handle_perceived(_frame(idx), *_person(top))
-        for tid, *_ in targets:
-            requested.add(tid)
+        for target in _step(pipeline, tracker, idx, top):
+            requested.add(target.track_id)
             for answer in answers_for(idx):
-                pipeline.handle_face_answer(tid, answer)
+                pipeline.on_face_answer(target.track_id, answer)
     pipeline.finalize()
     return requested
 
@@ -277,10 +292,10 @@ def test_a_staff_match_at_the_entrance_is_never_a_shoplifter(tmp_path):
 
 def test_a_person_first_seen_inside_is_walking_out_and_gets_no_face_work(tmp_path):
     pipeline, store = _entrance(tmp_path)
+    tracker = _tracker_for(pipeline)
     for idx in range(30):
         top = max(900.0 - 40.0 * idx, 500.0)       # starts inside, moves up
-        _out, targets = pipeline.handle_perceived(_frame(idx), *_person(top))
-        assert targets == []
+        assert _step(pipeline, tracker, idx, top) == []
     assert store.alerts == []
 
 

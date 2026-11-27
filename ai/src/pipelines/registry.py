@@ -40,9 +40,8 @@ WHOLE_STORE_TRACKING = "whole_store_tracking_v1"
 ENTRANCE_FACE_CAPTURE = "entrance_face_capture_v1"
 
 INTRUSION_IDS = frozenset({STORAGE_INTRUSION, COLD_STORAGE_INTRUSION})
-#: Pipelines whose handle_perceived returns (result, face_targets) and that
-#: take answers back through handle_face_answer. The business tier dispatches
-#: on this and the driver starts a face tier for any camera bound to one.
+#: Pipelines that ask the face tier to identify people. The driver starts a
+#: face tier, and configures each camera's matching, for any camera bound to one.
 FACE_TARGET_IDS = INTRUSION_IDS | {ENTRANCE_FACE_CAPTURE}
 KNOWN_PIPELINE_IDS = frozenset(
     {COUNTER_CASH_THEFT, WHOLE_STORE_TRACKING} | FACE_TARGET_IDS
@@ -74,13 +73,10 @@ def build_pipeline(
     alert_store: Any,
     media_store: Any,
     run_id: str,
-    gallery_db_path: str | None = None,
-    cpu_only: bool = False,
-    shared_inference: Any = None,
 ):
-    """Build the pipeline a binding names. Both architectures come through here."""
-    # Imported inside the function: these modules pull in onnxruntime and the
-    # perception stack, and the registry is imported by callers that only want
+    """Build the pipeline a binding names."""
+    # Imported inside the function: these modules pull in the perception
+    # stack, and the registry is imported by callers that only want
     # KNOWN_PIPELINE_IDS.
     from ai.src.pipelines.counter_cash_theft import CounterCashTheftPipeline
     from ai.src.pipelines.entrance_face_capture import EntranceFaceCapturePipeline
@@ -90,17 +86,9 @@ def build_pipeline(
     pipeline_id = check_pipeline_id(binding.pipeline_id, camera_id=spec.camera_id)
 
     if pipeline_id == COUNTER_CASH_THEFT:
-        return CounterCashTheftPipeline(
-            spec, binding, alert_store, media_store, run_id,
-            cpu_only=cpu_only, shared_inference=shared_inference)
-
+        return CounterCashTheftPipeline(spec, binding, alert_store, media_store, run_id)
     if pipeline_id == ENTRANCE_FACE_CAPTURE:
         return EntranceFaceCapturePipeline(spec, binding, alert_store, media_store, run_id)
-
     if pipeline_id in INTRUSION_IDS:
-        return StorageIntrusionPipeline(
-            spec, binding, alert_store, media_store, run_id, gallery_db_path,
-            cpu_only=cpu_only, shared_inference=shared_inference)
-
-    return TrackingBaselinePipeline(
-        spec, binding, cpu_only=cpu_only, shared_inference=shared_inference)
+        return StorageIntrusionPipeline(spec, binding, alert_store, media_store, run_id)
+    return TrackingBaselinePipeline(spec, binding)

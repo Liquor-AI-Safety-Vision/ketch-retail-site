@@ -33,7 +33,7 @@ import cv2
 import numpy as np
 
 from ai.src.perception.stream_track import SKELETON, Detector, Embedder, color
-from ai.src.perception.uae_tracker import KPT_L_WRIST, KPT_R_WRIST, Config, Detection, Tracker
+from ai.src.perception.person_tracker import KPT_L_WRIST, KPT_R_WRIST, Config, Detection, Tracker
 
 warnings.filterwarnings("ignore", message=".*encountered in matmul",
                         category=RuntimeWarning)

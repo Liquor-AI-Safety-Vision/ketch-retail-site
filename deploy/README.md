@@ -1,6 +1,6 @@
 # Deploying on one server
 
-One GPU machine runs everything: the AI service, the Go API, the dashboard and
+One GPU machine (one or several GPUs) runs everything: the AI service, the Go API, the dashboard and
 the camera gateway. Supervisor keeps them up (no Docker needed, so this also
 works inside an unprivileged container such as a vast.ai instance).
 
