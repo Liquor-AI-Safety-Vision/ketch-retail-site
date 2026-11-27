@@ -145,7 +145,9 @@ CREATE INDEX IF NOT EXISTS idx_persons_company
 -- up to date. Idempotent, and run on every pipeline start like the rest.
 ALTER TABLE owners ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active';
 ALTER TABLE owner_stores ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'owner';
+ALTER TABLE alerts ADD COLUMN IF NOT EXISTS reviewed_by TEXT REFERENCES owners(owner_id);
 ALTER TABLE alerts ADD COLUMN IF NOT EXISTS reviewed_at TEXT;
+ALTER TABLE alerts ADD COLUMN IF NOT EXISTS review_note TEXT;
 
 -- The dashboard lists a store's alerts newest first, optionally by status.
 -- opened_at is ISO-8601 UTC text written by ai/, so text order is time order.

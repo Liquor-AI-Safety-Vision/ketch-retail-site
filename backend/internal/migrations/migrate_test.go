@@ -77,6 +77,58 @@ func TestApplyBuildsOnTheAISchema(t *testing.T) {
 	}
 }
 
+// A database the AI service created with an older copy of its schema (the
+// shared Neon database was one: no review fields, no owner status/role)
+// keeps those tables -- CREATE TABLE IF NOT EXISTS does not touch them -- so
+// the schema's ALTERs must bring every column the API reads up to date.
+func TestApplyUpgradesAnOlderAISchema(t *testing.T) {
+	if os.Getenv("RUN_INTEGRATION_TESTS") != "1" {
+		t.Skip("set RUN_INTEGRATION_TESTS=1 with DATABASE_URL to run")
+	}
+	legacy, err := os.ReadFile(filepath.Join("testdata", "ai_schema_before_review_fields.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	conn, err := pgx.Connect(ctx, os.Getenv("DATABASE_URL"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close(context.Background())
+	schema := fmt.Sprintf("migold_%d", time.Now().UnixNano())
+	mustExec(t, ctx, conn, `CREATE SCHEMA `+schema)
+	t.Cleanup(func() { _, _ = conn.Exec(context.Background(), `DROP SCHEMA `+schema+` CASCADE`) })
+	mustExec(t, ctx, conn, `SET search_path TO `+schema)
+
+	mustExec(t, ctx, conn, string(legacy))
+	mustExec(t, ctx, conn, `INSERT INTO stores (store_id, display_name, timezone) VALUES ('store_a','A','Asia/Ho_Chi_Minh')`)
+	mustExec(t, ctx, conn, `INSERT INTO cameras (camera_id, store_id, display_name, camera_type, source_type, source_uri) VALUES ('cam_a','store_a','Counter','counter','rtsp','rtsp://redacted')`)
+	mustExec(t, ctx, conn, `INSERT INTO alerts (alert_id, store_id, camera_id, pipeline_type, event_type, severity, status, opened_at) VALUES ('alert_a','store_a','cam_a','storage_intrusion_v1','unknown_entry','warning','open','2026-09-18T01:43:27.729080+00:00')`)
+	mustExec(t, ctx, conn, `INSERT INTO owners (owner_id, display_name, email, password_hash, created_at, updated_at) VALUES ('owner_a','A','a@example.com','x','t','t')`)
+	mustExec(t, ctx, conn, `INSERT INTO owner_stores (owner_id, store_id, created_at) VALUES ('owner_a','store_a','t')`)
+
+	for i := 0; i < 2; i++ {
+		if _, err := Apply(ctx, conn); err != nil {
+			t.Fatalf("apply #%d over the older schema: %v", i+1, err)
+		}
+	}
+	var status, ownerStatus, role string
+	var reviewedBy, reviewedAt, reviewNote *string
+	if err := conn.QueryRow(ctx, `SELECT a.status, a.reviewed_by, a.reviewed_at, a.review_note, o.status, os.role
+FROM alerts a, owners o JOIN owner_stores os USING (owner_id) WHERE a.alert_id='alert_a'`).
+		Scan(&status, &reviewedBy, &reviewedAt, &reviewNote, &ownerStatus, &role); err != nil {
+		t.Fatalf("columns the API reads are missing after the upgrade: %v", err)
+	}
+	if status != "open" || reviewedBy != nil || reviewedAt != nil || reviewNote != nil || ownerStatus != "active" || role != "owner" {
+		t.Fatalf("upgrade changed or mis-defaulted existing rows: %s %v %v %v %s %s", status, reviewedBy, reviewedAt, reviewNote, ownerStatus, role)
+	}
+	mustExec(t, ctx, conn, `UPDATE alerts SET status='confirmed', reviewed_by='owner_a', reviewed_at='t', review_note='n' WHERE alert_id='alert_a'`)
+	if _, err := conn.Exec(ctx, `UPDATE alerts SET reviewed_by='owner_missing' WHERE alert_id='alert_a'`); err == nil {
+		t.Fatal("reviewed_by accepted an owner that does not exist")
+	}
+}
+
 func mustExec(t *testing.T, ctx context.Context, conn *pgx.Conn, sql string) {
 	t.Helper()
 	if _, err := conn.Exec(ctx, sql); err != nil {
