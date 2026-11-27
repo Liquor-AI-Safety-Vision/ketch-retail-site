@@ -1,0 +1,27 @@
+#!/bin/bash
+# Day-to-day control of the deployment (supervisor group "liquor").
+#   deploy/liquorctl start|stop|restart|status
+#   deploy/liquorctl mode test|production    switch MODE and restart
+#   deploy/liquorctl logs <mediamtx|api|web|ai>
+#   deploy/liquorctl owner <email> <name> <store_id,...>   (password from OWNER_PASSWORD)
+. "$(dirname "$0")/bin/common.sh"
+case "${1:-status}" in
+  start)   supervisorctl start liquor:* ;;
+  stop)    supervisorctl stop liquor:* ;;
+  restart) supervisorctl stop liquor:* && supervisorctl start liquor:* ;;
+  status)  supervisorctl status liquor:* ; echo "MODE=$MODE  web=$PUBLIC_URL" ;;
+  logs)    tail -n 100 -f "$DEPLOY/runtime/logs/${2:?mediamtx|api|web|ai}.log" ;;
+  mode)
+    new="${2:?test|production}"
+    [ "$new" = test ] || [ "$new" = production ] || { echo "mode is test or production" >&2; exit 1; }
+    if [ "$new" = production ] && [ ! -f "$DEPLOY/cameras.production.json" ]; then
+      echo "deploy/cameras.production.json is missing" >&2; exit 1
+    fi
+    sed -i.bak "s/^MODE=.*/MODE=$new/" "$DEPLOY/liquor.env" && rm -f "$DEPLOY/liquor.env.bak"
+    supervisorctl stop liquor:* && supervisorctl start liquor:*
+    echo "now MODE=$new" ;;
+  owner)
+    cd "$ROOT/backend"
+    "$DEPLOY/dist/liquor-create-owner" -email "${2:?email}" -name "${3:?name}" -stores "${4:?store_ids}" ;;
+  *) sed -n '2,8p' "$0"; exit 1 ;;
+esac

@@ -31,6 +31,10 @@
     },
     {
       "name": "notifications"
+    },
+    {
+      "name": "live",
+      "description": "Live camera view through MediaMTX HLS (LIVE_VIEW_MODE)."
     }
   ],
   "paths": {
@@ -1402,6 +1406,59 @@
           },
           "503": {
             "description": "PUBLIC_API_BASE_URL or R2_* not configured"
+          }
+        }
+      }
+    },
+    "/api/v1/stores/{storeId}/live-session": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/StoreId"
+        }
+      ],
+      "post": {
+        "tags": [
+          "live"
+        ],
+        "summary": "Start a live-view session for this store",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "description": "operator or higher. Sets the HttpOnly cookie liquor_live (Path=/live/, 30 min) and returns each active camera's HLS path. The browser then plays /live/<camera_id>/index.m3u8 through the reverse proxy.",
+        "responses": {
+          "201": {
+            "description": "mode (test | production), expiresInSeconds, streams {camera_id: path}"
+          },
+          "404": {
+            "description": "Store not found for this user"
+          },
+          "503": {
+            "description": "LIVE_VIEW_MODE is not set"
+          }
+        }
+      }
+    },
+    "/api/v1/live/authorize": {
+      "get": {
+        "tags": [
+          "live"
+        ],
+        "summary": "Reverse-proxy check for one /live/ request (forward_auth)",
+        "description": "Reads X-Forwarded-Uri (/live/<camera_id>/...) and the liquor_live cookie. 204 when the cookie's owner may view that camera of its store.",
+        "responses": {
+          "204": {
+            "description": "Allowed"
+          },
+          "401": {
+            "description": "No or invalid live cookie"
+          },
+          "403": {
+            "description": "Not this owner's camera, or not a camera path"
+          },
+          "503": {
+            "description": "Live view disabled"
           }
         }
       }

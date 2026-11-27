@@ -54,3 +54,9 @@ ai/docs/remote_support_setup.pdf
 # Private environment ZIP (all service credentials). Never commit.
 liquor-env.txt
 *.env.zip
+
+# deploy/: per-server settings, camera addresses, generated config, builds.
+deploy/liquor.env
+deploy/cameras.production.json
+deploy/runtime/
+deploy/dist/

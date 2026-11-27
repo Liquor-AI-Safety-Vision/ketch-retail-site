@@ -67,6 +67,76 @@ function ZoneOverlay({ zones }: { zones: CameraZone[] }) {
   );
 }
 
+function feedLabel(feed: CameraFeed | null, short: boolean) {
+  if (!feed) return short ? 'ACTIVE' : 'NO LIVE VIEW';
+  if (feed.kind !== 'hls') return short ? 'LOOP' : 'RECORDED LOOP';
+  // Test mode: MediaMTX is replaying the store's footage, analysed live by the AI.
+  if (feed.isRecording) return short ? 'TEST' : 'LIVE · TEST MODE (LOOPED FOOTAGE)';
+  return 'LIVE';
+}
+
+// Plays a feed: a plain file, or an HLS playlist -- natively where the
+// browser can (Safari), otherwise through hls.js, loaded only when needed.
+function FeedVideo({ feed, onSize, onError }: {
+  feed: CameraFeed;
+  onSize: (size: { width: number; height: number }) => void;
+  onError: (message: string | null) => void;
+}) {
+  const ref = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    const video = ref.current;
+    if (!video) return;
+    let destroyed = false;
+    let cleanup = () => {};
+    if (feed.kind === 'hls' && !video.canPlayType('application/vnd.apple.mpegurl')) {
+      void import('hls.js').then(({ default: Hls }) => {
+        if (destroyed) return;
+        if (!Hls.isSupported()) {
+          onError('This browser cannot play live video.');
+          return;
+        }
+        // No worker: the CSP allows scripts from this origin only, not blob: workers.
+        const hls = new Hls({ enableWorker: false, lowLatencyMode: true, liveSyncDurationCount: 2 });
+        hls.on(Hls.Events.ERROR, (_event, data) => {
+          if (!data.fatal) return;
+          if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+            onError('Live stream unavailable. Retrying…');
+            window.setTimeout(() => hls.startLoad(), 3000);
+          } else {
+            hls.recoverMediaError();
+          }
+        });
+        hls.on(Hls.Events.FRAG_LOADED, () => onError(null));
+        hls.loadSource(feed.videoUrl);
+        hls.attachMedia(video);
+        cleanup = () => hls.destroy();
+      });
+    } else {
+      video.src = feed.videoUrl;
+    }
+    return () => { destroyed = true; cleanup(); };
+  }, [feed.kind, feed.videoUrl, onError]);
+  return (
+    <Box
+      component="video"
+      ref={ref}
+      poster={feed.posterUrl ?? undefined}
+      autoPlay
+      muted
+      loop={feed.kind !== 'hls'}
+      playsInline
+      controls={false}
+      disablePictureInPicture
+      onLoadedMetadata={(event) => {
+        const { videoWidth, videoHeight } = event.currentTarget;
+        if (videoWidth && videoHeight) onSize({ width: videoWidth, height: videoHeight });
+      }}
+      onContextMenu={(event) => event.preventDefault()}
+      sx={{ display: 'block', width: '100%', height: '100%', objectFit: 'fill', bgcolor: '#000' }}
+    />
+  );
+}
+
 export function CamerasPage() {
   const restoredScrollRef = useRef(false);
   const { store, api } = useAuth();
@@ -138,6 +208,15 @@ export function CamerasPage() {
 
   const selectedFeed = useMemo(() => feeds.find(({ camera }) => camera.id === selectedFeedId) ?? null, [feeds, selectedFeedId]);
   const selectedFeedOnline = Boolean(selectedFeed?.camera.isActive);
+  // The frame's shape: from the feed when known (demo), else from the video
+  // once its first frame decodes (live HLS).
+  const [videoSize, setVideoSize] = useState<{ width: number; height: number } | null>(null);
+  const [playError, setPlayError] = useState<string | null>(null);
+  useEffect(() => { setVideoSize(null); setPlayError(null); }, [selectedFeedId]);
+  const frame = {
+    width: selectedFeed?.feed?.width ?? videoSize?.width ?? 16,
+    height: selectedFeed?.feed?.height ?? videoSize?.height ?? 9,
+  };
   const { data: selectedZones = [] } = useQuery({
     queryKey: ['zones', store?.id, selectedFeedId],
     queryFn: () => api.getZones(store!.id, selectedFeedId!),
@@ -268,7 +347,7 @@ export function CamerasPage() {
                     )}
                     <Box sx={{ position: 'absolute', top: 10, left: 10, display: 'flex', alignItems: 'center', gap: 0.6, bgcolor: 'rgba(9,11,12,.82)', color: online ? '#9BD2AC' : '#C6C9C7', px: 1, py: 0.45, borderRadius: 0.5, fontSize: 10, fontWeight: 750, letterSpacing: '.08em' }}>
                       <FiberManualRecordIcon sx={{ fontSize: 9 }} />
-                      {!online ? 'INACTIVE' : feed.feed?.isRecording ? 'LOOP' : feed.feed ? 'LIVE' : 'ACTIVE'}
+                      {!online ? 'INACTIVE' : feedLabel(feed.feed, true)}
                     </Box>
                     <Box sx={{ position: 'absolute', right: 10, bottom: 9, display: 'flex', alignItems: 'center', gap: 0.65, px: 0.8, py: 0.35, bgcolor: 'rgba(9,11,12,.78)', color: '#D5D8D6', fontSize: 10, fontFamily: 'monospace' }}>
                       <OpenInFullIcon sx={{ fontSize: 12 }} />
@@ -307,27 +386,17 @@ export function CamerasPage() {
                 <Box
                   sx={{
                     position: 'relative',
-                    aspectRatio: `${selectedFeed.feed.width ?? 16} / ${selectedFeed.feed.height ?? 9}`,
+                    aspectRatio: `${frame.width} / ${frame.height}`,
                     // Largest frame of the video's shape that fits the 16:9 stage.
-                    width: `min(100cqw, 100cqh * ${selectedFeed.feed.width ?? 16} / ${selectedFeed.feed.height ?? 9})`,
+                    width: `min(100cqw, 100cqh * ${frame.width} / ${frame.height})`,
                   }}
                 >
-                  <Box
-                    component="video"
-                    key={selectedFeed.camera.id}
-                    src={selectedFeed.feed.videoUrl}
-                    poster={selectedFeed.feed.posterUrl ?? undefined}
-                    autoPlay
-                    muted
-                    loop
-                    playsInline
-                    controls={false}
-                    disablePictureInPicture
-                    onContextMenu={(event) => event.preventDefault()}
-                    sx={{ display: 'block', width: '100%', height: '100%', objectFit: 'fill', bgcolor: '#000' }}
-                  />
+                  <FeedVideo key={selectedFeed.camera.id} feed={selectedFeed.feed} onSize={setVideoSize} onError={setPlayError} />
                   {showZones && selectedZones.length > 0 && <ZoneOverlay zones={selectedZones} />}
                 </Box>
+                {playError && (
+                  <Typography sx={{ position: 'absolute', bottom: 14, left: 18, right: 18, color: '#E6B3AE', fontSize: 13 }}>{playError}</Typography>
+                )}
               </Box>
             ) : (
               <Box sx={{ width: '100%', height: '100%', display: 'grid', placeItems: 'center', color: '#8A918F', textAlign: 'center', px: 3 }}>
@@ -344,7 +413,7 @@ export function CamerasPage() {
             )}
             <Box sx={{ position: 'absolute', inset: 0, pointerEvents: 'none', background: 'linear-gradient(180deg, rgba(0,0,0,.52), transparent 22%)' }} />
             <Box sx={{ position: 'absolute', top: 16, left: 18, display: 'flex', alignItems: 'center', gap: 0.8, color: selectedFeedOnline ? '#A8DAB7' : '#C6C9C7', fontSize: 11, fontWeight: 800, letterSpacing: '.12em' }}>
-              <FiberManualRecordIcon sx={{ fontSize: 10 }} /> {!selectedFeedOnline ? 'CAMERA INACTIVE' : selectedFeed.feed?.isRecording ? 'RECORDED LOOP' : selectedFeed.feed ? 'LIVE' : 'NO LIVE VIEW'}
+              <FiberManualRecordIcon sx={{ fontSize: 10 }} /> {!selectedFeedOnline ? 'CAMERA INACTIVE' : feedLabel(selectedFeed.feed, false)}
             </Box>
             <IconButton onClick={() => setSelectedFeedId(null)} aria-label="Close live view" sx={{ position: 'absolute', top: 9, right: 10, color: '#FFF', bgcolor: 'rgba(0,0,0,.5)', '&:hover': { bgcolor: 'rgba(0,0,0,.78)' } }}>
               <CloseIcon />

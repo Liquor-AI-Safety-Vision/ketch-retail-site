@@ -63,6 +63,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -133,13 +134,18 @@ def prepare_playlist(camera_id: str, playlist: list[tuple[Path, int]], work_dir:
     for idx, (video, repeat) in enumerate(playlist):
         norm = out_dir / f"part{idx}_{video.stem}_{width}x{height}.mp4"
         if not norm.exists():
+            # Encoded under a temporary name and renamed when complete: a run
+            # killed midway must not leave a truncated file that the next run
+            # would take for a finished one.
+            partial = norm.with_name(norm.stem + f".partial-{os.getpid()}.mp4")
             subprocess.run(
                 ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(video),
                  "-an", "-vf", f"scale={width}:{height},fps={rate}",
                  "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
                  "-pix_fmt", "yuv420p", "-profile:v", "high", "-bf", "0",
                  "-g", "30", "-keyint_min", "30", "-sc_threshold", "0",
-                 "-video_track_timescale", "90000", str(norm)], check=True)
+                 "-video_track_timescale", "90000", str(partial)], check=True)
+            os.replace(partial, norm)
         lines += [f"file '{norm}'"] * repeat
     concat = out_dir / "cycle.txt"
     concat.write_text("\n".join(lines) + "\n")

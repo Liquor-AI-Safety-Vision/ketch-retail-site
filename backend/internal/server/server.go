@@ -23,6 +23,7 @@ type Server struct {
 	log    *slog.Logger
 	limits *rateLimitStore
 	review *notifications.SecureReviewService
+	live   liveDecisionCache
 }
 
 type principal struct {
@@ -108,6 +109,10 @@ func (s *Server) Handler() http.Handler {
 	s.protected(mux, "DELETE /api/v1/stores/{storeId}/notification-rules/{ruleId}/channels/{channelId}", s.removeNotificationRuleChannel)
 	s.protected(mux, "GET /api/v1/stores/{storeId}/notification-deliveries", s.listNotificationDeliveries)
 	s.protected(mux, "GET /api/v1/stores/{storeId}/notification-deliveries/{deliveryId}", s.findNotificationDelivery)
+
+	// Live view (live.go): a cookie for /live/, and the reverse proxy's check.
+	s.protected(mux, "POST /api/v1/stores/{storeId}/live-session", s.createLiveSession)
+	mux.HandleFunc("GET /api/v1/live/authorize", s.authorizeLive)
 
 	return s.recoverer(s.securityHeaders(s.cors(s.requestLog(mux))))
 }

@@ -80,3 +80,30 @@ func TestTrustedProxyCIDRConfiguration(t *testing.T) {
 		}
 	}
 }
+
+// In production every public origin must be HTTPS, except loopback: that is
+// only reachable through an SSH tunnel, and browsers treat it as secure.
+func TestProductionOriginsMustBeHTTPSExceptLoopback(t *testing.T) {
+	setMinimumTestEnvironment(t)
+	t.Setenv("NODE_ENV", "production")
+	t.Setenv("JWT_ACCESS_SECRET", "production-test-secret-0123456789abcdef0123")
+	for origin, ok := range map[string]bool{
+		"https://dashboard.example.com": true,
+		"http://localhost:18000":        true,
+		"http://127.0.0.1:18000":        true,
+		"http://[::1]:18000":            true,
+		"http://dashboard.example.com":  false,
+		"http://89.121.253.244:20565":   false,
+		"http://localhost.example.com":  false,
+	} {
+		t.Setenv("WEB_ORIGIN", origin)
+		t.Setenv("PUBLIC_API_BASE_URL", origin)
+		_, err := Load()
+		if ok && err != nil {
+			t.Errorf("%s rejected: %v", origin, err)
+		}
+		if !ok && (err == nil || !strings.Contains(err.Error(), "HTTPS")) {
+			t.Errorf("%s accepted in production: %v", origin, err)
+		}
+	}
+}

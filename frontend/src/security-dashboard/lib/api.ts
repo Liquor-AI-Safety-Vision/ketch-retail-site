@@ -1,4 +1,4 @@
-import type { AlertAction, AlertActionResult, AlertDetail, AlertFilters, AlertPage, AuthSession, Camera, CameraFeed, CameraZone, PlaybackUrl, Store } from './types';
+import type { AlertAction, AlertActionResult, AlertDetail, AlertFilters, AlertPage, AuthSession, Camera, CameraFeed, CameraZone, LiveSession, PlaybackUrl, Store } from './types';
 
 const baseUrl = (import.meta.env?.VITE_API_BASE_URL ?? '/api/v1').replace(/\/$/, '');
 
@@ -45,6 +45,7 @@ class ApiClient implements DashboardApi {
       await this.rawRequest<{ success: boolean }>('/auth/logout', { method: 'POST' });
     } finally {
       this.accessToken = null;
+      this.liveSessions.clear();
     }
   }
 
@@ -86,10 +87,30 @@ class ApiClient implements DashboardApi {
     });
   }
 
-  // Live view (MediaMTX WebRTC/HLS) is not wired yet; until it is, the
-  // signed-in dashboard has no playable camera view and says so.
-  async getCameraFeed(): Promise<CameraFeed | null> {
-    return null;
+  // Live view: one session per store sets a cookie scoped to /live/, which the
+  // reverse proxy checks with the API on every HLS request. A store whose
+  // server has no live view (503) has no playable feed.
+  private liveSessions = new Map<string, { session: Promise<LiveSession | null>; until: number }>();
+
+  private liveSession(storeId: string) {
+    const cached = this.liveSessions.get(storeId);
+    if (cached && cached.until > Date.now()) return cached.session;
+    const session = this.request<LiveSession>(`/stores/${encodeURIComponent(storeId)}/live-session`, { method: 'POST', body: {} })
+      .catch((error: unknown) => {
+        if (error instanceof ApiError && error.status === 503) return null;
+        this.liveSessions.delete(storeId);
+        throw error;
+      });
+    // Renewed a few minutes before the cookie expires.
+    this.liveSessions.set(storeId, { session, until: Date.now() + 25 * 60_000 });
+    return session;
+  }
+
+  async getCameraFeed(storeId: string, cameraId: string): Promise<CameraFeed | null> {
+    const session = await this.liveSession(storeId);
+    const path = session?.streams[cameraId];
+    if (!session || !path) return null;
+    return { videoUrl: path, posterUrl: null, isRecording: session.mode === 'test', kind: 'hls' };
   }
 
   private async request<T>(path: string, options: RequestOptions = {}, retry = true): Promise<T> {

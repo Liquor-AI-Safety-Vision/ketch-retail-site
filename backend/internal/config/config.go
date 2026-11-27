@@ -48,6 +48,9 @@ type Config struct {
 	R2                         notifications.R2Config
 	WhatsAppWebhookVerifyToken string
 	WhatsAppAppSecret          string
+	// "" disables live view; "test" (MediaMTX replays the store's footage) or
+	// "production" (it relays the real cameras). See internal/server/live.go.
+	LiveViewMode string
 }
 
 func Load() (Config, error) {
@@ -137,6 +140,10 @@ func Load() (Config, error) {
 		},
 		WhatsAppWebhookVerifyToken: strings.TrimSpace(os.Getenv("WHATSAPP_WEBHOOK_VERIFY_TOKEN")),
 		WhatsAppAppSecret:          strings.TrimSpace(os.Getenv("WHATSAPP_APP_SECRET")),
+		LiveViewMode:               strings.TrimSpace(os.Getenv("LIVE_VIEW_MODE")),
+	}
+	if cfg.LiveViewMode != "" && cfg.LiveViewMode != "test" && cfg.LiveViewMode != "production" {
+		return Config{}, errors.New("LIVE_VIEW_MODE must be empty, test or production")
 	}
 	if cfg.DatabaseURL == "" {
 		return Config{}, errors.New("DATABASE_URL is required")
@@ -175,7 +182,10 @@ func Load() (Config, error) {
 		if parseErr != nil || parsed.Host == "" || (parsed.Scheme != "https" && parsed.Scheme != "http") || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
 			return Config{}, fmt.Errorf("%s must be an absolute HTTP(S) origin without credentials, query, or fragment", name)
 		}
-		if cfg.Environment == "production" && parsed.Scheme != "https" {
+		// Loopback is exempt: browsers treat http://localhost as a secure
+		// context (Secure cookies work), and it is only reachable through an
+		// SSH tunnel to the server.
+		if cfg.Environment == "production" && parsed.Scheme != "https" && !isLoopbackHost(parsed.Hostname()) {
 			return Config{}, fmt.Errorf("%s must use HTTPS in production", name)
 		}
 	}
@@ -217,4 +227,12 @@ func positiveDuration(name, fallback string) (time.Duration, error) {
 		return 0, fmt.Errorf("%s must be a positive Go duration", name)
 	}
 	return parsed, nil
+}
+
+func isLoopbackHost(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	addr, err := netip.ParseAddr(host)
+	return err == nil && addr.IsLoopback()
 }

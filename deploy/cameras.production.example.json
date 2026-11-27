@@ -1,0 +1,5 @@
+{
+  "_comment": "Copy to cameras.production.json (ignored by git). One entry per camera_id of the store manifest. transcode: omit for H.264 cameras; \"nvenc\" or \"cpu\" re-encodes HEVC cameras to H.264 once, for recording and browser playback.",
+  "st01_counter": {"url": "rtsp://user:password@192.168.1.10:554/cam/realmonitor?channel=1&subtype=0"},
+  "st01_storage": {"url": "rtsp://user:password@192.168.1.10:554/cam/realmonitor?channel=2&subtype=0", "transcode": "nvenc"}
+}

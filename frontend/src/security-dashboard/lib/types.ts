@@ -145,7 +145,15 @@ export interface CameraFeed {
   posterUrl: string | null;
   /** true for footage that loops (public demo, test mode), false for live. */
   isRecording: boolean;
+  /** 'hls' for a live stream (videoUrl is an .m3u8 playlist), else a plain file. */
+  kind?: 'file' | 'hls';
   /** Frame size, when known, so zone overlays line up with the picture. */
   width?: number;
   height?: number;
+}
+
+export interface LiveSession {
+  mode: 'test' | 'production';
+  expiresInSeconds: number;
+  streams: Record<string, string>;
 }
